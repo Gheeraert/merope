@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from bloggen.tei.postprocess import postprocess_tei_xml
+from bloggen.tei.postprocess import postprocess_tei_xml, rewrite_graphic_urls_in_tei_xml
 from bloggen.tei.validator import validate_tei_xml
 
 
@@ -24,3 +24,13 @@ def test_validate_xml_failure_on_invalid_xml():
     result = validate_tei_xml(invalid_xml)
     assert result.valid is False
     assert result.errors
+
+
+def test_rewrite_graphic_urls_in_tei_xml():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><figure><graphic url=\"media/a.jpg\"/></figure></body></text>"
+        "</TEI>"
+    )
+    rewritten = rewrite_graphic_urls_in_tei_xml(raw, {"media/a.jpg": "../../content-media/post/a.jpg"})
+    assert "../../content-media/post/a.jpg" in rewritten

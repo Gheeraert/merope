@@ -252,7 +252,9 @@ class MainWindow(tk.Tk):
             return
 
         details = format_build_report(report)
-        if report.success:
+        if report.success and report.warnings:
+            messagebox.showwarning("Génération terminée (avec avertissements)", details)
+        elif report.success:
             messagebox.showinfo("Génération terminée", details)
         else:
             messagebox.showerror("Génération échouée", details)

@@ -42,6 +42,63 @@ def postprocess_tei_file(
     return processed
 
 
+def rewrite_graphic_urls_in_tei_xml(tei_xml: str, replacements: dict[str, str]) -> str:
+    if not replacements:
+        return tei_xml
+
+    try:
+        root = ET.fromstring(tei_xml)
+    except ET.ParseError as exc:
+        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+
+    changed = False
+    for element in root.iter():
+        if _local_name(element.tag) != "graphic":
+            continue
+        current = (element.get("url") or "").strip()
+        if not current:
+            continue
+        replacement = _find_replacement(current, replacements)
+        if replacement is None:
+            continue
+        element.set("url", replacement)
+        changed = True
+
+    if not changed:
+        return tei_xml
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    return ET.tostring(root, encoding="unicode") + "\n"
+
+
+def rewrite_graphic_urls_in_tei_file(tei_path: Path, replacements: dict[str, str]) -> bool:
+    if not replacements:
+        return False
+
+    source = Path(tei_path)
+    original = source.read_text(encoding="utf-8")
+    rewritten = rewrite_graphic_urls_in_tei_xml(original, replacements)
+    if rewritten == original:
+        return False
+
+    source.write_text(rewritten, encoding="utf-8")
+    return True
+
+
+def _find_replacement(current: str, replacements: dict[str, str]) -> str | None:
+    variants = {
+        current,
+        current.strip("<>").strip(),
+        current.replace("\\", "/"),
+        current.strip("<>").strip().replace("\\", "/"),
+    }
+    for candidate in variants:
+        if candidate in replacements:
+            return replacements[candidate]
+    return None
+
+
 def _local_name(tag: str) -> str:
     if tag.startswith("{") and "}" in tag:
         return tag.split("}", maxsplit=1)[1]

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bloggen.config.models import ProjectConfig
+from bloggen.content.assets import LinkedAssetReference, collect_linked_assets
 from bloggen.content.metadata import ContentMetadata, build_content_metadata
 from bloggen.content.slugify import ensure_unique_slug
 from bloggen.markdown.front_matter import parse_front_matter
@@ -20,6 +21,7 @@ class ContentItem:
     front_matter: dict[str, str]
     raw_markdown: str
     normalized_markdown: str
+    linked_assets: list[LinkedAssetReference] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -37,26 +39,30 @@ def load_content(project_root: Path, config: ProjectConfig) -> LoadedContent:
     used_slugs: set[str] = set()
 
     if pages_dir.exists():
-        result.pages = _load_items_from_dir(
+        result.pages, page_warnings = _load_items_from_dir(
             pages_dir,
+            project_root=project_root,
             kind="page",
             default_layout=config.content.default_page_layout,
             slug_mode=config.content.slugify_mode,
             markdown_origin=config.content.markdown_origin,
             used_slugs=used_slugs,
         )
+        result.warnings.extend(page_warnings)
     else:
         result.warnings.append(f"Dossier pages introuvable: {pages_dir}")
 
     if posts_dir.exists():
-        result.posts = _load_items_from_dir(
+        result.posts, post_warnings = _load_items_from_dir(
             posts_dir,
+            project_root=project_root,
             kind="post",
             default_layout=config.content.default_post_layout,
             slug_mode=config.content.slugify_mode,
             markdown_origin=config.content.markdown_origin,
             used_slugs=used_slugs,
         )
+        result.warnings.extend(post_warnings)
     else:
         result.warnings.append(f"Dossier billets introuvable: {posts_dir}")
 
@@ -66,13 +72,16 @@ def load_content(project_root: Path, config: ProjectConfig) -> LoadedContent:
 def _load_items_from_dir(
     directory: Path,
     *,
+    project_root: Path,
     kind: str,
     default_layout: str,
     slug_mode: str,
     markdown_origin: str,
     used_slugs: set[str],
-) -> list[ContentItem]:
+) -> tuple[list[ContentItem], list[str]]:
     items: list[ContentItem] = []
+    warnings: list[str] = []
+
     for path in sorted(directory.rglob("*.md")):
         raw_markdown = path.read_text(encoding="utf-8")
         parsed = parse_front_matter(raw_markdown)
@@ -89,6 +98,15 @@ def _load_items_from_dir(
             slug_mode=slug_mode,
         )
         metadata.slug = ensure_unique_slug(metadata.slug, used_slugs)
+
+        linked_assets = collect_linked_assets(path, normalized, project_root=project_root)
+        for linked in linked_assets:
+            if linked.exists:
+                continue
+            warnings.append(
+                f"Image ou média introuvable pour {path}: '{linked.target}' -> {linked.resolved_path}"
+            )
+
         items.append(
             ContentItem(
                 source_path=path,
@@ -97,6 +115,8 @@ def _load_items_from_dir(
                 front_matter=parsed.metadata,
                 raw_markdown=raw_markdown,
                 normalized_markdown=normalized,
+                linked_assets=linked_assets,
             )
         )
-    return items
+
+    return items, warnings

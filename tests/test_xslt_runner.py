@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import uuid
+import re
 
 import pytest
 
@@ -48,6 +49,21 @@ def test_transform_inline_styles():
     assert '<span class="smallcaps">s</span>' in html
 
 
+def test_transform_inline_styles_with_pandoc_rendition_attributes():
+    tei = _tei_body(
+        "<p><hi rendition='simple:italic'>italique</hi> et <hi rendition='simple:bold'>gras</hi></p>"
+    )
+    html = render_tei_xml_to_html_fragment(tei)
+    assert "<em>italique</em>" in html
+    assert "<strong>gras</strong>" in html
+
+
+def test_transform_inline_styles_with_combined_rendition():
+    tei = _tei_body("<p><hi rendition='simple:bold simple:italic'>mixte</hi></p>")
+    html = render_tei_xml_to_html_fragment(tei)
+    assert "<strong><em>mixte</em></strong>" in html
+
+
 def test_transform_ref_to_link():
     tei = _tei_body("<p><ref target='https://example.org'>Lien</ref></p>")
     html = render_tei_xml_to_html_fragment(tei)
@@ -82,17 +98,39 @@ def test_transform_note_call_and_endnotes_block():
     assert 'class="note-call"' in html
     assert 'href="#note-1"' in html
     assert '<section class="endnotes" id="endnotes">' in html
-    assert '<li id="note-1">Note test</li>' in html
+    assert '<li id="note-1" data-note-number="1">' in html
+    assert 'class="note-backref" href="#note-call-1"' in html
 
 
 def test_transform_image_simple():
     tei = _tei_body(
         "<figure><head>Légende image</head><graphic url='assets/image.jpg'/></figure>"
     )
-    html = render_tei_xml_to_html_fragment(tei)
+    html = render_tei_xml_to_html_fragment(tei, parameters={"article_slug": "demo"})
     assert '<figure class="article-figure">' in html
+    assert 'class="figure-image-link"' in html
+    assert 'data-article-group="article-demo"' in html
     assert '<img src="assets/image.jpg" alt="Légende image">' in html
     assert "<figcaption>Légende image</figcaption>" in html
+
+
+def test_transform_pandoc_like_figure_without_paragraph_wrapper_or_caption_duplicate():
+    tei = Path("fixtures/pandoc_realistic/pandoc_like_output.tei").read_text(encoding="utf-8")
+    html = render_tei_xml_to_html_fragment(tei, parameters={"article_slug": "demo"})
+
+    assert "<em>italique</em>" in html
+    assert "<strong>gras</strong>" in html
+    assert "<figure" in html
+    assert "<figcaption>Une image</figcaption>" in html
+    assert re.search(r"<p>\s*<figure", html) is None
+    assert "<p>Une image</p>" not in html
+
+
+def test_transform_image_without_clickable_link():
+    tei = _tei_body("<figure><graphic url='assets/image.jpg'/></figure>")
+    html = render_tei_xml_to_html_fragment(tei, parameters={"clickable_figures": False})
+    assert '<img src="assets/image.jpg" alt="Illustration">' in html
+    assert "figure-image-link" not in html
 
 
 def test_transform_table_simple():
@@ -100,7 +138,7 @@ def test_transform_table_simple():
         "<table><row><cell>A</cell><cell>B</cell></row><row><cell>1</cell><cell>2</cell></row></table>"
     )
     html = render_tei_xml_to_html_fragment(tei)
-    assert "<table>" in html
+    assert '<table class="tei-table">' in html
     assert "<tr>" in html
     assert "<td>A</td>" in html
     assert "<td>2</td>" in html
