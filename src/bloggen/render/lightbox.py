@@ -1,1 +1,1 @@
-# TODO: implement lightbox
+﻿"""Reserved for a future development pass."""

@@ -6,6 +6,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from bloggen.build.reports import format_build_report
+from bloggen.build.site_builder import build_site
 from bloggen.config.defaults import build_default_config
 from bloggen.config.io import ConfigValidationError, load_config, save_config
 from bloggen.config.models import (
@@ -185,7 +187,7 @@ class MainWindow(tk.Tk):
         file_menu.add_command(label="Quitter", command=self.destroy)
 
         actions_menu = tk.Menu(menu, tearoff=False)
-        actions_menu.add_command(label="Générer le site", command=self.stub_generate)
+        actions_menu.add_command(label="Générer le site", command=self.generate_site)
         actions_menu.add_command(label="Ouvrir dossier de sortie", command=self.stub_open_output)
 
         menu.add_cascade(label="Fichier", menu=file_menu)
@@ -238,11 +240,22 @@ class MainWindow(tk.Tk):
         self._set_path_label()
         messagebox.showinfo("Configuration", "Configuration enregistrée.")
 
-    def stub_generate(self) -> None:
-        messagebox.showinfo(
-            "Stub V1",
-            "La génération de site n'est pas implémentée dans cette passe.",
-        )
+    def generate_site(self) -> None:
+        try:
+            config = self._collect_from_form()
+            errors = validate_config_model(config)
+            if errors:
+                raise ConfigValidationError(errors)
+            report = build_site(config, config_path=self.current_config_path)
+        except (ConfigValidationError, OSError, ValueError) as exc:
+            messagebox.showerror("Erreur de génération", str(exc))
+            return
+
+        details = format_build_report(report)
+        if report.success:
+            messagebox.showinfo("Génération terminée", details)
+        else:
+            messagebox.showerror("Génération échouée", details)
 
     def stub_open_output(self) -> None:
         messagebox.showinfo(

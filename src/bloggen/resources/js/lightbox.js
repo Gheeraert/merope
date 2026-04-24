@@ -1,1 +1,3 @@
-// TODO: Fancybox/lightbox bootstrap
+﻿(function () {
+  // Lightbox integration intentionally deferred to a later pass.
+})();

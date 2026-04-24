@@ -1,1 +1,1 @@
-# TODO: implement notes
+﻿"""Reserved for a future development pass."""

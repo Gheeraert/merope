@@ -1,1 +1,3 @@
-// TODO: app bootstrap
+﻿(function () {
+  // Reserved for progressive enhancement hooks.
+})();
