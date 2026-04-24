@@ -24,6 +24,8 @@ def render_page_document(
     content_html: str,
     current_path: str,
     asset_prefix: str,
+    article_date: str | None = None,
+    suppress_fragment_meta: bool = False,
 ) -> str:
     banner_html = _render_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
@@ -40,6 +42,12 @@ def render_page_document(
     if config.render.enable_lightbox:
         scripts.append(f'    <script src="{escape(lightbox_js_src)}"></script>')
 
+    normalized_content = content_html
+    if suppress_fragment_meta:
+        normalized_content = _strip_fragment_article_meta(normalized_content)
+    if article_date:
+        normalized_content = _inject_article_date(normalized_content, article_date)
+
     return (
         "<!doctype html>\n"
         f"<html lang=\"{escape(config.site.language)}\">\n"
@@ -55,7 +63,7 @@ def render_page_document(
         f"    <div class=\"page-layout {side_class}\">\n"
         f"      {side_menu_html}\n"
         "      <main class=\"main-content article-content\">\n"
-        f"        {content_html}\n"
+        f"        {normalized_content}\n"
         "      </main>\n"
         "    </div>\n"
         f"    {footer_html}\n"
@@ -160,3 +168,31 @@ def _asset_url(path: str, *, asset_prefix: str) -> str:
         return normalized
 
     return str(PurePosixPath(prefix) / normalized)
+
+
+def _strip_fragment_article_meta(content_html: str) -> str:
+    return re.sub(
+        r'<header class="article-header">.*?</header>\s*',
+        "",
+        content_html,
+        count=1,
+        flags=re.DOTALL,
+    )
+
+
+def _inject_article_date(content_html: str, article_date: str) -> str:
+    date_value = article_date.strip()
+    if not date_value:
+        return content_html
+    escaped_date = escape(date_value)
+    meta_html = (
+        '<header class="article-header article-header--metadata">'
+        '<p class="article-meta">'
+        f'<time datetime="{escaped_date}">{escaped_date}</time>'
+        "</p>"
+        "</header>"
+    )
+    article_open = re.compile(r"(<article\b[^>]*>)", flags=re.IGNORECASE)
+    if article_open.search(content_html):
+        return article_open.sub(rf"\1{meta_html}", content_html, count=1)
+    return f"{meta_html}{content_html}"

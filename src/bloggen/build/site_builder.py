@@ -283,12 +283,18 @@ def _build_single_item(
             f"marges ({notes_result.margin_notes_count})."
         )
 
+    article_date = (item.metadata.date or "").strip() or None
+    if item.kind != "post":
+        article_date = None
+
     html_document = render_page_document(
         config=config,
         title=item.metadata.title,
         content_html=fragment,
         current_path=url,
         asset_prefix=_relative_path(html_path.parent, output_root),
+        article_date=article_date,
+        suppress_fragment_meta=(item.kind == "post"),
     )
     html_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_text(html_document, encoding="utf-8")

@@ -100,6 +100,7 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert "data-lightbox-group" in post_html
     assert "endnotes" in post_html
     assert "margin-notes" in post_html
+    assert '<p class="article-meta"><time datetime="2026-04-23">2026-04-23</time></p>' in post_html
     assert "top-nav" in post_html
     assert "side-nav" in post_html
     assert "article-content" in post_html
@@ -113,6 +114,7 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert 'href="/billets/premier-billet/index.html"' not in archive_html
     assert "archive-date" in archive_html
     assert "article-content" in home_html
+    assert '<p class="article-meta">' not in home_html
     assert 'href="/' not in index_html
     assert 'href="/' not in archive_html
 
