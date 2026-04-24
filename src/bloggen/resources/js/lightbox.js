@@ -18,6 +18,7 @@
     index: 0,
   };
 
+  var previouslyFocused = null;
   var overlay = document.createElement("div");
   overlay.className = "lightbox-overlay";
   overlay.setAttribute("hidden", "hidden");
@@ -31,22 +32,29 @@
     "</div>";
   document.body.appendChild(overlay);
 
+  var panel = overlay.querySelector(".lightbox-panel");
   var imageNode = overlay.querySelector(".lightbox-image");
   var captionNode = overlay.querySelector(".lightbox-caption");
+  var closeButton = overlay.querySelector(".lightbox-close");
   var prevButton = overlay.querySelector(".lightbox-prev");
   var nextButton = overlay.querySelector(".lightbox-next");
 
   function openLightbox(group, index) {
+    previouslyFocused = document.activeElement;
     state.group = group;
     state.index = index;
     renderCurrent();
     overlay.removeAttribute("hidden");
     document.body.classList.add("lightbox-open");
+    closeButton.focus();
   }
 
   function closeLightbox() {
     overlay.setAttribute("hidden", "hidden");
     document.body.classList.remove("lightbox-open");
+    if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+      previouslyFocused.focus();
+    }
   }
 
   function renderCurrent() {
@@ -106,12 +114,36 @@
     if (overlay.hasAttribute("hidden")) {
       return;
     }
+
     if (event.key === "Escape") {
       closeLightbox();
-    } else if (event.key === "ArrowLeft") {
+      return;
+    }
+
+    if (event.key === "ArrowLeft") {
       move(-1);
-    } else if (event.key === "ArrowRight") {
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
       move(1);
+      return;
+    }
+
+    if (event.key === "Tab") {
+      var focusable = panel.querySelectorAll("button:not([hidden])");
+      if (!focusable.length) {
+        return;
+      }
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
   });
 })();

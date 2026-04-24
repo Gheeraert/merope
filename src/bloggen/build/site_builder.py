@@ -331,7 +331,7 @@ def _generate_home_page(
 
     if config.home.show_recent_posts and posts:
         recent_count = max(config.home.recent_posts_count, 0)
-        links = [(post.title, post.url) for post in posts[:recent_count]]
+        links = [(post.title, post.url, post.date) for post in posts[:recent_count]]
         recent_html = render_archive_fragment("Billets récents", links, current_path="/index.html")
         content = f"{content}\n{recent_html}"
 
@@ -358,7 +358,7 @@ def _generate_archive_page(
         return
 
     archive_path = config.blog.archive_path.strip("/") or "billets"
-    archive_links = [(item.title, item.url) for item in posts]
+    archive_links = [(item.title, item.url, item.date) for item in posts]
     archive_fragment = render_archive_fragment(
         config.blog.archive_title,
         archive_links,

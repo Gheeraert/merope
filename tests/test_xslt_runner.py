@@ -28,7 +28,20 @@ def _tei_body(inner: str) -> str:
 def test_transform_simple_paragraph():
     tei = _tei_body("<p>Bonjour</p>")
     html = render_tei_xml_to_html_fragment(tei)
+    assert 'class="tei-fragment article-main"' in html
     assert "<p>Bonjour</p>" in html
+
+
+def test_transform_adds_article_meta_when_publication_date_is_available():
+    tei = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<teiHeader><fileDesc><publicationStmt><date>2026-04-21</date></publicationStmt></fileDesc></teiHeader>"
+        "<text><body><div><head>T</head><p>Body</p></div></body></text>"
+        "</TEI>"
+    )
+    html = render_tei_xml_to_html_fragment(tei)
+    assert 'class="article-meta"' in html
+    assert '<time datetime="2026-04-21">2026-04-21</time>' in html
 
 
 def test_transform_titles_and_divisions():

@@ -54,7 +54,7 @@ def render_page_document(
         f"    {top_menu_html}\n"
         f"    <div class=\"page-layout {side_class}\">\n"
         f"      {side_menu_html}\n"
-        "      <main class=\"main-content\">\n"
+        "      <main class=\"main-content article-content\">\n"
         f"        {content_html}\n"
         "      </main>\n"
         "    </div>\n"
@@ -67,15 +67,26 @@ def render_page_document(
 
 def render_archive_fragment(
     title: str,
-    items: list[tuple[str, str]],
+    items: list[tuple[str, str] | tuple[str, str, str | None]],
     *,
     current_path: str,
 ) -> str:
     if items:
-        entries = "".join(
-            f'<li><a href="{escape(resolve_navigation_href(url, current_path=current_path))}">{escape(label)}</a></li>'
-            for label, url in items
-        )
+        entries_parts: list[str] = []
+        for item in items:
+            label, url, date = _normalize_archive_item(item)
+            resolved = resolve_navigation_href(url, current_path=current_path)
+            date_html = (
+                f'<time class="archive-date" datetime="{escape(date)}">{escape(date)}</time>'
+                if date
+                else ""
+            )
+            entries_parts.append(
+                '<li class="archive-item">'
+                f'<a class="archive-link" href="{escape(resolved)}">{escape(label)}</a>'
+                f"{date_html}</li>"
+            )
+        entries = "".join(entries_parts)
     else:
         entries = '<li class="archive-empty">Aucun billet publié.</li>'
 
@@ -85,6 +96,18 @@ def render_archive_fragment(
         f'<ul class="archive-list">{entries}</ul>'
         "</article>"
     )
+
+
+def _normalize_archive_item(
+    item: tuple[str, str] | tuple[str, str, str | None],
+) -> tuple[str, str, str | None]:
+    if len(item) == 2:
+        label, url = item
+        return label, url, None
+
+    label, url, date = item
+    normalized_date = (date or "").strip() or None
+    return label, url, normalized_date
 
 
 def _render_banner(config: ProjectConfig, *, asset_prefix: str, current_path: str) -> str:

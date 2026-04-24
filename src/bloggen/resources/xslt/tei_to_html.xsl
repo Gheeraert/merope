@@ -15,7 +15,17 @@
   </xsl:template>
 
   <xsl:template match="tei:TEI">
-    <article class="tei-fragment" data-article-slug="{$article_slug}">
+    <xsl:variable name="publicationDate" select="normalize-space(string((tei:teiHeader/tei:fileDesc/tei:publicationStmt/tei:date)[1]))"/>
+    <article class="tei-fragment article-main" data-article-slug="{$article_slug}">
+      <xsl:if test="$publicationDate != ''">
+        <header class="article-header">
+          <p class="article-meta">
+            <time datetime="{$publicationDate}">
+              <xsl:value-of select="$publicationDate"/>
+            </time>
+          </p>
+        </header>
+      </xsl:if>
       <xsl:apply-templates select="tei:text/tei:body"/>
     </article>
   </xsl:template>
@@ -139,7 +149,7 @@
       <xsl:number level="any" count="tei:note"/>
     </xsl:variable>
     <sup class="note-call" id="note-call-{$noteNumber}" data-note-number="{$noteNumber}">
-      <a class="note-call-link" href="#note-{$noteNumber}"><xsl:value-of select="$noteNumber"/></a>
+      <a class="note-call-link" href="#note-{$noteNumber}" aria-label="{concat('Voir la note ', $noteNumber)}"><xsl:value-of select="$noteNumber"/></a>
     </sup>
   </xsl:template>
 

@@ -95,9 +95,14 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     post_html = (project / "site/billets/premier-billet/index.html").read_text(encoding="utf-8")
     index_html = (project / "site/index.html").read_text(encoding="utf-8")
     archive_html = (project / "site/billets/index.html").read_text(encoding="utf-8")
+    home_html = (project / "site/accueil/index.html").read_text(encoding="utf-8")
     assert "lightbox-link" in post_html
+    assert "data-lightbox-group" in post_html
     assert "endnotes" in post_html
     assert "margin-notes" in post_html
+    assert "top-nav" in post_html
+    assert "side-nav" in post_html
+    assert "article-content" in post_html
     assert 'href="../../index.html"' in post_html
     assert 'href="../index.html"' in post_html
     assert 'href="/index.html"' not in post_html
@@ -106,6 +111,10 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert 'href="/billets/premier-billet/index.html"' not in index_html
     assert 'href="premier-billet/index.html"' in archive_html
     assert 'href="/billets/premier-billet/index.html"' not in archive_html
+    assert "archive-date" in archive_html
+    assert "article-content" in home_html
+    assert 'href="/' not in index_html
+    assert 'href="/' not in archive_html
 
 
 def test_site_builder_disables_missing_banner_without_failing(monkeypatch):

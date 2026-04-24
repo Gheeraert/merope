@@ -17,7 +17,7 @@ def build_top_menu_html(items: list[MenuLink], *, current_path: str = "") -> str
     if not enabled:
         return ""
 
-    parts = ['<nav class="top-menu" aria-label="Navigation principale"><ul>']
+    parts = ['<nav class="top-menu top-nav" aria-label="Navigation principale"><ul>']
     for item in enabled:
         classes = ["menu-item"]
         if _normalize_path(item.target) == _normalize_path(current_path):
@@ -36,7 +36,7 @@ def build_side_menu_html(sections: list[SideMenuSection], *, current_path: str =
     if not enabled_sections:
         return ""
 
-    parts = ['<aside class="side-menu" aria-label="Navigation latérale">']
+    parts = ['<aside class="side-menu side-nav" aria-label="Navigation latérale">']
     for section in enabled_sections:
         parts.append('<section class="side-menu-section">')
         parts.append(f"<h3>{escape(section.label)}</h3>")

@@ -1,4 +1,4 @@
-﻿---
+---
 title: "Premier billet"
 slug: "premier-billet"
 type: "post"

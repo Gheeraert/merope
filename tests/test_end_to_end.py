@@ -27,7 +27,11 @@ TEI_SAMPLE = (
 def test_end_to_end_minimal_project_with_image_note_archive_and_home(monkeypatch):
     source_project = Path("examples/minimal_project")
     target_project = RUNTIME_ROOT / f"e2e_{uuid.uuid4().hex}"
-    shutil.copytree(source_project, target_project)
+    shutil.copytree(
+        source_project,
+        target_project,
+        ignore=shutil.ignore_patterns("site", "build", "__pycache__"),
+    )
 
     config_path = target_project / "config/site.json"
     config = load_config(config_path)
@@ -66,12 +70,19 @@ def test_end_to_end_minimal_project_with_image_note_archive_and_home(monkeypatch
 
     assert "top-menu" in index_html
     assert "side-menu" in index_html
+    assert "top-nav" in index_html
+    assert "side-nav" in index_html
     assert "lightbox-link" in post_html
+    assert "data-lightbox-group" in post_html
     assert "endnotes" in post_html
     assert "margin-notes" in post_html
+    assert "article-content" in post_html
     assert 'href="../../index.html"' in post_html
     assert 'href="../index.html"' in post_html
     assert 'href="billets/premier-billet/index.html"' in index_html
     assert 'href="/billets/premier-billet/index.html"' not in index_html
     assert 'href="premier-billet/index.html"' in archive_html
     assert 'href="/billets/premier-billet/index.html"' not in archive_html
+    assert "archive-date" in archive_html
+    assert 'href="/' not in index_html
+    assert 'href="/' not in archive_html

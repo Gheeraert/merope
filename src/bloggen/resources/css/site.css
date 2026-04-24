@@ -37,10 +37,17 @@ body.lightbox-open {
 a {
   color: var(--accent);
   text-decoration: none;
+  text-underline-offset: 0.15em;
 }
 
 a:hover {
   text-decoration: underline;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid #2f5f8a;
+  outline-offset: 2px;
 }
 
 .site-banner {
@@ -160,6 +167,23 @@ a:hover {
   max-width: var(--content-max-width);
   margin-left: auto;
   margin-right: auto;
+}
+
+.article-content {
+  min-height: 45vh;
+}
+
+.article-header {
+  margin-bottom: 1rem;
+}
+
+.article-meta {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  text-transform: uppercase;
 }
 
 .tei-fragment h1,
@@ -314,6 +338,12 @@ a:hover {
   color: #5c748d;
 }
 
+.note-call-link:hover,
+.note-call-link:focus-visible {
+  background: #d4e2f1;
+  text-decoration: none;
+}
+
 .margin-notes {
   margin: 1.6rem 0 0;
   padding: 0.9rem;
@@ -367,11 +397,33 @@ a:hover {
 }
 
 .archive-list {
-  padding-left: 1.2rem;
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
 }
 
-.archive-list li {
-  margin: 0.4rem 0;
+.archive-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #ded6ca;
+  border-radius: 8px;
+  background: #fcfaf6;
+}
+
+.archive-link {
+  font-weight: 600;
+}
+
+.archive-date {
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 .archive-empty {
@@ -501,6 +553,15 @@ a:hover {
     max-width: 100%;
   }
 
+  .archive-item {
+    display: block;
+  }
+
+  .archive-date {
+    display: block;
+    margin-top: 0.15rem;
+  }
+
   .lightbox-panel {
     width: min(96vw, 860px);
     grid-template-columns: 1fr;
@@ -524,5 +585,9 @@ a:hover {
 
   .site-footer {
     font-size: 0.85rem;
+  }
+
+  .note-call a {
+    padding: 0.05rem 0.26rem;
   }
 }
