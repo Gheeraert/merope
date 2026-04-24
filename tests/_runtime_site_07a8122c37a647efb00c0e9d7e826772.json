@@ -1,0 +1,128 @@
+{
+  "version": "1.0",
+  "site": {
+    "title": "MEROPE",
+    "subtitle": "Carnet académique statique",
+    "base_url": "",
+    "language": "fr",
+    "author": "",
+    "description": "Configuration locale par défaut."
+  },
+  "banner": {
+    "enabled": false,
+    "image": "",
+    "link": "/index.html",
+    "alt": "",
+    "show_title_overlay": false,
+    "height_px": 220
+  },
+  "paths": {
+    "project_root": ".",
+    "content_dir": "content",
+    "pages_dir": "content/pages",
+    "posts_dir": "content/posts",
+    "assets_dir": "assets",
+    "theme_dir": "theme",
+    "templates_dir": "theme/templates",
+    "xslt_dir": "theme/xslt",
+    "output_dir": "site",
+    "tei_dir": "build/tei"
+  },
+  "content": {
+    "source_format": "markdown",
+    "markdown_origin": "google_docs_export",
+    "use_front_matter": true,
+    "default_page_layout": "page",
+    "default_post_layout": "post",
+    "slugify_mode": "ascii",
+    "copy_linked_assets": true
+  },
+  "home": {
+    "enabled": true,
+    "source": "content/pages/accueil.md",
+    "layout": "home",
+    "show_recent_posts": true,
+    "recent_posts_count": 5
+  },
+  "blog": {
+    "enabled": true,
+    "posts_per_page": 10,
+    "generate_archive_page": true,
+    "archive_title": "Billets",
+    "archive_path": "billets",
+    "sort_descending_by_date": true
+  },
+  "menus": {
+    "top": [
+      {
+        "label": "Accueil",
+        "target": "/index.html",
+        "target_type": "internal",
+        "enabled": true,
+        "new_tab": false
+      },
+      {
+        "label": "Billets",
+        "target": "/billets/index.html",
+        "target_type": "internal",
+        "enabled": true,
+        "new_tab": false
+      }
+    ],
+    "side": [
+      {
+        "label": "Navigation",
+        "enabled": true,
+        "children": [
+          {
+            "label": "Présentation",
+            "target": "/presentation/index.html",
+            "target_type": "internal",
+            "enabled": true,
+            "new_tab": false
+          }
+        ]
+      }
+    ]
+  },
+  "render": {
+    "theme_name": "default",
+    "html_template": "page.html",
+    "post_template": "post.html",
+    "home_template": "home.html",
+    "tei_to_html_xslt": "tei_to_html.xsl",
+    "pretty_print_html": true,
+    "generate_tei_files": true,
+    "enable_lightbox": true,
+    "lightbox_engine": "fancybox"
+  },
+  "media_handling": {
+    "strategy": "copy_local_assets",
+    "images_dir": "assets/images",
+    "copy_media_to_output": true,
+    "generate_clickable_figures": true,
+    "fancybox_group_posts": true,
+    "use_captions_as_fancybox_caption": true
+  },
+  "notes_rendering": {
+    "mode": "margin_excerpt_plus_footnote",
+    "enable_margin_notes": true,
+    "enable_footnotes": true,
+    "margin_excerpt_words": 8,
+    "margin_excerpt_chars": 80,
+    "prefer_words_over_chars": true,
+    "footnotes_location": "end_of_article"
+  },
+  "footer": {
+    "text": "",
+    "show_generation_info": true,
+    "show_last_build_date": true
+  },
+  "build": {
+    "clean_output_dir": true,
+    "copy_assets": true,
+    "fail_on_missing_assets": false,
+    "fail_on_invalid_config": true,
+    "pandoc_command": "pandoc"
+  }
+}
