@@ -126,3 +126,24 @@ Règles supplémentaires:
 - si `type: post`, alors `date` est obligatoire au format `YYYY-MM-DD`;
 - si `draft: true`, le contenu est ignoré pendant le build;
 - aucun fallback implicite ne doit publier un document incomplet.
+
+Exemple page:
+
+```yaml
+---
+title: "Page de référence"
+slug: "page-reference"
+type: "page"
+---
+```
+
+Exemple billet:
+
+```yaml
+---
+title: "Billet de référence"
+slug: "billet-reference"
+type: "post"
+date: "2026-04-25"
+---
+```

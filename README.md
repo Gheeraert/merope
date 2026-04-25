@@ -76,3 +76,10 @@ Règles:
 - `type` doit valoir `page` ou `post`.
 - `date` obligatoire pour `type: post` (format `YYYY-MM-DD`).
 - `draft: true` exclut le contenu de la génération (HTML/TEI non produits).
+
+## Procédure Conseillée Après Export Google Docs
+
+1. Exporter le document en Markdown.
+2. Ajouter en tête un front matter YAML complet (obligatoire).
+3. Placer les images locales dans le dossier d'assets du projet (par exemple `assets/images/`) et vérifier les chemins dans le Markdown.
+4. Lancer la génération du site depuis l'interface ou le pipeline de build.
