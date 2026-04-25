@@ -118,7 +118,7 @@ def test_end_to_end_real_pandoc_minimal_project():
     assert "<strong>gras</strong>" in post_html
     assert '<figure class="article-figure">' in post_html
     assert "<figcaption>Une image</figcaption>" in post_html
-    assert re.search(r"<p>\\s*<figure", post_html) is None
+    assert re.search(r"<p>\s*<figure", post_html) is None
     assert "<p>Une image</p>" not in post_html
     assert "endnotes" in post_html
     assert "note-call" in post_html
