@@ -112,3 +112,17 @@ Options techniques :
 ## Exemple minimal
 
 Voir `examples/minimal_project/config/site.json`.
+
+## Format Obligatoire Des Fichiers Markdown
+
+Le front matter YAML est obligatoire pour chaque document publié.
+
+Champs obligatoires (tous contenus):
+- `title`
+- `slug`
+- `type` (`page` ou `post`)
+
+Règles supplémentaires:
+- si `type: post`, alors `date` est obligatoire au format `YYYY-MM-DD`;
+- si `draft: true`, le contenu est ignoré pendant le build;
+- aucun fallback implicite ne doit publier un document incomplet.

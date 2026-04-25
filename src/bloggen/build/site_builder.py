@@ -16,13 +16,14 @@ from bloggen.build.assets import (
 )
 from bloggen.build.reports import BuildReport
 from bloggen.config.models import ProjectConfig
-from bloggen.content.loader import ContentItem, LoadedContent, load_content
+from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
 from bloggen.render.html_templates import render_archive_fragment, render_page_document
 from bloggen.render.lightbox import apply_lightbox_markup
 from bloggen.render.margin_notes import apply_notes_rendering
 from bloggen.render.xslt_runner import render_tei_file_to_html_fragment
 from bloggen.tei.pandoc_converter import PandocUnavailableError, convert_markdown_file_to_tei
 from bloggen.tei.postprocess import rewrite_graphic_urls_in_tei_file
+from bloggen.content.loader import ContentItem, LoadedContent, load_content
 
 _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
@@ -108,13 +109,23 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         report.success = len(report.errors) == 0
         return report
 
+
+    except ContentLoadError as exc:
+        report.errors.append(str(exc))
+        report.success = False
+        return report
+
     except PandocUnavailableError as exc:
         report.errors.append(str(exc))
         report.success = False
         return report
+
     except Exception as exc:  # pragma: no cover - guardrail for UI/reporting
+
         report.errors.append(f"Erreur inattendue de build: {exc}")
+
         report.success = False
+
         return report
 
 

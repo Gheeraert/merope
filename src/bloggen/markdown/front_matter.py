@@ -9,6 +9,10 @@ import re
 _FRONT_MATTER_LINE = re.compile(r"^([A-Za-z0-9_-]+)\s*:\s*(.*)$")
 
 
+class FrontMatterParseError(ValueError):
+    """Raised when front matter starts but is syntactically invalid."""
+
+
 @dataclass(slots=True)
 class FrontMatterResult:
     metadata: dict[str, str]
@@ -29,7 +33,7 @@ def parse_front_matter(text: str) -> FrontMatterResult:
             break
 
     if closing_index is None:
-        return FrontMatterResult(metadata={}, body=text, has_front_matter=False)
+        raise FrontMatterParseError("Délimiteur de fin du front matter YAML manquant.")
 
     metadata: dict[str, str] = {}
     for line in lines[1:closing_index]:
@@ -38,7 +42,7 @@ def parse_front_matter(text: str) -> FrontMatterResult:
             continue
         match = _FRONT_MATTER_LINE.match(line)
         if not match:
-            continue
+            raise FrontMatterParseError(f"Ligne front matter invalide: {line}")
         key = match.group(1)
         value = _strip_quotes(match.group(2).strip())
         metadata[key] = value

@@ -42,3 +42,37 @@ Voir :
 ## État
 
 Ce dépôt est un **squelette documentaire de démarrage** destiné à lancer proprement un développement avec Codex.
+
+## Format Obligatoire Des Fichiers Markdown
+
+Chaque fichier Markdown publié doit commencer par un front matter YAML.
+
+Exemple page:
+
+```yaml
+---
+title: "Titre de la page"
+slug: "titre-de-la-page"
+type: "page"
+---
+```
+
+Exemple billet:
+
+```yaml
+---
+title: "Premier billet"
+slug: "premier-billet"
+type: "post"
+date: "2026-04-23"
+author: "Auteur facultatif"
+description: "Résumé facultatif"
+draft: false
+---
+```
+
+Règles:
+- `title`, `slug`, `type` obligatoires pour tous les contenus.
+- `type` doit valoir `page` ou `post`.
+- `date` obligatoire pour `type: post` (format `YYYY-MM-DD`).
+- `draft: true` exclut le contenu de la génération (HTML/TEI non produits).

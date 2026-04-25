@@ -36,11 +36,11 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     (project / "assets/banner/site-banner.jpg").write_bytes(b"img")
 
     (project / "content/pages/accueil.md").write_text(
-        '---\ntitle: "Accueil"\nslug: "accueil"\n---\n\n# Accueil\n\nTexte.\n',
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n\nTexte.\n',
         encoding="utf-8",
     )
     (project / "content/posts/premier.md").write_text(
-        '---\ntitle: "Premier"\nslug: "premier-billet"\ndate: "2026-04-23"\n---\n\n# Premier\n\nImage ![Inline](media/inline.jpg)\n',
+        '---\ntitle: "Premier"\nslug: "premier-billet"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Premier\n\nImage ![Inline](media/inline.jpg)\n',
         encoding="utf-8",
     )
 
@@ -125,7 +125,7 @@ def test_site_builder_disables_missing_banner_without_failing(monkeypatch):
     (project / "content/posts").mkdir(parents=True)
 
     (project / "content/pages/accueil.md").write_text(
-        '---\ntitle: "Accueil"\nslug: "accueil"\n---\n\n# Accueil\n',
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
         encoding="utf-8",
     )
 
@@ -166,3 +166,86 @@ def test_site_builder_disables_missing_banner_without_failing(monkeypatch):
     assert any("Bannière désactivée" in warning for warning in report.warnings)
     index_html = (project / "site/index.html").read_text(encoding="utf-8")
     assert '<header class="site-banner"' not in index_html
+
+
+def test_site_builder_skips_draft_posts(monkeypatch):
+    project = RUNTIME_ROOT / f"site_builder_draft_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/published.md").write_text(
+        '---\ntitle: "Publie"\nslug: "publie"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Publie\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/draft.md").write_text(
+        '---\ntitle: "Brouillon"\nslug: "brouillon"\ntype: "post"\ndate: "2026-04-24"\ndraft: true\n---\n\n# Brouillon\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(TEI_SAMPLE, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert any("Brouillon ignoré" in warning for warning in report.warnings)
+    assert (project / "site/billets/publie/index.html").exists()
+    assert not (project / "site/billets/brouillon/index.html").exists()
+    assert (project / "build/tei/posts/publie.xml").exists()
+    assert not (project / "build/tei/posts/brouillon.xml").exists()
+
+
+def test_site_builder_fails_on_missing_front_matter():
+    project = RUNTIME_ROOT / f"site_builder_missing_yaml_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text("# Accueil sans yaml\n", encoding="utf-8")
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Front matter YAML manquant" in error for error in report.errors)

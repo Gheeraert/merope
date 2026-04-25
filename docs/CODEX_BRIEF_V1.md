@@ -36,6 +36,7 @@ Chaîne obligatoire :
 - XSLT pour TEI → HTML
 - pytest pour les tests
 - configuration JSON validée strictement
+- front matter YAML obligatoire dans chaque Markdown publié (`title`, `slug`, `type`, et `date` pour `post`)
 
 ## Style de code attendu
 - fonctions courtes

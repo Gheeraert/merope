@@ -7,9 +7,9 @@ from pathlib import Path
 
 from bloggen.config.models import ProjectConfig
 from bloggen.content.assets import LinkedAssetReference, collect_linked_assets
-from bloggen.content.metadata import ContentMetadata, build_content_metadata
+from bloggen.content.metadata import ContentMetadata, ContentMetadataError, build_content_metadata
 from bloggen.content.slugify import ensure_unique_slug
-from bloggen.markdown.front_matter import parse_front_matter
+from bloggen.markdown.front_matter import FrontMatterParseError, parse_front_matter
 from bloggen.markdown.normalizer import normalize_markdown_text
 
 
@@ -29,6 +29,10 @@ class LoadedContent:
     pages: list[ContentItem] = field(default_factory=list)
     posts: list[ContentItem] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+
+class ContentLoadError(ValueError):
+    """Raised when markdown content is invalid for publication."""
 
 
 def load_content(project_root: Path, config: ProjectConfig) -> LoadedContent:
@@ -84,19 +88,31 @@ def _load_items_from_dir(
 
     for path in sorted(directory.rglob("*.md")):
         raw_markdown = path.read_text(encoding="utf-8")
-        parsed = parse_front_matter(raw_markdown)
+        try:
+            parsed = parse_front_matter(raw_markdown)
+        except FrontMatterParseError as exc:
+            raise ContentLoadError(f"Front matter YAML invalide dans {path}: {exc}") from exc
+        if not parsed.has_front_matter:
+            raise ContentLoadError(f"Front matter YAML manquant dans {path}.")
+
         normalized = normalize_markdown_text(
             parsed.body,
             google_docs_mode=(markdown_origin == "google_docs_export"),
         )
-        metadata = build_content_metadata(
-            source_stem=path.stem,
-            front_matter=parsed.metadata,
-            markdown_body=normalized,
-            kind=kind,
-            default_layout=default_layout,
-            slug_mode=slug_mode,
-        )
+        try:
+            metadata = build_content_metadata(
+                front_matter=parsed.metadata,
+                kind=kind,
+                default_layout=default_layout,
+                source_path=str(path),
+            )
+        except ContentMetadataError as exc:
+            raise ContentLoadError(str(exc)) from exc
+
+        if metadata.draft:
+            warnings.append(f"Brouillon ignoré: {path}")
+            continue
+
         metadata.slug = ensure_unique_slug(metadata.slug, used_slugs)
 
         linked_assets = collect_linked_assets(path, normalized, project_root=project_root)
