@@ -96,7 +96,7 @@ class NotesPanel(ttk.Frame):
             "à la fin de chaque billet/page.\n"
             "Exemple : end_of_article",
         )
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(3, weight=1)
 
     def set_data(self, notes: NotesRenderingConfig) -> None:
         self.mode_var.set(notes.mode)
@@ -126,6 +126,6 @@ def _add_row(
     variable: tk.StringVar | tk.IntVar,
 ) -> ttk.Entry:
     ttk.Label(master, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
-    entry = ttk.Entry(master, textvariable=variable)
-    entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    entry = ttk.Entry(master, textvariable=variable, width=55)
+    entry.grid(row=row, column=1, sticky="w", padx=8, pady=4)
     return entry

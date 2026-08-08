@@ -46,7 +46,7 @@ class BannerPanel(ttk.Frame):
             "Exemple : assets/images/banniere.jpg",
         )
         image_browse = ttk.Button(self, text="Parcourir...", command=self._browse_image)
-        image_browse.grid(row=2, column=2, sticky="ew", padx=(0, 8), pady=4)
+        image_browse.grid(row=2, column=2, sticky="w", padx=(0, 8), pady=4)
         add_tooltip(image_browse, "Ouvre un sélecteur pour choisir une image existante sur le disque.")
 
         link_entry = _add_entry_row(self, 3, "Lien", self.link_var)
@@ -84,7 +84,7 @@ class BannerPanel(ttk.Frame):
             "Si activé, le titre du site (onglet Site) est superposé en texte sur "
             "la bannière plutôt qu'affiché séparément en dessous.",
         )
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(3, weight=1)
 
     def _browse_image(self) -> None:
         selected = filedialog.askopenfilename(
@@ -124,6 +124,6 @@ def _add_entry_row(
     variable: tk.StringVar | tk.IntVar,
 ) -> ttk.Entry:
     ttk.Label(master, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
-    entry = ttk.Entry(master, textvariable=variable)
-    entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    entry = ttk.Entry(master, textvariable=variable, width=55)
+    entry.grid(row=row, column=1, sticky="w", padx=8, pady=4)
     return entry

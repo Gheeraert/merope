@@ -608,6 +608,9 @@ class MainWindow(tk.Tk):
         )
 
 
+_FIELD_WIDTH = 55  # caractères : évite que les champs ne s'étirent à l'infini quand la fenêtre s'agrandit
+
+
 def _create_form_tab(
     notebook: ttk.Notebook,
     text_fields: list[tuple[str, str, str]],
@@ -641,8 +644,8 @@ def _create_form_tab(
         vars_map[field_name] = var
         label_widget = ttk.Label(frame, text=label)
         label_widget.grid(row=row, column=0, sticky="w", padx=8, pady=4)
-        entry = ttk.Entry(frame, textvariable=var)
-        entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+        entry = ttk.Entry(frame, textvariable=var, width=_FIELD_WIDTH)
+        entry.grid(row=row, column=1, sticky="w", padx=8, pady=4)
         help_text = help_texts.get(field_name)
         if help_text:
             add_tooltip(label_widget, help_text)
@@ -651,14 +654,14 @@ def _create_form_tab(
             browse = ttk.Button(
                 frame, text="Parcourir...", command=lambda v=var: _browse_directory(v)
             )
-            browse.grid(row=row, column=2, sticky="ew", padx=(0, 8), pady=4)
+            browse.grid(row=row, column=2, sticky="w", padx=(0, 8), pady=4)
             add_tooltip(browse, "Ouvre un sélecteur pour choisir un dossier existant sur le disque.")
         elif field_name in file_fields:
             filetypes = file_fields[field_name]
             browse = ttk.Button(
                 frame, text="Parcourir...", command=lambda v=var, ft=filetypes: _browse_file(v, ft)
             )
-            browse.grid(row=row, column=2, sticky="ew", padx=(0, 8), pady=4)
+            browse.grid(row=row, column=2, sticky="w", padx=(0, 8), pady=4)
             add_tooltip(browse, "Ouvre un sélecteur pour choisir un fichier existant sur le disque.")
         row += 1
 
@@ -673,7 +676,7 @@ def _create_form_tab(
                 add_tooltip(checkbutton, help_text)
             row += 1
 
-    frame.grid_columnconfigure(1, weight=1)
+    frame.grid_columnconfigure(3, weight=1)
     return frame, vars_map
 
 

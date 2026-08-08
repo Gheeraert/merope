@@ -49,7 +49,7 @@ class MediaPanel(ttk.Frame):
             "Exemple : assets/images",
         )
         images_browse = ttk.Button(self, text="Parcourir...", command=self._browse_images_dir)
-        images_browse.grid(row=2, column=2, sticky="ew", padx=(0, 8), pady=4)
+        images_browse.grid(row=2, column=2, sticky="w", padx=(0, 8), pady=4)
         add_tooltip(images_browse, "Ouvre un sélecteur pour choisir un dossier existant sur le disque.")
 
         copy_cb = ttk.Checkbutton(
@@ -96,7 +96,7 @@ class MediaPanel(ttk.Frame):
             "Si activé, la légende Markdown d'une image (texte sous l'image) est "
             "réutilisée comme légende dans la visionneuse plein écran.",
         )
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(3, weight=1)
 
     def _browse_images_dir(self) -> None:
         selected = filedialog.askdirectory(
@@ -126,6 +126,6 @@ class MediaPanel(ttk.Frame):
 
 def _add_row(master: tk.Misc, row: int, label: str, variable: tk.StringVar) -> ttk.Entry:
     ttk.Label(master, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
-    entry = ttk.Entry(master, textvariable=variable)
-    entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    entry = ttk.Entry(master, textvariable=variable, width=55)
+    entry.grid(row=row, column=1, sticky="w", padx=8, pady=4)
     return entry
