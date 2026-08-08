@@ -120,6 +120,10 @@
     <span class="smallcaps"><xsl:apply-templates/></span>
   </xsl:template>
 
+  <xsl:template match="tei:hi[contains(concat(' ', normalize-space(@rendition), ' '), ' simple:superscript ')]">
+    <sup><xsl:apply-templates/></sup>
+  </xsl:template>
+
   <xsl:template match="tei:ref[@target]">
     <a href="{normalize-space(@target)}"><xsl:apply-templates/></a>
   </xsl:template>
@@ -283,6 +287,10 @@
 
   <xsl:template match="tei:hi[@rend='bold']" mode="note-body">
     <strong><xsl:apply-templates mode="note-body"/></strong>
+  </xsl:template>
+
+  <xsl:template match="tei:hi[contains(concat(' ', normalize-space(@rendition), ' '), ' simple:superscript ')]" mode="note-body">
+    <sup><xsl:apply-templates mode="note-body"/></sup>
   </xsl:template>
 
   <xsl:template match="tei:hi[@rend='smallcaps']" mode="note-body">

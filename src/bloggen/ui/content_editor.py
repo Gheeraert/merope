@@ -43,11 +43,13 @@ from bloggen.markdown.rich_text_model import (
     plain_text,
 )
 from bloggen.markdown.typography import (
+    CENTURY_RE,
     CLOSING_GUILLEMET,
     DOUBLE_PUNCTUATION,
     NBSP,
     OPENING_GUILLEMET,
     apply_french_typography,
+    is_valid_century_ordinal,
 )
 from bloggen.ui.clipboard_html import read_html_clipboard
 from bloggen.ui.image_widget import ImageWidget, copy_into_images_dir
@@ -55,7 +57,7 @@ from bloggen.ui.tooltip import add_tooltip
 
 _HEADING_TAGS = ("h1", "h2", "h3", "h4")
 _BLOCK_LINE_TAGS = {"h1", "h2", "h3", "h4", "blockquote", "bullet_item", "ordered_item", "table_source", "verbatim"}
-_CHAR_TAGS = ("bold", "italic", "strike")
+_CHAR_TAGS = ("bold", "italic", "strike", "superscript")
 _TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE_PUNCTUATION
 
 
@@ -280,6 +282,11 @@ class ContentEditorWindow(tk.Toplevel):
             ("G", lambda: self._toggle_char_tag("bold"), "Gras"),
             ("I", lambda: self._toggle_char_tag("italic"), "Italique"),
             ("S", lambda: self._toggle_char_tag("strike"), "Barré"),
+            (
+                "X²",
+                lambda: self._toggle_char_tag("superscript"),
+                "Exposant (ex. 2e, XXe, notes de calcul).",
+            ),
         ]
         for label, command, tip in char_buttons:
             b = ttk.Button(toolbar, text=label, width=3, command=command)
@@ -372,10 +379,11 @@ class ContentEditorWindow(tk.Toplevel):
         text.tag_configure("bold", font=("TkDefaultFont", 11, "bold"))
         text.tag_configure("italic", font=("TkDefaultFont", 11, "italic"))
         text.tag_configure("strike", overstrike=True)
+        text.tag_configure("superscript", offset=6, font=("TkDefaultFont", 8))
         text.tag_configure("link_style", foreground="#1a73e8", underline=True)
         text.tag_configure("image_style", background="#e8f0fe")
         text.tag_configure("footnote_style", foreground="#1a73e8")
-        for tag in ("bold", "italic", "strike", "link_style", "image_style", "footnote_style"):
+        for tag in ("bold", "italic", "strike", "superscript", "link_style", "image_style", "footnote_style"):
             text.tag_raise(tag)
 
     def _build_notes_panel(self, master: tk.Misc) -> None:
@@ -454,12 +462,12 @@ class ContentEditorWindow(tk.Toplevel):
         return "table_source" in tags or "verbatim" in tags
 
     def _on_key_release(self, event: tk.Event) -> None:
-        char = event.char
-        if not char or char not in _TYPOGRAPHY_TRIGGER_CHARS:
-            return
         if self._current_line_is_raw():
             return
-        self._autoformat_last_typed_char(char)
+        char = event.char
+        if char and char in _TYPOGRAPHY_TRIGGER_CHARS:
+            self._autoformat_last_typed_char(char)
+        self._autoformat_century_ordinal()
 
     def _autoformat_last_typed_char(self, char: str) -> None:
         # Index expressions with arithmetic (e.g. "1.8-1c") are re-evaluated
@@ -495,6 +503,31 @@ class ContentEditorWindow(tk.Toplevel):
                 self.text.insert(preceding_index, NBSP)
             else:
                 self.text.insert(char_index, NBSP)
+
+    def _autoformat_century_ordinal(self) -> None:
+        """Detect "<numeral>er/e siecle" just typed (e.g. "XXIe siecle") and
+        superscript the ordinal suffix in place, matching the same rule
+        used for pasted/imported content (:func:`bloggen.markdown.
+        typography.split_century_ordinals`).
+        """
+        cursor = self.text.index("insert")
+        line = int(cursor.split(".")[0])
+        text_before = self.text.get(f"{line}.0", cursor)
+        # .search() would only ever find the first match on the line, so a
+        # second (still unconverted) occurrence would be permanently
+        # skipped once the first is tagged; check every match instead.
+        for match in CENTURY_RE.finditer(text_before):
+            numeral, suffix = match.group(1), match.group(2)
+            if not is_valid_century_ordinal(numeral, suffix):
+                continue
+
+            chars_after_suffix_start = len(text_before) - match.start(2)
+            chars_after_suffix_end = len(text_before) - match.end(2)
+            suffix_start = self.text.index(f"{cursor}-{chars_after_suffix_start}c")
+            suffix_end = self.text.index(f"{cursor}-{chars_after_suffix_end}c")
+            if "superscript" in self.text.tag_names(suffix_start):
+                continue
+            self.text.tag_add("superscript", suffix_start, suffix_end)
 
     def _apply_typography_to_selection(self) -> None:
         selected = self._selection_range()
@@ -595,6 +628,8 @@ class ContentEditorWindow(tk.Toplevel):
                 self.text.tag_add("italic", start, end)
             if run.strikethrough:
                 self.text.tag_add("strike", start, end)
+            if run.superscript:
+                self.text.tag_add("superscript", start, end)
             if run.link_href:
                 tag = self._new_tag("link")
                 self.link_data[tag] = run.link_href
@@ -913,6 +948,7 @@ class ContentEditorWindow(tk.Toplevel):
                         bold="bold" in active,
                         italic="italic" in active,
                         strikethrough="strike" in active,
+                        superscript="superscript" in active,
                         link_href=self.link_data.get(link_tag) if link_tag else None,
                     )
                 )
@@ -1114,6 +1150,8 @@ class ContentEditorWindow(tk.Toplevel):
                 self.text.tag_add("italic", start, end)
             if run.strikethrough:
                 self.text.tag_add("strike", start, end)
+            if run.superscript:
+                self.text.tag_add("superscript", start, end)
             if run.link_href:
                 tag = self._new_tag("link")
                 self.link_data[tag] = run.link_href

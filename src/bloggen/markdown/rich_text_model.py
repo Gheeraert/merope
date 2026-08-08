@@ -33,6 +33,7 @@ class InlineRun:
     bold: bool = False
     italic: bool = False
     strikethrough: bool = False
+    superscript: bool = False
     link_href: str | None = None
     image_src: str | None = None
     image_alt: str | None = None

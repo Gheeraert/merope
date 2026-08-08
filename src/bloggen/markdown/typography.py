@@ -7,6 +7,11 @@ tested directly and reused both by the live keystroke handling in
 
 from __future__ import annotations
 
+import re
+from dataclasses import replace
+
+from bloggen.markdown.rich_text_model import InlineRun
+
 NBSP = " "
 DOUBLE_PUNCTUATION = ";:!?"
 CURLY_OPENING_QUOTE = "“"
@@ -80,3 +85,50 @@ def fix_double_punctuation_spacing(text: str) -> str:
                 result.append(NBSP)
         result.append(char)
     return "".join(result)
+
+
+CENTURY_RE = re.compile(r"\b([IVXLCDM]+)(er|e)\s+([Ss]i[eè]cle)\b")
+
+
+def is_valid_century_ordinal(numeral: str, suffix: str) -> bool:
+    """"I" takes "er" (premier siecle), everything else takes "e"
+    (deuxieme, vingt-et-unieme...). Rejects mismatches like "Ie" or "IIer"
+    so an unrelated match isn't misdetected as a century ordinal.
+    """
+    if numeral == "I":
+        return suffix == "er"
+    return suffix == "e"
+
+
+def split_century_ordinals(runs: list[InlineRun]) -> list[InlineRun]:
+    """Split plain-text runs containing a "<numeral><er|e> siecle" pattern
+    (e.g. "XXIe siecle") into normal/superscript/normal parts, so the
+    ordinal suffix renders as a superscript. Leaves image/footnote/already-
+    superscript runs untouched.
+    """
+    result_runs: list[InlineRun] = []
+    for run in runs:
+        if run.image_src is not None or run.footnote_ref is not None or run.superscript:
+            result_runs.append(run)
+            continue
+        result_runs.extend(_split_run_by_century(run))
+    return result_runs
+
+
+def _split_run_by_century(run: InlineRun) -> list[InlineRun]:
+    text = run.text
+    pieces: list[InlineRun] = []
+    pos = 0
+    for match in CENTURY_RE.finditer(text):
+        numeral, suffix = match.group(1), match.group(2)
+        if not is_valid_century_ordinal(numeral, suffix):
+            continue
+        prefix = text[pos : match.start(2)]
+        if prefix:
+            pieces.append(replace(run, text=prefix, superscript=False))
+        pieces.append(replace(run, text=suffix, superscript=True))
+        pos = match.end(2)
+    remainder = text[pos:]
+    if remainder or not pieces:
+        pieces.append(replace(run, text=remainder, superscript=False))
+    return pieces

@@ -30,6 +30,11 @@ def test_paragraph_with_inline_formatting_roundtrip():
     assert _roundtrip(body).strip() == body.strip()
 
 
+def test_superscript_roundtrip():
+    body = "Le XXI^e^ siecle et un test^exp^ simple.\n"
+    assert _roundtrip(body).strip() == body.strip()
+
+
 def test_footnote_reference_and_definition_roundtrip():
     body = "Une phrase avec une note[^1].\n\n[^1]: Le texte de la note.\n"
     assert _roundtrip(body).strip() == body.strip()

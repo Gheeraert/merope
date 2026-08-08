@@ -25,7 +25,7 @@ from bloggen.markdown.rich_text_model import (
     InlineRun,
 )
 
-_ESCAPE_RE = re.compile(r"([\\*_\[\]])")
+_ESCAPE_RE = re.compile(r"([\\*_\[\]^])")
 
 
 def blocks_to_markdown(blocks: list[Block]) -> str:
@@ -113,6 +113,8 @@ def _run_to_md(run: InlineRun) -> str:
     text = _escape_text(run.text)
     if run.strikethrough:
         text = f"~~{text}~~"
+    if run.superscript:
+        text = f"^{text}^"
     if run.bold and run.italic:
         text = f"***{text}***"
     elif run.bold:

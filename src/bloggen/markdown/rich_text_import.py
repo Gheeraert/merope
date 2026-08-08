@@ -47,9 +47,9 @@ _ATOM_RE = re.compile(
     r"!\[(?P<image_alt>[^\]]*)\]\((?P<image_src>[^)]+)\)(\{(?P<image_attrs>[^}]*)\})?"
     r"|\[\^(?P<footnote_ref>[^\]]+)\]"
     r"|\[(?P<link_text>[^\]]*)\]\((?P<link_href>[^)]+)\)"
-    r"|(?P<emphasis>\*\*\*.+?\*\*\*|\*\*.+?\*\*|~~.+?~~|\*[^*]+?\*)"
+    r"|(?P<emphasis>\*\*\*.+?\*\*\*|\*\*.+?\*\*|~~.+?~~|\^[^\^]+?\^|\*[^*]+?\*)"
 )
-_UNESCAPE_RE = re.compile(r"\\([\\*_\[\]])")
+_UNESCAPE_RE = re.compile(r"\\([\\*_\[\]^])")
 
 
 def markdown_to_blocks(body: str) -> list[Block]:
@@ -201,7 +201,7 @@ def _atom_to_run(match: re.Match[str]) -> InlineRun:
 
 
 def _peel_emphasis(span: str) -> InlineRun:
-    bold = italic = strikethrough = False
+    bold = italic = strikethrough = superscript = False
     changed = True
     while changed:
         changed = False
@@ -217,6 +217,10 @@ def _peel_emphasis(span: str) -> InlineRun:
             span = span[2:-2]
             strikethrough = True
             changed = True
+        elif len(span) >= 2 and span.startswith("^") and span.endswith("^"):
+            span = span[1:-1]
+            superscript = True
+            changed = True
         elif (
             len(span) >= 2
             and span.startswith("*")
@@ -226,7 +230,13 @@ def _peel_emphasis(span: str) -> InlineRun:
             span = span[1:-1]
             italic = True
             changed = True
-    return InlineRun(text=_unescape(span), bold=bold, italic=italic, strikethrough=strikethrough)
+    return InlineRun(
+        text=_unescape(span),
+        bold=bold,
+        italic=italic,
+        strikethrough=strikethrough,
+        superscript=superscript,
+    )
 
 
 def _unescape(text: str) -> str:

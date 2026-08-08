@@ -134,3 +134,25 @@ def test_image_attributes_survive_real_pandoc_conversion_to_tei():
     html = render_tei_file_to_html_fragment(output_path, parameters={"article_slug": "attrs"})
     assert 'style="width:300px;height:200px;"' in html
     assert "align-left" in html
+
+
+def test_superscript_survives_real_pandoc_conversion_to_html():
+    if shutil.which("pandoc") is None:
+        pytest.skip("Pandoc non disponible dans l'environnement de test.")
+
+    markdown_source = RUNTIME_DIR / "pipeline_superscript_source.md"
+    markdown_source.write_text(
+        "# Titre\n\nLe XXI^e^ siecle et un test^exp^ simple.\n",
+        encoding="utf-8",
+    )
+
+    output_path = RUNTIME_DIR / "pipeline_superscript_output.xml"
+    result = convert_markdown_file_to_tei(markdown_source, output_path, pandoc_command="pandoc")
+
+    assert result.success is True
+    tei_content = output_path.read_text(encoding="utf-8")
+    assert 'rendition="simple:superscript"' in tei_content
+
+    html = render_tei_file_to_html_fragment(output_path, parameters={"article_slug": "superscript"})
+    assert "<sup>e</sup>" in html
+    assert "<sup>exp</sup>" in html

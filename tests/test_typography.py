@@ -1,3 +1,4 @@
+from bloggen.markdown.rich_text_model import InlineRun
 from bloggen.markdown.typography import (
     CLOSING_GUILLEMET,
     NBSP,
@@ -5,6 +6,8 @@ from bloggen.markdown.typography import (
     apply_french_typography,
     convert_curly_quotes_to_guillemets,
     convert_straight_quotes_stateful,
+    is_valid_century_ordinal,
+    split_century_ordinals,
 )
 
 _CURLY_OPEN = "“"
@@ -72,3 +75,67 @@ def test_stateful_quote_conversion_threads_parity_across_calls():
 def test_stateful_quote_conversion_matches_default_when_starting_fresh():
     text, _ = convert_straight_quotes_stateful('"Vraiment ?"')
     assert text == f"{OPENING_GUILLEMET}{NBSP}Vraiment ?{NBSP}{CLOSING_GUILLEMET}"
+
+
+def test_is_valid_century_ordinal():
+    assert is_valid_century_ordinal("I", "er") is True
+    assert is_valid_century_ordinal("I", "e") is False
+    assert is_valid_century_ordinal("II", "e") is True
+    assert is_valid_century_ordinal("XXI", "e") is True
+    assert is_valid_century_ordinal("II", "er") is False
+
+
+def test_split_century_ordinals_basic():
+    runs = split_century_ordinals([InlineRun(text="Au XXIe siecle, tout change.")])
+    assert [(r.text, r.superscript) for r in runs] == [
+        ("Au XXI", False),
+        ("e", True),
+        (" siecle, tout change.", False),
+    ]
+
+
+def test_split_century_ordinals_first_century_uses_er():
+    runs = split_century_ordinals([InlineRun(text="Le Ier siecle.")])
+    assert [(r.text, r.superscript) for r in runs] == [
+        ("Le I", False),
+        ("er", True),
+        (" siecle.", False),
+    ]
+
+
+def test_split_century_ordinals_multiple_occurrences_in_one_run():
+    runs = split_century_ordinals([InlineRun(text="Du Ier siecle au XXIe siecle.")])
+    assert [(r.text, r.superscript) for r in runs] == [
+        ("Du I", False),
+        ("er", True),
+        (" siecle au XXI", False),
+        ("e", True),
+        (" siecle.", False),
+    ]
+
+
+def test_split_century_ordinals_rejects_invalid_combination():
+    runs = split_century_ordinals([InlineRun(text="IIer siecle")])
+    assert [(r.text, r.superscript) for r in runs] == [("IIer siecle", False)]
+
+
+def test_split_century_ordinals_preserves_other_flags():
+    runs = split_century_ordinals([InlineRun(text="XXIe siecle", bold=True, italic=True)])
+    assert [(r.text, r.bold, r.italic, r.superscript) for r in runs] == [
+        ("XXI", True, True, False),
+        ("e", True, True, True),
+        (" siecle", True, True, False),
+    ]
+
+
+def test_split_century_ordinals_leaves_images_and_footnotes_untouched():
+    image_run = InlineRun(image_src="a.jpg", image_alt="Alt")
+    footnote_run = InlineRun(footnote_ref="1")
+    runs = split_century_ordinals([image_run, footnote_run])
+    assert runs == [image_run, footnote_run]
+
+
+def test_split_century_ordinals_is_idempotent():
+    once = split_century_ordinals([InlineRun(text="Au XXIe siecle.")])
+    twice = split_century_ordinals(once)
+    assert [(r.text, r.superscript) for r in once] == [(r.text, r.superscript) for r in twice]

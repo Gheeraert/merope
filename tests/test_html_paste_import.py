@@ -28,6 +28,20 @@ def test_strikethrough_tags():
     assert _export("<p>Du <del>barre</del> texte.</p>") == "Du ~~barre~~ texte.\n"
 
 
+def test_superscript_tag():
+    assert _export("<p>Un <sup>exposant</sup> ici.</p>") == "Un ^exposant^ ici.\n"
+
+
+def test_superscript_via_vertical_align_style_google_docs():
+    html = '<p>texte<span style="vertical-align:super;font-size:xx-small">2</span> exposant.</p>'
+    assert _export(html) == "texte^2^ exposant.\n"
+
+
+def test_century_ordinal_auto_conversion_on_paste():
+    assert _export("<p>Le XXIe siecle.</p>") == "Le XXI^e^ siecle.\n"
+    assert _export("<p>Le Ier siecle.</p>") == "Le I^er^ siecle.\n"
+
+
 def test_link():
     assert _export('<p>Voir <a href="https://example.org">ce lien</a>.</p>') == (
         "Voir [ce lien](https://example.org).\n"

@@ -34,11 +34,13 @@ from bloggen.markdown.typography import (
     convert_curly_quotes_to_guillemets,
     convert_straight_quotes_stateful,
     fix_double_punctuation_spacing,
+    split_century_ordinals,
 )
 
 _BOLD_TAGS = {"b", "strong"}
 _ITALIC_TAGS = {"i", "em"}
 _STRIKE_TAGS = {"s", "strike", "del"}
+_SUPERSCRIPT_TAGS = {"sup"}
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _BLOCK_TAGS = _HEADING_TAGS | {"p", "li", "blockquote", "ul", "ol"}
 _LIST_TAGS = {"ul", "ol"}
@@ -82,8 +84,18 @@ class _HtmlBlockBuilder(HTMLParser):
 
     # -- inline formatting state --------------------------------------
 
-    def _push_inline(self, *, bold: bool = False, italic: bool = False, strike: bool = False, link_href: str | None = None) -> None:
-        self.inline_stack.append({"bold": bold, "italic": italic, "strike": strike, "link_href": link_href})
+    def _push_inline(
+        self,
+        *,
+        bold: bool = False,
+        italic: bool = False,
+        strike: bool = False,
+        superscript: bool = False,
+        link_href: str | None = None,
+    ) -> None:
+        self.inline_stack.append(
+            {"bold": bold, "italic": italic, "strike": strike, "superscript": superscript, "link_href": link_href}
+        )
 
     def _pop_inline(self) -> None:
         if self.inline_stack:
@@ -93,12 +105,19 @@ class _HtmlBlockBuilder(HTMLParser):
         bold = any(f["bold"] for f in self.inline_stack)
         italic = any(f["italic"] for f in self.inline_stack)
         strike = any(f["strike"] for f in self.inline_stack)
+        superscript = any(f["superscript"] for f in self.inline_stack)
         link_href = None
         for f in reversed(self.inline_stack):
             if f["link_href"]:
                 link_href = f["link_href"]
                 break
-        return {"bold": bold, "italic": italic, "strike": strike, "link_href": link_href}
+        return {
+            "bold": bold,
+            "italic": italic,
+            "strike": strike,
+            "superscript": superscript,
+            "link_href": link_href,
+        }
 
     # -- block/frame handling -------------------------------------------
 
@@ -211,6 +230,7 @@ class _HtmlBlockBuilder(HTMLParser):
                     bold=flags["bold"],
                     italic=flags["italic"],
                     strikethrough=flags["strike"],
+                    superscript=flags["superscript"],
                     link_href=flags["link_href"],
                 )
             )
@@ -259,7 +279,8 @@ class _HtmlBlockBuilder(HTMLParser):
         bold = _style_is_bold(style) if "font-weight" in style else tag in _BOLD_TAGS
         italic = _style_is_italic(style) if "font-style" in style else tag in _ITALIC_TAGS
         strike = _style_is_strike(style) if "text-decoration" in style else tag in _STRIKE_TAGS
-        self._push_inline(bold=bold, italic=italic, strike=strike)
+        superscript = _style_is_superscript(style) if "vertical-align" in style else tag in _SUPERSCRIPT_TAGS
+        self._push_inline(bold=bold, italic=italic, strike=strike, superscript=superscript)
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("img", "br"):
@@ -288,6 +309,7 @@ def _same_flags(run: InlineRun, flags: dict) -> bool:
         and run.bold == flags["bold"]
         and run.italic == flags["italic"]
         and run.strikethrough == flags["strike"]
+        and run.superscript == flags["superscript"]
         and run.link_href == flags["link_href"]
     )
 
@@ -312,6 +334,10 @@ def _style_is_italic(style: dict[str, str]) -> bool:
 
 def _style_is_strike(style: dict[str, str]) -> bool:
     return "line-through" in style.get("text-decoration", "")
+
+
+def _style_is_superscript(style: dict[str, str]) -> bool:
+    return style.get("vertical-align", "") == "super"
 
 
 def _resolve_image_src(src: str, images_dir: Path | None) -> str | None:
@@ -374,6 +400,7 @@ def _normalize_block(block: Block, opening_next: bool) -> bool:
         text = convert_curly_quotes_to_guillemets(run.text)
         text, opening_next = convert_straight_quotes_stateful(text, opening_next=opening_next)
         run.text = fix_double_punctuation_spacing(text)
+    block.runs = split_century_ordinals(block.runs)
     for child in block.children:
         opening_next = _normalize_block(child, opening_next)
     return opening_next
