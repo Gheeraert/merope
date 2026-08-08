@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 
+from bloggen.markdown.image_attributes import parse_image_attributes
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -43,7 +44,7 @@ _TABLE_SEPARATOR_RE = re.compile(r"^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$")
 _STRUCTURAL_LINE_RE = re.compile(r"^(#{1,6}\s|>\s?|[-*]\s|\d+\.\s|\||<)")
 
 _ATOM_RE = re.compile(
-    r"!\[(?P<image_alt>[^\]]*)\]\((?P<image_src>[^)]+)\)"
+    r"!\[(?P<image_alt>[^\]]*)\]\((?P<image_src>[^)]+)\)(\{(?P<image_attrs>[^}]*)\})?"
     r"|\[\^(?P<footnote_ref>[^\]]+)\]"
     r"|\[(?P<link_text>[^\]]*)\]\((?P<link_href>[^)]+)\)"
     r"|(?P<emphasis>\*\*\*.+?\*\*\*|\*\*.+?\*\*|~~.+?~~|\*[^*]+?\*)"
@@ -182,9 +183,13 @@ def _parse_inline(text: str) -> list[InlineRun]:
 
 def _atom_to_run(match: re.Match[str]) -> InlineRun:
     if match.group("image_src") is not None:
+        attrs = parse_image_attributes(match.group("image_attrs") or "")
         return InlineRun(
             image_src=match.group("image_src"),
             image_alt=_unescape(match.group("image_alt") or ""),
+            image_width=attrs.get("width"),
+            image_height=attrs.get("height"),
+            image_align=attrs.get("align"),
         )
     if match.group("footnote_ref") is not None:
         return InlineRun(footnote_ref=match.group("footnote_ref"))

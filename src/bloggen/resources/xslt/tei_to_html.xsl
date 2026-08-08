@@ -156,30 +156,38 @@
   <xsl:template match="tei:figure">
     <xsl:variable name="url" select="normalize-space((tei:graphic/@url)[1])"/>
     <xsl:variable name="captionText" select="normalize-space(string((tei:figDesc | tei:head)[1]))"/>
+    <xsl:variable name="width" select="normalize-space((tei:graphic/@width)[1])"/>
+    <xsl:variable name="height" select="normalize-space((tei:graphic/@height)[1])"/>
+    <xsl:variable name="rend" select="normalize-space((tei:graphic/@rend)[1])"/>
+    <xsl:variable name="figureClass">
+      <xsl:text>article-figure</xsl:text>
+      <xsl:if test="$rend = 'align-left' or $rend = 'align-center' or $rend = 'align-right'">
+        <xsl:text> </xsl:text>
+        <xsl:value-of select="$rend"/>
+      </xsl:if>
+    </xsl:variable>
 
-    <figure class="article-figure">
+    <figure class="{normalize-space($figureClass)}">
       <xsl:if test="$url != ''">
         <xsl:choose>
           <xsl:when test="$clickable_figures = '1'">
             <a class="figure-image-link" href="{$url}" data-article-group="{concat('article-', normalize-space($article_slug))}">
               <img src="{$url}">
-                <xsl:attribute name="alt">
-                  <xsl:choose>
-                    <xsl:when test="$captionText != ''"><xsl:value-of select="$captionText"/></xsl:when>
-                    <xsl:otherwise>Illustration</xsl:otherwise>
-                  </xsl:choose>
-                </xsl:attribute>
+                <xsl:call-template name="figure-img-common-attrs">
+                  <xsl:with-param name="captionText" select="$captionText"/>
+                  <xsl:with-param name="width" select="$width"/>
+                  <xsl:with-param name="height" select="$height"/>
+                </xsl:call-template>
               </img>
             </a>
           </xsl:when>
           <xsl:otherwise>
             <img src="{$url}">
-              <xsl:attribute name="alt">
-                <xsl:choose>
-                  <xsl:when test="$captionText != ''"><xsl:value-of select="$captionText"/></xsl:when>
-                  <xsl:otherwise>Illustration</xsl:otherwise>
-                </xsl:choose>
-              </xsl:attribute>
+              <xsl:call-template name="figure-img-common-attrs">
+                <xsl:with-param name="captionText" select="$captionText"/>
+                <xsl:with-param name="width" select="$width"/>
+                <xsl:with-param name="height" select="$height"/>
+              </xsl:call-template>
             </img>
           </xsl:otherwise>
         </xsl:choose>
@@ -189,6 +197,24 @@
         <figcaption><xsl:value-of select="$captionText"/></figcaption>
       </xsl:if>
     </figure>
+  </xsl:template>
+
+  <xsl:template name="figure-img-common-attrs">
+    <xsl:param name="captionText"/>
+    <xsl:param name="width"/>
+    <xsl:param name="height"/>
+    <xsl:attribute name="alt">
+      <xsl:choose>
+        <xsl:when test="$captionText != ''"><xsl:value-of select="$captionText"/></xsl:when>
+        <xsl:otherwise>Illustration</xsl:otherwise>
+      </xsl:choose>
+    </xsl:attribute>
+    <xsl:if test="$width != '' or $height != ''">
+      <xsl:attribute name="style">
+        <xsl:if test="$width != ''">width:<xsl:value-of select="$width"/>px;</xsl:if>
+        <xsl:if test="$height != ''">height:<xsl:value-of select="$height"/>px;</xsl:if>
+      </xsl:attribute>
+    </xsl:if>
   </xsl:template>
 
   <xsl:template match="tei:table">

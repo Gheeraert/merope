@@ -64,6 +64,31 @@ def test_link_and_image_and_footnote_ref():
     )
 
 
+def test_image_with_dimensions_and_alignment():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[
+                InlineRun(
+                    image_src="assets/images/x.jpg",
+                    image_alt="Alt",
+                    image_width="300",
+                    image_height="200",
+                    image_align="left",
+                )
+            ],
+        )
+    ]
+    assert blocks_to_markdown(blocks) == (
+        "![Alt](assets/images/x.jpg){width=300 height=200 align=left}\n"
+    )
+
+
+def test_image_without_dimensions_has_no_attribute_suffix():
+    blocks = [Block(kind=PARAGRAPH, runs=[InlineRun(image_src="a.jpg", image_alt="Alt")])]
+    assert blocks_to_markdown(blocks) == "![Alt](a.jpg)\n"
+
+
 def test_blockquote():
     blocks = [Block(kind=BLOCKQUOTE, runs=[InlineRun(text="Une citation.")])]
     assert blocks_to_markdown(blocks) == "> Une citation.\n"

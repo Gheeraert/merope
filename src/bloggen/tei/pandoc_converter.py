@@ -7,8 +7,9 @@ from pathlib import Path
 import tempfile
 
 from bloggen.markdown.front_matter import read_markdown_with_front_matter
+from bloggen.markdown.image_attributes import strip_image_attributes
 from bloggen.markdown.normalizer import normalize_markdown_text
-from bloggen.tei.postprocess import postprocess_tei_file
+from bloggen.tei.postprocess import apply_image_attributes_in_tei_file, postprocess_tei_file
 from bloggen.tei.validator import TeiValidationResult, validate_tei_file
 from bloggen.utils.subprocesses import CommandNotFoundError, run_command
 
@@ -98,6 +99,10 @@ def convert_markdown_file_to_tei(
 
     parsed = read_markdown_with_front_matter(source)
     normalized_body = normalize_markdown_text(parsed.body, google_docs_mode=google_docs_mode)
+    # Pandoc's TEI writer drops Markdown image attribute suffixes
+    # (width/height/align set by the content editor), so they are stripped
+    # before conversion and re-applied to the generated TEI afterwards.
+    normalized_body, image_attributes = strip_image_attributes(normalized_body)
 
     with tempfile.NamedTemporaryFile(
         "w",
@@ -127,6 +132,8 @@ def convert_markdown_file_to_tei(
 
         title = parsed.metadata.get("title")
         postprocess_tei_file(destination, destination, title=title)
+        if image_attributes:
+            apply_image_attributes_in_tei_file(destination, image_attributes)
         validation = validate_tei_file(destination)
 
         if not validation.valid:

@@ -36,6 +36,9 @@ class InlineRun:
     link_href: str | None = None
     image_src: str | None = None
     image_alt: str | None = None
+    image_width: str | None = None
+    image_height: str | None = None
+    image_align: str | None = None  # "left" | "center" | "right"
     footnote_ref: str | None = None
 
 

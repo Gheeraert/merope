@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 
+from bloggen.markdown.image_attributes import format_image_attributes
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -98,7 +99,14 @@ def _runs_to_md(runs: list[InlineRun]) -> str:
 def _run_to_md(run: InlineRun) -> str:
     if run.image_src is not None:
         alt = _escape_text(run.image_alt or "")
-        return f"![{alt}]({run.image_src})"
+        attrs = format_image_attributes(
+            {
+                "width": run.image_width or "",
+                "height": run.image_height or "",
+                "align": run.image_align or "",
+            }
+        )
+        return f"![{alt}]({run.image_src}){attrs}"
     if run.footnote_ref is not None:
         return f"[^{run.footnote_ref}]"
 

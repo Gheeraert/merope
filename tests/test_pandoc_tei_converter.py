@@ -106,3 +106,31 @@ def test_end_to_end_markdown_to_tei_with_real_pandoc_if_available():
     assert "<figcaption>Une image</figcaption>" in html
     assert re.search(r"<p>\s*<figure", html) is None
     assert "<p>Une image</p>" not in html
+
+
+def test_image_attributes_survive_real_pandoc_conversion_to_tei():
+    if shutil.which("pandoc") is None:
+        pytest.skip("Pandoc non disponible dans l'environnement de test.")
+
+    markdown_source = RUNTIME_DIR / "pipeline_image_attrs_source.md"
+    markdown_source.write_text(
+        "# Titre\n\n"
+        "![Une image](../../assets/images/exemple.jpg){width=300 height=200 align=left}\n",
+        encoding="utf-8",
+    )
+
+    output_path = RUNTIME_DIR / "pipeline_image_attrs_output.xml"
+    result = convert_markdown_file_to_tei(markdown_source, output_path, pandoc_command="pandoc")
+
+    assert result.success is True
+    tei_content = output_path.read_text(encoding="utf-8")
+    assert 'width="300"' in tei_content
+    assert 'height="200"' in tei_content
+    assert 'rend="align-left"' in tei_content
+    # The attribute suffix itself must not leak into the TEI text content.
+    assert "width=300" not in tei_content
+    assert "{width" not in tei_content
+
+    html = render_tei_file_to_html_fragment(output_path, parameters={"article_slug": "attrs"})
+    assert 'style="width:300px;height:200px;"' in html
+    assert "align-left" in html

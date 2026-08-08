@@ -216,7 +216,17 @@ Actions disponibles (boutons à droite de la liste) :
 - **Supprimer** : supprime définitivement le fichier sélectionné (confirmation demandée).
 - **Actualiser** : recharge la liste depuis le disque.
 
-**Barre de mise en forme** (au-dessus de la zone de texte) : sélectionnez du texte puis cliquez sur **G** (gras), **I** (italique), **S** (barré), ou placez le curseur sur une ligne puis cliquez sur **H1-H4** (titre), **Citation**, **Liste à puces**, **Liste numérotée** pour transformer la ligne. **Lien...** transforme la sélection en lien (demande l'URL). **Image...** insère une image existante (sélecteur de fichier ; l'image est copiée dans le dossier images du projet). **Tableau...** insère un tableau simple (nombre de lignes/colonnes demandé), modifiable ensuite comme du texte structuré dans la zone grisée. **Note...** insère un appel de note de bas de page (le texte de la note est saisi dans une petite fenêtre et apparaît automatiquement en fin de document à l'enregistrement).
+**Barre de mise en forme** (au-dessus de la zone de texte) : sélectionnez du texte puis cliquez sur **G** (gras), **I** (italique), **S** (barré), ou placez le curseur sur une ligne puis cliquez sur **H1-H4** (titre), **Citation**, **Liste à puces**, **Liste numérotée** pour transformer la ligne. **Lien...** transforme la sélection en lien (demande l'URL). **Image...** insère une image existante (voir plus bas). **Tableau...** insère un tableau simple (nombre de lignes/colonnes demandé), modifiable ensuite comme du texte structuré dans la zone grisée. **Note...** insère un appel de note de bas de page (voir plus bas). **Corriger la typographie** applique aux guillemets et à la ponctuation de la sélection les mêmes règles qu'à la frappe (utile après un collage — voir ci-dessous ; remplace le texte sélectionné, la mise en forme de la sélection n'est pas conservée).
+
+**Typographie française automatique** : en tapant directement dans l'éditeur, les guillemets droits (`"`) sont convertis à la volée en guillemets français alternés (`«`/`»`, ouvrant puis fermant, puis ouvrant à nouveau...), avec une espace insécable collée à l'intérieur. Une espace insécable est aussi automatiquement posée avant `; : ! ?` (qu'elle soit tapée avec ou sans espace avant). Cela ne s'applique pas dans les zones de tableau ou de contenu non reconnu (fond grisé/jauni).
+
+**Notes de bas de page** : un panneau dédié sous la zone de texte liste toutes les notes du document ([1], [2]...), avec un champ modifiable pour chacune — le texte de la note se corrige directement là, sans dialogue séparé. Cliquer sur un appel de note `[N]` dans le texte donne le focus à la note correspondante dans le panneau. **Supprimer** retire une note (les appels de note existants dans le texte ne sont pas retirés automatiquement).
+
+**Images** : **Image...** ouvre un sélecteur de fichier et copie l'image choisie dans le dossier images du projet ; elle s'affiche ensuite en aperçu réel (pas un simple texte de remplacement), avec sa propre mini barre d'outils :
+- **Poignées de redimensionnement** (petits carrés bleus aux 4 coins) : cliquer-glisser change la taille d'affichage, proportionnellement. Redimensionnement non destructif — le fichier original n'est jamais modifié, seule la taille d'affichage choisie est enregistrée.
+- **⇐ / ≡ / ⇒** : alignement gauche / centré / droite. Affecte la mise en page du site publié (l'image flotte à gauche ou à droite du texte, ou reste centrée) ; dans l'éditeur, seule l'étiquette texte de l'alignement change (Tkinter ne peut pas simuler visuellement un flottement).
+- **Recadrer...** : ouvre une fenêtre avec l'image en pleine résolution et un cadre de sélection à poignées ; à la validation, une **copie réellement découpée** du fichier est enregistrée (le fichier d'origine n'est pas modifié) et l'image de l'éditeur pointe désormais vers cette copie.
+- **Remplacer...** : change le fichier image utilisé, en conservant la taille et l'alignement déjà choisis.
 
 **Métadonnées...** : ouvre une petite fenêtre pour renseigner le titre, le slug (identifiant d'URL, suggéré automatiquement à partir du titre), la date (pour un billet), l'auteur, la description, le gabarit (`layout`, optionnel) et le statut brouillon. C'est l'équivalent du front matter YAML en tête d'un fichier Markdown classique, mais rempli via un formulaire plutôt qu'à la main.
 
@@ -239,6 +249,9 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 - `src/bloggen/ui/menu_editor.py` — onglets Menu supérieur / Menu latéral.
 - `src/bloggen/ui/dialogs.py` — boîtes de dialogue d'ajout/modification d'une entrée de menu ou d'une section.
 - `src/bloggen/ui/tooltip.py` — composant d'info-bulle affiché au survol des champs.
-- `src/bloggen/ui/content_editor.py` — fenêtre de l'éditeur de contenu WYSIWYG et boîte de dialogue des métadonnées.
+- `src/bloggen/ui/content_editor.py` — fenêtre de l'éditeur de contenu WYSIWYG, boîte de dialogue des métadonnées, panneau de notes, typographie française en direct.
+- `src/bloggen/ui/image_widget.py` — aperçu d'image réel, poignées de redimensionnement, alignement, recadrage.
 - `src/bloggen/markdown/rich_text_model.py`, `rich_text_export.py`, `rich_text_import.py` — modèle pivot et conversions Markdown <-> saisie visuelle.
+- `src/bloggen/markdown/typography.py` — conversion des guillemets et espaces insécables.
+- `src/bloggen/markdown/image_attributes.py` — suffixe `{width=... height=... align=...}` sur les images Markdown.
 - `src/bloggen/content/writer.py` — écriture des fichiers de pages/billets (slug, nom de fichier, front matter).

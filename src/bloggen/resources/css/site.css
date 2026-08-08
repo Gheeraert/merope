@@ -244,6 +244,23 @@ button:focus-visible {
   background: #f8f5f0;
 }
 
+.article-figure.align-left {
+  float: left;
+  margin: 0.25rem 1.5rem 1rem 0;
+  max-width: 50%;
+}
+
+.article-figure.align-right {
+  float: right;
+  margin: 0.25rem 0 1rem 1.5rem;
+  max-width: 50%;
+}
+
+.article-figure.align-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .figure-image-link,
 .article-figure img {
   display: block;

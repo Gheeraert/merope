@@ -1,6 +1,10 @@
 ﻿from __future__ import annotations
 
-from bloggen.tei.postprocess import postprocess_tei_xml, rewrite_graphic_urls_in_tei_xml
+from bloggen.tei.postprocess import (
+    apply_image_attributes_in_tei_xml,
+    postprocess_tei_xml,
+    rewrite_graphic_urls_in_tei_xml,
+)
 from bloggen.tei.validator import validate_tei_xml
 
 
@@ -34,3 +38,43 @@ def test_rewrite_graphic_urls_in_tei_xml():
     )
     rewritten = rewrite_graphic_urls_in_tei_xml(raw, {"media/a.jpg": "../../content-media/post/a.jpg"})
     assert "../../content-media/post/a.jpg" in rewritten
+
+
+def test_apply_image_attributes_sets_width_height_and_rend():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><figure><graphic url=\"media/a.jpg\"/></figure></body></text>"
+        "</TEI>"
+    )
+    rewritten = apply_image_attributes_in_tei_xml(
+        raw, {"media/a.jpg": {"width": "300", "height": "200", "align": "left"}}
+    )
+    assert 'width="300"' in rewritten
+    assert 'height="200"' in rewritten
+    assert 'rend="align-left"' in rewritten
+
+
+def test_apply_image_attributes_partial_attrs():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><figure><graphic url=\"media/a.jpg\"/></figure></body></text>"
+        "</TEI>"
+    )
+    rewritten = apply_image_attributes_in_tei_xml(raw, {"media/a.jpg": {"width": "300"}})
+    assert 'width="300"' in rewritten
+    assert "height=" not in rewritten
+    assert "rend=" not in rewritten
+
+
+def test_apply_image_attributes_noop_when_empty():
+    raw = "<TEI><text><body><p>Bonjour</p></body></text></TEI>"
+    assert apply_image_attributes_in_tei_xml(raw, {}) == raw
+
+
+def test_apply_image_attributes_noop_when_no_matching_graphic():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><figure><graphic url=\"media/other.jpg\"/></figure></body></text>"
+        "</TEI>"
+    )
+    assert apply_image_attributes_in_tei_xml(raw, {"media/a.jpg": {"width": "300"}}) == raw

@@ -11,7 +11,6 @@ populate the widget on load.
 
 from __future__ import annotations
 
-import shutil
 from datetime import date
 from pathlib import Path
 from tkinter import messagebox, filedialog, simpledialog, ttk
@@ -42,11 +41,20 @@ from bloggen.markdown.rich_text_model import (
     InlineRun,
     plain_text,
 )
+from bloggen.markdown.typography import (
+    CLOSING_GUILLEMET,
+    DOUBLE_PUNCTUATION,
+    NBSP,
+    OPENING_GUILLEMET,
+    apply_french_typography,
+)
+from bloggen.ui.image_widget import ImageWidget, copy_into_images_dir
 from bloggen.ui.tooltip import add_tooltip
 
 _HEADING_TAGS = ("h1", "h2", "h3", "h4")
 _BLOCK_LINE_TAGS = {"h1", "h2", "h3", "h4", "blockquote", "bullet_item", "ordered_item", "table_source", "verbatim"}
 _CHAR_TAGS = ("bold", "italic", "strike")
+_TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE_PUNCTUATION
 
 
 class ContentMetadataDialog(simpledialog.Dialog):
@@ -208,10 +216,12 @@ class ContentEditorWindow(tk.Toplevel):
         self.metadata: dict[str, str] = {}
         self.footnote_definitions: dict[str, str] = {}
         self.link_data: dict[str, str] = {}
-        self.image_data: dict[str, tuple[str, str]] = {}
         self.footnote_ref_data: dict[str, str] = {}
         self._tag_counter = 0
         self._file_entries: list[tuple[str, Path]] = []  # (kind, path)
+        self._footnote_vars: dict[str, tk.StringVar] = {}
+        self._footnote_rows: dict[str, ttk.Frame] = {}
+        self._quote_parity_opening = True
 
         self._build_ui()
         self._refresh_file_list()
@@ -302,6 +312,21 @@ class ContentEditorWindow(tk.Toplevel):
 
         ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
 
+        typo_button = ttk.Button(
+            toolbar, text="Corriger la typographie", command=self._apply_typography_to_selection
+        )
+        typo_button.pack(side="left", padx=1)
+        add_tooltip(
+            typo_button,
+            "Applique aux guillemets et à la ponctuation double ( ; : ! ? ) de la "
+            "sélection les mêmes règles typographiques que la saisie en direct "
+            "(guillemets français, espaces insécables). Utile après un collage. "
+            "Attention : remplace le texte sélectionné, la mise en forme (gras/"
+            "italique) de la sélection n'est pas conservée.",
+        )
+
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
+
         meta_button = ttk.Button(toolbar, text="Métadonnées...", command=self._edit_metadata)
         meta_button.pack(side="left", padx=1)
         add_tooltip(meta_button, "Titre, slug, date, auteur, description...")
@@ -310,9 +335,19 @@ class ContentEditorWindow(tk.Toplevel):
         save_button.pack(side="right", padx=1)
         add_tooltip(save_button, "Écrit ce contenu dans son fichier Markdown.")
 
-        self.text = tk.Text(master, wrap="word", undo=True, font=("TkDefaultFont", 11))
+        vertical_paned = ttk.PanedWindow(master, orient="vertical")
+        vertical_paned.pack(fill="both", expand=True)
+
+        text_frame = ttk.Frame(vertical_paned)
+        vertical_paned.add(text_frame, weight=5)
+        self.text = tk.Text(text_frame, wrap="word", undo=True, font=("TkDefaultFont", 11))
         self.text.pack(fill="both", expand=True)
         self._configure_tags()
+        self.text.bind("<KeyRelease>", self._on_key_release, add="+")
+
+        notes_frame = ttk.Frame(vertical_paned)
+        vertical_paned.add(notes_frame, weight=1)
+        self._build_notes_panel(notes_frame)
 
     def _configure_tags(self) -> None:
         text = self.text
@@ -333,6 +368,137 @@ class ContentEditorWindow(tk.Toplevel):
         text.tag_configure("footnote_style", foreground="#1a73e8")
         for tag in ("bold", "italic", "strike", "link_style", "image_style", "footnote_style"):
             text.tag_raise(tag)
+
+    def _build_notes_panel(self, master: tk.Misc) -> None:
+        ttk.Label(master, text="Notes de bas de page", foreground="#444444").pack(
+            anchor="w", padx=4, pady=(2, 4)
+        )
+
+        container = ttk.Frame(master)
+        container.pack(fill="both", expand=True)
+
+        self._notes_canvas = tk.Canvas(container, height=90, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=self._notes_canvas.yview)
+        self.notes_list_frame = ttk.Frame(self._notes_canvas)
+        self.notes_list_frame.bind(
+            "<Configure>",
+            lambda _e: self._notes_canvas.configure(scrollregion=self._notes_canvas.bbox("all")),
+        )
+        self._notes_canvas.create_window((0, 0), window=self.notes_list_frame, anchor="nw")
+        self._notes_canvas.configure(yscrollcommand=scrollbar.set)
+        self._notes_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        self._refresh_notes_panel()
+
+    def _refresh_notes_panel(self) -> None:
+        for child in self.notes_list_frame.winfo_children():
+            child.destroy()
+        self._footnote_vars = {}
+        self._footnote_rows = {}
+
+        if not self.footnote_definitions:
+            ttk.Label(
+                self.notes_list_frame, text="Aucune note pour l'instant.", foreground="#777777"
+            ).pack(anchor="w", padx=4, pady=4)
+            return
+
+        for note_id in sorted(self.footnote_definitions, key=int):
+            row = ttk.Frame(self.notes_list_frame)
+            row.pack(fill="x", padx=4, pady=2)
+            ttk.Label(row, text=f"[{note_id}]", width=4).pack(side="left")
+
+            var = tk.StringVar(value=self.footnote_definitions[note_id])
+            entry = ttk.Entry(row, textvariable=var)
+            entry.pack(side="left", fill="x", expand=True, padx=4)
+            add_tooltip(entry, "Texte de la note, modifiable directement ici.")
+            var.trace_add(
+                "write",
+                lambda *_args, nid=note_id, v=var: self.footnote_definitions.__setitem__(nid, v.get()),
+            )
+
+            delete_button = ttk.Button(row, text="Supprimer", command=lambda nid=note_id: self._delete_footnote(nid))
+            delete_button.pack(side="left")
+            add_tooltip(delete_button, "Supprime cette note (les appels de note existants ne sont pas retirés du texte).")
+
+            self._footnote_vars[note_id] = var
+            self._footnote_rows[note_id] = row
+
+    def _delete_footnote(self, note_id: str) -> None:
+        self.footnote_definitions.pop(note_id, None)
+        self._refresh_notes_panel()
+
+    def _focus_footnote_row(self, note_id: str) -> None:
+        row = self._footnote_rows.get(note_id)
+        if row is None:
+            return
+        for child in row.winfo_children():
+            if isinstance(child, ttk.Entry):
+                child.focus_set()
+                child.selection_range(0, "end")
+
+    # -- typographie française -----------------------------------------------
+
+    def _current_line_is_raw(self) -> bool:
+        line = self._current_line()
+        tags = set(self.text.tag_names(f"{line}.0"))
+        return "table_source" in tags or "verbatim" in tags
+
+    def _on_key_release(self, event: tk.Event) -> None:
+        char = event.char
+        if not char or char not in _TYPOGRAPHY_TRIGGER_CHARS:
+            return
+        if self._current_line_is_raw():
+            return
+        self._autoformat_last_typed_char(char)
+
+    def _autoformat_last_typed_char(self, char: str) -> None:
+        # Index expressions with arithmetic (e.g. "1.8-1c") are re-evaluated
+        # against the *current* buffer on every call, so they silently drift
+        # once a delete/insert has changed the line's length. Resolve each
+        # index to a concrete "line.col" string up front and reuse only that.
+        insert_index = self.text.index("insert")
+        char_index = self.text.index(f"{insert_index}-1c")
+
+        if char == '"':
+            self.text.delete(char_index, insert_index)
+            if self._quote_parity_opening:
+                self.text.insert(char_index, OPENING_GUILLEMET + NBSP)
+            else:
+                self.text.insert(char_index, NBSP + CLOSING_GUILLEMET)
+            self._quote_parity_opening = not self._quote_parity_opening
+            return
+
+        if char == OPENING_GUILLEMET:
+            self.text.insert(insert_index, NBSP)
+            return
+        if char == CLOSING_GUILLEMET:
+            self.text.insert(char_index, NBSP)
+            return
+
+        if char in DOUBLE_PUNCTUATION:
+            preceding_index = self.text.index(f"{char_index}-1c")
+            preceding = self.text.get(preceding_index, char_index)
+            if preceding == NBSP:
+                return
+            if preceding == " ":
+                self.text.delete(preceding_index, char_index)
+                self.text.insert(preceding_index, NBSP)
+            else:
+                self.text.insert(char_index, NBSP)
+
+    def _apply_typography_to_selection(self) -> None:
+        selected = self._selection_range()
+        if selected is None:
+            messagebox.showinfo("Typographie", "Sélectionnez d'abord le texte à corriger.")
+            return
+        start, end = selected
+        original = self.text.get(start, end)
+        fixed = apply_french_typography(original)
+        if fixed == original:
+            return
+        self.text.delete(start, end)
+        self.text.insert(start, fixed)
 
     # -- file list ----------------------------------------------------------
 
@@ -388,14 +554,23 @@ class ContentEditorWindow(tk.Toplevel):
         self._refresh_file_list()
 
     def _new_document(self, kind: str) -> None:
+        self._destroy_embedded_images()
         self.text.delete("1.0", "end")
         self.footnote_definitions.clear()
         self.link_data.clear()
-        self.image_data.clear()
         self.footnote_ref_data.clear()
         self.metadata = {}
         self.current_kind = kind
         self.current_path = None
+        self._quote_parity_opening = True
+        self._refresh_notes_panel()
+
+    def _destroy_embedded_images(self) -> None:
+        # Text.delete() does not destroy windows embedded via window_create;
+        # left alone they'd leak as orphaned Tk widgets on every reload.
+        for path in self.text.window_names():
+            widget = self.text.nametowidget(path)
+            widget.destroy()
 
     # -- metadata -------------------------------------------------------------
 
@@ -491,28 +666,30 @@ class ContentEditorWindow(tk.Toplevel):
         if not source:
             return
         alt = simpledialog.askstring("Image", "Texte alternatif (description de l'image) :", parent=self) or ""
+        src_repr = copy_into_images_dir(Path(source), self.images_dir)
+        self._insert_image_widget("insert", src_repr, alt)
 
-        self.images_dir.mkdir(parents=True, exist_ok=True)
-        destination = self.images_dir / Path(source).name
-        counter = 2
-        while destination.exists() and Path(source).resolve() != destination.resolve():
-            destination = self.images_dir / f"{Path(source).stem}-{counter}{Path(source).suffix}"
-            counter += 1
-        if not destination.exists():
-            shutil.copyfile(source, destination)
-
-        try:
-            src_repr = destination.relative_to(self.images_dir.parent).as_posix()
-        except ValueError:
-            src_repr = destination.as_posix()
-
-        tag = self._new_tag("img")
-        self.image_data[tag] = (src_repr, alt)
-        insert_at = self.text.index("insert")
-        self.text.insert(insert_at, f"[image: {alt or destination.name}]")
-        end_at = self.text.index("insert")
-        self.text.tag_add(tag, insert_at, end_at)
-        self.text.tag_add("image_style", insert_at, end_at)
+    def _insert_image_widget(
+        self,
+        index: str,
+        src: str,
+        alt: str,
+        *,
+        width: int | None = None,
+        height: int | None = None,
+        align: str | None = None,
+    ) -> ImageWidget:
+        widget = ImageWidget(
+            self.text,
+            images_dir=self.images_dir,
+            src=src,
+            alt=alt,
+            width=width,
+            height=height,
+            align=align,
+        )
+        self.text.window_create(index, window=widget)
+        return widget
 
     def _insert_table(self) -> None:
         rows = simpledialog.askinteger("Tableau", "Nombre de lignes (en-tête incluse) :", initialvalue=3, minvalue=2, parent=self)
@@ -560,6 +737,8 @@ class ContentEditorWindow(tk.Toplevel):
         end_at = self.text.index("insert")
         self.text.tag_add(tag, insert_at, end_at)
         self.text.tag_add("footnote_style", insert_at, end_at)
+        self.text.tag_bind(tag, "<Button-1>", lambda _e, nid=note_id: self._focus_footnote_row(nid))
+        self._refresh_notes_panel()
 
     # -- extraction (Text widget -> Block model) ---------------------------
 
@@ -576,6 +755,17 @@ class ContentEditorWindow(tk.Toplevel):
                 return candidate
         return "plain"
 
+    def _line_has_window(self, line: int) -> bool:
+        """True if ``line`` contains an embedded window (e.g. an image).
+
+        ``Text.get()`` silently omits embedded windows from its returned
+        text, so a line holding only an image looks empty to a naive
+        blank-line check and would otherwise be skipped as a paragraph
+        separator, silently dropping the image on extraction.
+        """
+        dump = self.text.dump(f"{line}.0", f"{line}.end", window=True)
+        return any(key == "window" for key, _value, _index in dump)
+
     def _extract_runs(self, start: str, end: str) -> list[InlineRun]:
         runs: list[InlineRun] = []
         active: set[str] = set()
@@ -585,13 +775,9 @@ class ContentEditorWindow(tk.Toplevel):
             nonlocal buffer
             if not buffer:
                 return
-            image_tag = next((t for t in active if t in self.image_data), None)
             fnref_tag = next((t for t in active if t in self.footnote_ref_data), None)
             link_tag = next((t for t in active if t in self.link_data), None)
-            if image_tag:
-                src, alt = self.image_data[image_tag]
-                runs.append(InlineRun(image_src=src, image_alt=alt))
-            elif fnref_tag:
+            if fnref_tag:
                 runs.append(InlineRun(footnote_ref=self.footnote_ref_data[fnref_tag]))
             else:
                 runs.append(
@@ -605,7 +791,7 @@ class ContentEditorWindow(tk.Toplevel):
                 )
             buffer = ""
 
-        for key, value, _index in self.text.dump(start, end, tag=True, text=True):
+        for key, value, _index in self.text.dump(start, end, tag=True, text=True, window=True):
             if key == "tagon":
                 flush()
                 active.add(value)
@@ -614,6 +800,19 @@ class ContentEditorWindow(tk.Toplevel):
                 active.discard(value)
             elif key == "text":
                 buffer += value
+            elif key == "window":
+                flush()
+                widget = self.text.nametowidget(value)
+                if isinstance(widget, ImageWidget):
+                    runs.append(
+                        InlineRun(
+                            image_src=widget.src,
+                            image_alt=widget.alt,
+                            image_width=str(widget.width),
+                            image_height=str(widget.height),
+                            image_align=widget.align,
+                        )
+                    )
         flush()
         return runs or [InlineRun(text="")]
 
@@ -633,7 +832,7 @@ class ContentEditorWindow(tk.Toplevel):
         line = 1
         while line <= line_count:
             line_text = self.text.get(f"{line}.0", f"{line}.end")
-            if line_text.strip() == "":
+            if line_text.strip() == "" and not self._line_has_window(line):
                 flush_group(line - 1)
                 line += 1
                 continue
@@ -700,10 +899,10 @@ class ContentEditorWindow(tk.Toplevel):
     # -- population (Block model -> Text widget) ---------------------------
 
     def _populate_from_blocks(self, blocks: list[Block]) -> None:
+        self._destroy_embedded_images()
         self.text.delete("1.0", "end")
         self.footnote_definitions.clear()
         self.link_data.clear()
-        self.image_data.clear()
         self.footnote_ref_data.clear()
 
         body_blocks = [b for b in blocks if b.kind != FOOTNOTE_DEFINITION]
@@ -715,6 +914,9 @@ class ContentEditorWindow(tk.Toplevel):
             if index > 0:
                 self.text.insert("end", "\n\n")
             self._insert_block(block)
+
+        self._quote_parity_opening = True
+        self._refresh_notes_panel()
 
     def _insert_block(self, block: Block) -> None:
         if block.kind == PARAGRAPH:
@@ -754,12 +956,16 @@ class ContentEditorWindow(tk.Toplevel):
     def _insert_runs(self, runs: list[InlineRun]) -> None:
         for run in runs:
             if run.image_src is not None:
-                tag = self._new_tag("img")
-                self.image_data[tag] = (run.image_src, run.image_alt or "")
-                start = self.text.index("end-1c")
-                self.text.insert("end", f"[image: {run.image_alt or run.image_src}]")
-                self.text.tag_add(tag, start, self.text.index("end-1c"))
-                self.text.tag_add("image_style", start, self.text.index("end-1c"))
+                width = int(run.image_width) if run.image_width else None
+                height = int(run.image_height) if run.image_height else None
+                self._insert_image_widget(
+                    "end",
+                    run.image_src,
+                    run.image_alt or "",
+                    width=width,
+                    height=height,
+                    align=run.image_align,
+                )
                 continue
             if run.footnote_ref is not None:
                 tag = self._new_tag("fnref")
@@ -768,6 +974,8 @@ class ContentEditorWindow(tk.Toplevel):
                 self.text.insert("end", f"[{run.footnote_ref}]")
                 self.text.tag_add(tag, start, self.text.index("end-1c"))
                 self.text.tag_add("footnote_style", start, self.text.index("end-1c"))
+                note_id = run.footnote_ref
+                self.text.tag_bind(tag, "<Button-1>", lambda _e, nid=note_id: self._focus_footnote_row(nid))
                 continue
 
             start = self.text.index("end-1c")

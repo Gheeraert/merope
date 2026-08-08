@@ -57,6 +57,16 @@ def test_image_roundtrip():
     assert _roundtrip(body).strip() == body.strip()
 
 
+def test_image_with_attributes_roundtrip():
+    body = "![Une image](assets/images/x.jpg){width=300 height=200 align=left}\n"
+    blocks = markdown_to_blocks(body)
+    run = blocks[0].runs[0]
+    assert run.image_width == "300"
+    assert run.image_height == "200"
+    assert run.image_align == "left"
+    assert _roundtrip(body).strip() == body.strip()
+
+
 def test_unsupported_html_falls_back_to_verbatim_and_is_preserved():
     body = '<div class="weird">contenu <b>html</b> non supporte</div>'
     blocks = markdown_to_blocks(body)
