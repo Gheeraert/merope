@@ -91,6 +91,14 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert (project / "build/tei/pages/accueil.xml").exists()
     assert (project / "build/tei/posts/premier-billet.xml").exists()
     assert (project / "site/content-media/post/premier-billet/media/inline.jpg").exists()
+    assert (project / "site/search-index.json").exists()
+
+    import json
+
+    index_entries = json.loads((project / "site/search-index.json").read_text(encoding="utf-8"))
+    assert len(index_entries) == 2  # accueil (page) + premier-billet (home/archive pages are not indexed)
+    urls = {entry["url"] for entry in index_entries}
+    assert "/billets/premier-billet/index.html" in urls
 
     post_html = (project / "site/billets/premier-billet/index.html").read_text(encoding="utf-8")
     index_html = (project / "site/index.html").read_text(encoding="utf-8")
@@ -117,6 +125,54 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert '<p class="article-meta">' not in home_html
     assert 'href="/' not in index_html
     assert 'href="/' not in archive_html
+
+
+def test_site_builder_skips_search_index_when_disabled(monkeypatch):
+    project = RUNTIME_ROOT / f"site_builder_nosearch_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.search.enabled = False
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(TEI_SAMPLE, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert not (project / "site/search-index.json").exists()
+    home_html = (project / "site/accueil/index.html").read_text(encoding="utf-8")
+    assert "site-search" not in home_html
 
 
 def test_site_builder_disables_missing_banner_without_failing(monkeypatch):

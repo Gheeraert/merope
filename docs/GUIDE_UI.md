@@ -207,6 +207,10 @@ Actions disponibles (boutons à droite de la liste) :
 | Copier assets | Si coché, le dossier assets est copié vers la sortie à chaque génération. | — |
 | Échouer si assets manquants | Si coché, la génération s'arrête en erreur quand un fichier référencé (image, PDF...) est introuvable. Si décoché, un avertissement s'affiche mais la génération continue. | — |
 | Échouer si config invalide | Si coché, la génération est bloquée tant que des erreurs de validation subsistent. | — |
+| Activer la recherche sur le site | Si coché, un index de recherche (`search-index.json`) est généré à chaque build et une case de recherche apparaît sur chaque page du site publié. La recherche se fait entièrement dans le navigateur du visiteur (aucun serveur, aucune base de données) : elle filtre par sous-chaîne, insensible à la casse et aux accents, sur le titre et le texte intégral des pages et billets publiés. | — |
+| Longueur de l'extrait de recherche (car.) | Nombre de caractères affichés sous chaque résultat de recherche. | `160` |
+
+*Limite assumée : recherche par sous-chaîne simple, sans pondération ni tolérance aux fautes de frappe ; la page d'accueil et la page d'archive (simples listes de liens) ne sont pas indexées.*
 
 ---
 

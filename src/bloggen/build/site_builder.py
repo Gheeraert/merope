@@ -22,6 +22,7 @@ from bloggen.render.html_templates import render_archive_fragment, render_page_d
 from bloggen.render.theme import load_custom_template
 from bloggen.render.lightbox import apply_lightbox_markup
 from bloggen.render.margin_notes import apply_notes_rendering
+from bloggen.render.search_index import SearchEntry, extract_plain_text, render_search_index
 from bloggen.render.xslt_runner import render_tei_file_to_html_fragment
 from bloggen.tei.pandoc_converter import PandocUnavailableError, convert_markdown_file_to_tei
 from bloggen.tei.postprocess import rewrite_graphic_urls_in_tei_file
@@ -99,6 +100,14 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         )
 
         _generate_feed_and_sitemap(
+            generated_pages,
+            generated_posts,
+            config=runtime_config,
+            output_root=output_root,
+            report=report,
+        )
+
+        _generate_search_index(
             generated_pages,
             generated_posts,
             config=runtime_config,
@@ -468,6 +477,37 @@ def _generate_feed_and_sitemap(
         sitemap_path = output_root / "sitemap.xml"
         sitemap_path.write_text(sitemap_xml, encoding="utf-8")
         report.generated_html.append(sitemap_path)
+
+
+def _generate_search_index(
+    pages: list[GeneratedItem],
+    posts: list[GeneratedItem],
+    *,
+    config: ProjectConfig,
+    output_root: Path,
+    report: BuildReport,
+) -> None:
+    if not config.search.enabled:
+        return
+
+    excerpt_length = max(config.search.excerpt_length, 0)
+    entries: list[SearchEntry] = []
+    for item in [*pages, *posts]:
+        text = extract_plain_text(item.content_html)
+        entries.append(
+            SearchEntry(
+                title=item.title,
+                url=item.url,
+                excerpt=text[:excerpt_length],
+                text=text,
+            )
+        )
+
+    index_json = render_search_index(entries)
+    index_path = output_root / "search-index.json"
+    index_path.write_text(index_json, encoding="utf-8")
+    report.generated_html.append(index_path)
+    report.warnings.append(f"Index de recherche généré ({len(entries)} pages).")
 
 
 def resolve_project_root(config: ProjectConfig, config_path: Path | None) -> Path:

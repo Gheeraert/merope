@@ -21,6 +21,7 @@ from bloggen.config.models import (
     PathsConfig,
     ProjectConfig,
     RenderConfig,
+    SearchConfig,
     SiteConfig,
 )
 from bloggen.config.validator import validate_config_model
@@ -424,12 +425,16 @@ class MainWindow(tk.Tk):
 
         self.build_tab, self.build_vars = _create_form_tab(
             self.notebook,
-            [("pandoc_command", "Commande pandoc", "pandoc")],
+            [
+                ("pandoc_command", "Commande pandoc", "pandoc"),
+                ("search_excerpt_length", "Longueur de l'extrait de recherche (car.)", "160"),
+            ],
             bool_fields=[
                 ("clean_output_dir", "Nettoyer dossier de sortie", True),
                 ("copy_assets", "Copier assets", True),
                 ("fail_on_missing_assets", "Échouer si assets manquants", False),
                 ("fail_on_invalid_config", "Échouer si config invalide", True),
+                ("search_enabled", "Activer la recherche sur le site", True),
             ],
             intro=(
                 "Réglages du processus de génération du site, déclenché via le menu "
@@ -458,6 +463,15 @@ class MainWindow(tk.Tk):
                 "fail_on_invalid_config": (
                     "Si activé, la génération est bloquée tant que la configuration contient "
                     "des erreurs de validation (voir les messages d'erreur affichés)."
+                ),
+                "search_enabled": (
+                    "Si activé, un index de recherche (JSON) est généré et une case de "
+                    "recherche apparaît sur chaque page du site, permettant de retrouver "
+                    "des pages/billets directement dans le navigateur (sans serveur)."
+                ),
+                "search_excerpt_length": (
+                    "Nombre de caractères affichés sous chaque résultat de recherche.\n"
+                    "Exemple : 160"
                 ),
             },
         )
@@ -694,7 +708,9 @@ class MainWindow(tk.Tk):
         self.media_panel.set_data(config.media_handling)
         self.notes_panel.set_data(config.notes_rendering)
         _set_vars(self.footer_vars, config.footer)
-        _set_vars(self.build_vars, config.build)
+        _set_vars_partial(self.build_vars, config.build)
+        self.build_vars["search_enabled"].set(config.search.enabled)
+        self.build_vars["search_excerpt_length"].set(str(config.search.excerpt_length))
 
     def _collect_from_form(self) -> ProjectConfig:
         site = SiteConfig(**_read_vars(self.site_vars))
@@ -716,7 +732,13 @@ class MainWindow(tk.Tk):
 
         render = RenderConfig(**_read_vars(self.render_vars))
         footer = FooterConfig(**_read_vars(self.footer_vars))
-        build = BuildConfig(**_read_vars(self.build_vars))
+
+        build_raw = _read_vars(self.build_vars)
+        search = SearchConfig(
+            enabled=bool(build_raw.pop("search_enabled")),
+            excerpt_length=int(build_raw.pop("search_excerpt_length")),
+        )
+        build = BuildConfig(**build_raw)
 
         return ProjectConfig(
             version="1.0",
@@ -732,6 +754,7 @@ class MainWindow(tk.Tk):
             notes_rendering=self.notes_panel.get_data(),
             footer=footer,
             build=build,
+            search=search,
         )
 
 
@@ -827,6 +850,18 @@ def _set_vars(vars_map: dict[str, tk.Variable], source: object) -> None:
     for field_name, var in vars_map.items():
         value = getattr(source, field_name)
         var.set(value)
+
+
+def _set_vars_partial(vars_map: dict[str, tk.Variable], source: object) -> None:
+    """Like ``_set_vars``, but silently skips keys not present on ``source``.
+
+    Used for form tabs that mix fields from more than one config dataclass
+    (e.g. the "Génération" tab combines ``BuildConfig`` and ``SearchConfig``).
+    """
+    for field_name, var in vars_map.items():
+        if not hasattr(source, field_name):
+            continue
+        var.set(getattr(source, field_name))
 
 
 def _read_vars(vars_map: dict[str, tk.Variable]) -> dict[str, object]:

@@ -34,9 +34,11 @@ def render_page_document(
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
     side_menu_html = build_side_menu_html(config.menus.side, current_path=current_path)
     footer_html = _render_footer(config)
+    search_html = _render_search_box(config, asset_prefix=asset_prefix)
     css_href = _asset_url("static/css/site.css", asset_prefix=asset_prefix)
     app_js_src = _asset_url("static/js/app.js", asset_prefix=asset_prefix)
     lightbox_js_src = _asset_url("static/js/lightbox.js", asset_prefix=asset_prefix)
+    search_js_src = _asset_url("static/js/search.js", asset_prefix=asset_prefix)
     seo_html = _render_seo_meta(config, title=title, current_path=current_path, description=description)
 
     side_class = "has-side-menu" if side_menu_html else "no-side-menu"
@@ -45,6 +47,8 @@ def render_page_document(
     scripts = [f'    <script src="{escape(app_js_src)}"></script>']
     if config.render.enable_lightbox:
         scripts.append(f'    <script src="{escape(lightbox_js_src)}"></script>')
+    if config.search.enabled:
+        scripts.append(f'    <script src="{escape(search_js_src)}"></script>')
 
     normalized_content = content_html
     if suppress_fragment_meta:
@@ -66,6 +70,7 @@ def render_page_document(
             side_class=side_class,
             content=normalized_content,
             footer=footer_html,
+            search=search_html,
             scripts="\n".join(scripts),
         )
 
@@ -82,6 +87,7 @@ def render_page_document(
         f"  <body data-lightbox-enabled=\"{lightbox_enabled_attr}\">\n"
         f"    {banner_html}\n"
         f"    {top_menu_html}\n"
+        f"    {search_html}\n"
         f"    <div class=\"page-layout {side_class}\">\n"
         f"      {side_menu_html}\n"
         "      <main class=\"main-content article-content\">\n"
@@ -171,6 +177,21 @@ def _render_footer(config: ProjectConfig) -> str:
     if not chunks:
         return ""
     return f'<footer class="site-footer">{" | ".join(chunks)}</footer>'
+
+
+def _render_search_box(config: ProjectConfig, *, asset_prefix: str) -> str:
+    if not config.search.enabled:
+        return ""
+    index_href = _asset_url("search-index.json", asset_prefix=asset_prefix)
+    prefix = (asset_prefix or ".").replace("\\", "/")
+    return (
+        f'<div class="site-search" data-index-href="{escape(index_href)}" '
+        f'data-asset-prefix="{escape(prefix)}">'
+        '<input type="search" class="site-search-input" placeholder="Rechercher…" '
+        'aria-label="Rechercher sur le site">'
+        '<ul class="site-search-results" hidden></ul>'
+        "</div>"
+    )
 
 
 def _render_seo_meta(

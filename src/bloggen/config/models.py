@@ -145,6 +145,15 @@ class BuildConfig:
 
 
 @dataclass(slots=True)
+class SearchConfig:
+    """Client-side static search: a JSON index built at generation time,
+    filtered entirely in the visitor's browser (no server, no database)."""
+
+    enabled: bool = True
+    excerpt_length: int = 160
+
+
+@dataclass(slots=True)
 class ProjectConfig:
     version: str = "1.0"
     site: SiteConfig = field(default_factory=SiteConfig)
@@ -159,6 +168,7 @@ class ProjectConfig:
     notes_rendering: NotesRenderingConfig = field(default_factory=NotesRenderingConfig)
     footer: FooterConfig = field(default_factory=FooterConfig)
     build: BuildConfig = field(default_factory=BuildConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -176,6 +186,7 @@ class ProjectConfig:
         notes_rendering = NotesRenderingConfig(**_dict_or_empty(raw.get("notes_rendering")))
         footer = FooterConfig(**_dict_or_empty(raw.get("footer")))
         build = BuildConfig(**_dict_or_empty(raw.get("build")))
+        search = SearchConfig(**_dict_or_empty(raw.get("search")))
         menus = _menus_from_dict(_dict_or_empty(raw.get("menus")))
         return cls(
             version=str(raw.get("version", "1.0")),
@@ -191,6 +202,7 @@ class ProjectConfig:
             notes_rendering=notes_rendering,
             footer=footer,
             build=build,
+            search=search,
         )
 
 

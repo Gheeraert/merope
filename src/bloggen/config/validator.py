@@ -21,6 +21,7 @@ REQUIRED_ROOT_KEYS = (
     "notes_rendering",
     "footer",
     "build",
+    "search",
 )
 
 REQUIRED_PATH_KEYS = (
@@ -62,6 +63,7 @@ BOOLEAN_FIELDS: tuple[tuple[str, str], ...] = (
     ("build", "fail_on_missing_assets"),
     ("build", "fail_on_invalid_config"),
     ("build", "generate_sitemap"),
+    ("search", "enabled"),
 )
 
 
