@@ -44,6 +44,7 @@ BOOLEAN_FIELDS: tuple[tuple[str, str], ...] = (
     ("blog", "enabled"),
     ("blog", "generate_archive_page"),
     ("blog", "sort_descending_by_date"),
+    ("blog", "generate_rss_feed"),
     ("render", "pretty_print_html"),
     ("render", "generate_tei_files"),
     ("render", "enable_lightbox"),
@@ -60,6 +61,7 @@ BOOLEAN_FIELDS: tuple[tuple[str, str], ...] = (
     ("build", "copy_assets"),
     ("build", "fail_on_missing_assets"),
     ("build", "fail_on_invalid_config"),
+    ("build", "generate_sitemap"),
 )
 
 

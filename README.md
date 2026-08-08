@@ -83,3 +83,23 @@ Règles:
 2. Ajouter en tête un front matter YAML complet (obligatoire).
 3. Placer les images locales dans le dossier d'assets du projet (par exemple `assets/images/`) et vérifier les chemins dans le Markdown.
 4. Lancer la génération du site depuis l'interface ou le pipeline de build.
+
+## Génération en ligne de commande
+
+En plus de l'interface Tkinter, le site peut être généré sans interface graphique :
+
+```
+pip install -e .
+bloggen build --config chemin/vers/config/site.json
+```
+
+Le code de sortie vaut `0` en cas de succès, `1` sinon (configuration invalide ou erreurs de
+build). Utile pour scripter la génération ou l'intégrer à un pipeline CI.
+
+Pour ouvrir l'interface graphique équivalente : `bloggen gui` (ou `python -m bloggen.app`).
+
+## RSS, sitemap et thème
+
+Voir `docs/SPEC_JSON_CONFIG_V1.md` pour :
+- la génération automatique de `feed.xml` et `sitemap.xml` (nécessite `site.base_url`) ;
+- la surcharge du CSS/JS et des gabarits HTML via `paths.theme_dir` / `paths.templates_dir`.

@@ -6,6 +6,7 @@ from datetime import datetime
 from html import escape
 from pathlib import PurePosixPath
 import re
+from string import Template
 
 from bloggen.config.models import ProjectConfig
 from bloggen.render.navigation import (
@@ -26,6 +27,8 @@ def render_page_document(
     asset_prefix: str,
     article_date: str | None = None,
     suppress_fragment_meta: bool = False,
+    description: str | None = None,
+    custom_template: str | None = None,
 ) -> str:
     banner_html = _render_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
@@ -34,6 +37,7 @@ def render_page_document(
     css_href = _asset_url("static/css/site.css", asset_prefix=asset_prefix)
     app_js_src = _asset_url("static/js/app.js", asset_prefix=asset_prefix)
     lightbox_js_src = _asset_url("static/js/lightbox.js", asset_prefix=asset_prefix)
+    seo_html = _render_seo_meta(config, title=title, current_path=current_path, description=description)
 
     side_class = "has-side-menu" if side_menu_html else "no-side-menu"
     lightbox_enabled_attr = "1" if config.render.enable_lightbox else "0"
@@ -48,6 +52,23 @@ def render_page_document(
     if article_date:
         normalized_content = _inject_article_date(normalized_content, article_date)
 
+    if custom_template:
+        return Template(custom_template).safe_substitute(
+            lang=config.site.language,
+            title=escape(title),
+            site_title=escape(config.site.title),
+            seo_meta=seo_html,
+            css_href=escape(css_href),
+            lightbox_enabled=lightbox_enabled_attr,
+            banner=banner_html,
+            top_menu=top_menu_html,
+            side_menu=side_menu_html,
+            side_class=side_class,
+            content=normalized_content,
+            footer=footer_html,
+            scripts="\n".join(scripts),
+        )
+
     return (
         "<!doctype html>\n"
         f"<html lang=\"{escape(config.site.language)}\">\n"
@@ -55,6 +76,7 @@ def render_page_document(
         "    <meta charset=\"utf-8\">\n"
         "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"    <title>{escape(title)} · {escape(config.site.title)}</title>\n"
+        f"{seo_html}"
         f"    <link rel=\"stylesheet\" href=\"{escape(css_href)}\">\n"
         "  </head>\n"
         f"  <body data-lightbox-enabled=\"{lightbox_enabled_attr}\">\n"
@@ -149,6 +171,40 @@ def _render_footer(config: ProjectConfig) -> str:
     if not chunks:
         return ""
     return f'<footer class="site-footer">{" | ".join(chunks)}</footer>'
+
+
+def _render_seo_meta(
+    config: ProjectConfig,
+    *,
+    title: str,
+    current_path: str,
+    description: str | None,
+) -> str:
+    meta_description = (description or config.site.description or "").strip()
+    base_url = (config.site.base_url or "").strip()
+    canonical_url = f"{base_url.rstrip('/')}{current_path}" if base_url else None
+
+    lines: list[str] = []
+    if meta_description:
+        lines.append(f'    <meta name="description" content="{escape(meta_description)}">')
+    if canonical_url:
+        lines.append(f'    <link rel="canonical" href="{escape(canonical_url)}">')
+
+    lines.append(f'    <meta property="og:title" content="{escape(title)}">')
+    lines.append('    <meta property="og:type" content="website">')
+    if meta_description:
+        lines.append(f'    <meta property="og:description" content="{escape(meta_description)}">')
+    if canonical_url:
+        lines.append(f'    <meta property="og:url" content="{escape(canonical_url)}">')
+
+    image = (config.banner.image or "").strip()
+    if base_url and image and not (_URI_SCHEME_RE.match(image) or image.startswith("//")):
+        image_url = f"{base_url.rstrip('/')}/{image.lstrip('/')}"
+        lines.append(f'    <meta property="og:image" content="{escape(image_url)}">')
+
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n"
 
 
 def _asset_url(path: str, *, asset_prefix: str) -> str:

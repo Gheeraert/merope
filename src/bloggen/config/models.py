@@ -68,6 +68,7 @@ class BlogConfig:
     archive_title: str = "Billets"
     archive_path: str = "billets"
     sort_descending_by_date: bool = True
+    generate_rss_feed: bool = True
 
 
 @dataclass(slots=True)
@@ -140,6 +141,7 @@ class BuildConfig:
     fail_on_missing_assets: bool = False
     fail_on_invalid_config: bool = True
     pandoc_command: str = "pandoc"
+    generate_sitemap: bool = True
 
 
 @dataclass(slots=True)

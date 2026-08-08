@@ -9,6 +9,9 @@
 - XSLT HTML
 - images + lightbox
 - notes marginales + notes finales
+- CLI headless (`bloggen build --config ...`)
+- RSS (`feed.xml`), sitemap (`sitemap.xml`) et méta SEO de base (si `site.base_url` renseigné)
+- surcharge de thème (CSS/JS) et de gabarits HTML par projet
 
 ## V1.1
 - amélioration responsive
@@ -19,4 +22,5 @@
 ## V2
 - enrichissements TEI supplémentaires
 - meilleure automatisation des médias
-- variantes de thèmes
+- pagination réelle de l'archive (`blog.posts_per_page` n'est pas encore branché)
+- recherche plein texte statique

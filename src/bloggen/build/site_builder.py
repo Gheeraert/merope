@@ -10,14 +10,16 @@ import re
 import shutil
 
 from bloggen.build.assets import (
-    copy_builtin_resources,
     copy_linked_content_assets,
     copy_project_assets,
+    copy_theme_resources,
 )
 from bloggen.build.reports import BuildReport
 from bloggen.config.models import ProjectConfig
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
+from bloggen.render.feeds import FeedItem, render_rss_feed, render_sitemap
 from bloggen.render.html_templates import render_archive_fragment, render_page_document
+from bloggen.render.theme import load_custom_template
 from bloggen.render.lightbox import apply_lightbox_markup
 from bloggen.render.margin_notes import apply_notes_rendering
 from bloggen.render.xslt_runner import render_tei_file_to_html_fragment
@@ -38,6 +40,7 @@ class GeneratedItem:
     tei_path: Path
     date: str | None
     content_html: str
+    description: str | None
 
 
 def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> BuildReport:
@@ -90,6 +93,15 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         _generate_archive_page(
             generated_posts,
             config=runtime_config,
+            project_root=project_root,
+            output_root=output_root,
+            report=report,
+        )
+
+        _generate_feed_and_sitemap(
+            generated_pages,
+            generated_posts,
+            config=runtime_config,
             output_root=output_root,
             report=report,
         )
@@ -97,7 +109,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         copied_assets = 0
         if runtime_config.build.copy_assets:
             copied_assets = copy_project_assets(project_root, runtime_config.paths.assets_dir, output_root)
-        copied_resources = copy_builtin_resources(output_root)
+        copied_resources = copy_theme_resources(project_root, runtime_config.paths.theme_dir, output_root)
 
         report.warnings.append(f"Ressources intégrées copiées: {copied_resources}.")
         if runtime_config.build.copy_assets:
@@ -298,6 +310,9 @@ def _build_single_item(
     if item.kind != "post":
         article_date = None
 
+    template_name = config.render.post_template if item.kind == "post" else config.render.html_template
+    custom_template = load_custom_template(project_root, config, template_name)
+
     html_document = render_page_document(
         config=config,
         title=item.metadata.title,
@@ -306,6 +321,8 @@ def _build_single_item(
         asset_prefix=_relative_path(html_path.parent, output_root),
         article_date=article_date,
         suppress_fragment_meta=(item.kind == "post"),
+        description=item.metadata.description,
+        custom_template=custom_template,
     )
     html_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_text(html_document, encoding="utf-8")
@@ -320,6 +337,7 @@ def _build_single_item(
         tei_path=tei_path,
         date=item.metadata.date,
         content_html=fragment,
+        description=item.metadata.description,
     )
 
 
@@ -353,12 +371,14 @@ def _generate_home_page(
         content = f"{content}\n{recent_html}"
 
     index_path = output_root / "index.html"
+    custom_template = load_custom_template(project_root, config, config.render.home_template)
     html = render_page_document(
         config=config,
         title=title,
         content_html=content,
         current_path="/index.html",
         asset_prefix=_relative_path(index_path.parent, output_root),
+        custom_template=custom_template,
     )
     index_path.write_text(html, encoding="utf-8")
     report.generated_html.append(index_path)
@@ -368,6 +388,7 @@ def _generate_archive_page(
     posts: list[GeneratedItem],
     *,
     config: ProjectConfig,
+    project_root: Path,
     output_root: Path,
     report: BuildReport,
 ) -> None:
@@ -383,17 +404,70 @@ def _generate_archive_page(
     )
 
     archive_file = output_root / archive_path / "index.html"
+    custom_template = load_custom_template(project_root, config, config.render.html_template)
     html = render_page_document(
         config=config,
         title=config.blog.archive_title,
         content_html=archive_fragment,
         current_path=f"/{archive_path}/index.html",
         asset_prefix=_relative_path(archive_file.parent, output_root),
+        custom_template=custom_template,
     )
 
     archive_file.parent.mkdir(parents=True, exist_ok=True)
     archive_file.write_text(html, encoding="utf-8")
     report.generated_html.append(archive_file)
+
+
+def _generate_feed_and_sitemap(
+    pages: list[GeneratedItem],
+    posts: list[GeneratedItem],
+    *,
+    config: ProjectConfig,
+    output_root: Path,
+    report: BuildReport,
+) -> None:
+    base_url = (config.site.base_url or "").strip()
+    want_feed = config.blog.enabled and config.blog.generate_rss_feed
+    want_sitemap = config.build.generate_sitemap
+
+    if not base_url:
+        if want_feed:
+            report.warnings.append("Flux RSS non généré: site.base_url manquant.")
+        if want_sitemap:
+            report.warnings.append("Sitemap non généré: site.base_url manquant.")
+        return
+
+    if want_feed:
+        feed_items = [
+            FeedItem(title=post.title, url=post.url, date=post.date, description=post.description)
+            for post in posts
+        ]
+        feed_xml = render_rss_feed(
+            site_title=config.site.title,
+            site_description=config.site.description,
+            base_url=base_url,
+            language=config.site.language,
+            items=feed_items,
+        )
+        feed_path = output_root / "feed.xml"
+        feed_path.write_text(feed_xml, encoding="utf-8")
+        report.generated_html.append(feed_path)
+
+    if want_sitemap:
+        urls: list[str] = []
+        if config.home.enabled:
+            urls.append("/index.html")
+        if config.blog.enabled and config.blog.generate_archive_page:
+            archive_path = config.blog.archive_path.strip("/") or "billets"
+            urls.append(f"/{archive_path}/index.html")
+        urls.extend(item.url for item in pages)
+        urls.extend(item.url for item in posts)
+
+        sitemap_xml = render_sitemap(base_url=base_url, urls=urls)
+        sitemap_path = output_root / "sitemap.xml"
+        sitemap_path.write_text(sitemap_xml, encoding="utf-8")
+        report.generated_html.append(sitemap_path)
 
 
 def _resolve_project_root(config: ProjectConfig, config_path: Path | None) -> Path:

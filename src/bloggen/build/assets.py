@@ -105,6 +105,25 @@ def copy_builtin_resources(output_root: Path) -> int:
     return copied
 
 
+def copy_theme_resources(project_root: Path, theme_dir: str, output_root: Path) -> int:
+    """Copy built-in CSS/JS, then let a project theme override individual files.
+
+    A project may provide `<theme_dir>/css/site.css` and/or
+    `<theme_dir>/js/*.js` to replace the built-in look without touching the
+    generator itself. Files not overridden keep the built-in version.
+    """
+    copied = copy_builtin_resources(output_root)
+
+    theme_name = (theme_dir or "").strip()
+    if not theme_name:
+        return copied
+
+    theme_root = (project_root / theme_name).resolve()
+    copied += copy_tree_if_exists(theme_root / "css", output_root / "static" / "css")
+    copied += copy_tree_if_exists(theme_root / "js", output_root / "static" / "js")
+    return copied
+
+
 def _resolve_destination(
     *,
     source: Path,
