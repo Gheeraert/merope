@@ -7,6 +7,7 @@ from tkinter import ttk
 
 from bloggen.config.models import MenuLink, SideMenuSection
 from bloggen.ui.dialogs import ask_menu_link, ask_side_section
+from bloggen.ui.tooltip import add_tooltip
 
 
 def add_top_menu_item(items: list[MenuLink], item: MenuLink) -> None:
@@ -131,23 +132,65 @@ class TopMenuEditor(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        ttk.Label(
+            self,
+            text=(
+                "Liens affichés dans la barre de menu en haut de chaque page (ex. Accueil, "
+                "Billets). L'ordre de la liste est l'ordre d'affichage."
+            ),
+            wraplength=680,
+            justify="left",
+            foreground="#444444",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 8))
+
         self.listbox = tk.Listbox(self, height=12, exportselection=False)
-        self.listbox.grid(row=0, column=0, rowspan=7, sticky="nsew", padx=8, pady=8)
+        self.listbox.grid(row=1, column=0, rowspan=7, sticky="nsew", padx=8, pady=8)
+        add_tooltip(
+            self.listbox,
+            "Chaque ligne est un lien de menu : [ON/OFF] Label -> Cible. "
+            "Sélectionnez une ligne puis utilisez les boutons à droite.",
+        )
 
         buttons = [
-            ("Ajouter", self._add_item),
-            ("Modifier", self._edit_item),
-            ("Supprimer", self._delete_item),
-            ("Monter", self._move_up),
-            ("Descendre", self._move_down),
-            ("Activer/Désactiver", self._toggle_item),
+            (
+                "Ajouter",
+                self._add_item,
+                "Ouvre une fenêtre pour créer un nouveau lien de menu (label, cible, "
+                "type interne/externe, activé, nouvel onglet).",
+            ),
+            (
+                "Modifier",
+                self._edit_item,
+                "Édite le lien actuellement sélectionné dans la liste.",
+            ),
+            (
+                "Supprimer",
+                self._delete_item,
+                "Retire définitivement le lien sélectionné du menu.",
+            ),
+            (
+                "Monter",
+                self._move_up,
+                "Déplace le lien sélectionné d'une position vers le haut (affiché plus tôt).",
+            ),
+            (
+                "Descendre",
+                self._move_down,
+                "Déplace le lien sélectionné d'une position vers le bas (affiché plus tard).",
+            ),
+            (
+                "Activer/Désactiver",
+                self._toggle_item,
+                "Active ou désactive le lien sans le supprimer : un lien désactivé "
+                "n'apparaît pas dans le menu du site généré.",
+            ),
         ]
-        for idx, (label, callback) in enumerate(buttons):
-            ttk.Button(self, text=label, command=callback).grid(
-                row=idx, column=1, sticky="ew", padx=8, pady=4
-            )
+        for idx, (label, callback, help_text) in enumerate(buttons):
+            button = ttk.Button(self, text=label, command=callback)
+            button.grid(row=idx + 1, column=1, sticky="ew", padx=8, pady=4)
+            add_tooltip(button, help_text)
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(6, weight=1)
+        self.grid_rowconfigure(7, weight=1)
 
     def get_items(self) -> list[MenuLink]:
         return [_clone_menu_link(item) for item in self.items]
@@ -226,42 +269,84 @@ class SideMenuEditor(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        ttk.Label(
+            self,
+            text=(
+                "Menu affiché sur le côté des pages, organisé en sections (colonne de "
+                "gauche) contenant chacune des sous-entrées (colonne de droite). Un seul "
+                "niveau de sous-entrées est possible."
+            ),
+            wraplength=680,
+            justify="left",
+            foreground="#444444",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", padx=8, pady=(4, 8))
+
         self.section_list = tk.Listbox(self, height=12, exportselection=False)
-        self.section_list.grid(row=0, column=0, rowspan=7, sticky="nsew", padx=8, pady=8)
+        self.section_list.grid(row=1, column=0, rowspan=7, sticky="nsew", padx=8, pady=8)
         self.section_list.bind("<<ListboxSelect>>", self._on_section_select)
+        add_tooltip(
+            self.section_list,
+            "Liste des sections du menu latéral : [ON/OFF] Nom de section. "
+            "Sélectionnez une section pour voir/éditer ses sous-entrées à droite.",
+        )
 
         self.child_list = tk.Listbox(self, height=12, exportselection=False)
-        self.child_list.grid(row=0, column=2, rowspan=7, sticky="nsew", padx=8, pady=8)
+        self.child_list.grid(row=1, column=2, rowspan=7, sticky="nsew", padx=8, pady=8)
+        add_tooltip(
+            self.child_list,
+            "Sous-entrées de la section sélectionnée à gauche : [ON/OFF] Label -> Cible.",
+        )
 
         section_buttons = [
-            ("+ Section", self._add_section),
-            ("Modifier", self._edit_section),
-            ("Supprimer", self._delete_section),
-            ("Monter", self._move_section_up),
-            ("Descendre", self._move_section_down),
-            ("Activer/Désactiver", self._toggle_section),
+            (
+                "+ Section",
+                self._add_section,
+                "Crée une nouvelle section (regroupement de liens) dans le menu latéral.",
+            ),
+            ("Modifier", self._edit_section, "Renomme la section sélectionnée."),
+            (
+                "Supprimer",
+                self._delete_section,
+                "Supprime la section sélectionnée ainsi que toutes ses sous-entrées.",
+            ),
+            ("Monter", self._move_section_up, "Déplace la section sélectionnée vers le haut."),
+            ("Descendre", self._move_section_down, "Déplace la section sélectionnée vers le bas."),
+            (
+                "Activer/Désactiver",
+                self._toggle_section,
+                "Active ou désactive toute la section sans la supprimer.",
+            ),
         ]
-        for idx, (label, callback) in enumerate(section_buttons):
-            ttk.Button(self, text=label, command=callback).grid(
-                row=idx, column=1, sticky="ew", padx=8, pady=4
-            )
+        for idx, (label, callback, help_text) in enumerate(section_buttons):
+            button = ttk.Button(self, text=label, command=callback)
+            button.grid(row=idx + 1, column=1, sticky="ew", padx=8, pady=4)
+            add_tooltip(button, help_text)
 
         child_buttons = [
-            ("+ Sous-entrée", self._add_child),
-            ("Modifier", self._edit_child),
-            ("Supprimer", self._delete_child),
-            ("Monter", self._move_child_up),
-            ("Descendre", self._move_child_down),
-            ("Activer/Désactiver", self._toggle_child),
+            (
+                "+ Sous-entrée",
+                self._add_child,
+                "Ajoute un lien dans la section actuellement sélectionnée (label, cible, "
+                "type interne/externe, activé, nouvel onglet).",
+            ),
+            ("Modifier", self._edit_child, "Édite la sous-entrée sélectionnée."),
+            ("Supprimer", self._delete_child, "Supprime la sous-entrée sélectionnée."),
+            ("Monter", self._move_child_up, "Déplace la sous-entrée vers le haut."),
+            ("Descendre", self._move_child_down, "Déplace la sous-entrée vers le bas."),
+            (
+                "Activer/Désactiver",
+                self._toggle_child,
+                "Active ou désactive la sous-entrée sans la supprimer.",
+            ),
         ]
-        for idx, (label, callback) in enumerate(child_buttons):
-            ttk.Button(self, text=label, command=callback).grid(
-                row=idx, column=3, sticky="ew", padx=8, pady=4
-            )
+        for idx, (label, callback, help_text) in enumerate(child_buttons):
+            button = ttk.Button(self, text=label, command=callback)
+            button.grid(row=idx + 1, column=3, sticky="ew", padx=8, pady=4)
+            add_tooltip(button, help_text)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(2, weight=1)
-        self.grid_rowconfigure(6, weight=1)
+        self.grid_rowconfigure(7, weight=1)
 
     def get_sections(self) -> list[SideMenuSection]:
         return [

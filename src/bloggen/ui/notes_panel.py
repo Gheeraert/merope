@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from bloggen.config.models import NotesRenderingConfig
+from bloggen.ui.tooltip import add_tooltip
 
 
 class NotesPanel(ttk.Frame):
@@ -21,21 +22,80 @@ class NotesPanel(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        _add_row(self, 0, "Mode", self.mode_var)
-        ttk.Checkbutton(self, text="Activer notes marginales", variable=self.enable_margin_var).grid(
-            row=1, column=0, columnspan=2, sticky="w", padx=8, pady=4
+        ttk.Label(
+            self,
+            text=(
+                "Réglage de l'affichage des notes de bas de page (appels de note dans "
+                "le texte, aperçu en marge, texte complet)."
+            ),
+            wraplength=680,
+            justify="left",
+            foreground="#444444",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10))
+
+        mode_entry = _add_row(self, 1, "Mode", self.mode_var)
+        add_tooltip(
+            mode_entry,
+            "Mode d'affichage global des notes. « margin_excerpt_plus_footnote » "
+            "affiche un court aperçu en marge et le texte complet en bas de page.\n"
+            "Exemple : margin_excerpt_plus_footnote",
         )
-        ttk.Checkbutton(self, text="Activer notes complètes", variable=self.enable_footnotes_var).grid(
-            row=2, column=0, columnspan=2, sticky="w", padx=8, pady=4
+
+        margin_cb = ttk.Checkbutton(
+            self, text="Activer notes marginales", variable=self.enable_margin_var
         )
-        _add_row(self, 3, "Amorce (mots)", self.excerpt_words_var)
-        _add_row(self, 4, "Amorce (caractères)", self.excerpt_chars_var)
-        ttk.Checkbutton(
+        margin_cb.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            margin_cb,
+            "Si activé, un court aperçu de chaque note s'affiche dans la marge à côté "
+            "du texte, en plus de l'appel de note.",
+        )
+
+        footnotes_cb = ttk.Checkbutton(
+            self, text="Activer notes complètes", variable=self.enable_footnotes_var
+        )
+        footnotes_cb.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            footnotes_cb,
+            "Si activé, le texte complet de chaque note est listé (emplacement "
+            "défini par « Emplacement notes finales » ci-dessous).",
+        )
+
+        words_entry = _add_row(self, 4, "Amorce (mots)", self.excerpt_words_var)
+        add_tooltip(
+            words_entry,
+            "Longueur maximale de l'aperçu en marge, en nombre de mots (nombre entier). "
+            "Utilisé si « Préférer le comptage en mots » est activé.\n"
+            "Exemple : 8",
+        )
+
+        chars_entry = _add_row(self, 5, "Amorce (caractères)", self.excerpt_chars_var)
+        add_tooltip(
+            chars_entry,
+            "Longueur maximale de l'aperçu en marge, en nombre de caractères "
+            "(nombre entier). Utilisé si « Préférer le comptage en mots » est désactivé.\n"
+            "Exemple : 80",
+        )
+
+        prefer_cb = ttk.Checkbutton(
             self,
             text="Préférer le comptage en mots",
             variable=self.prefer_words_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=4)
-        _add_row(self, 6, "Emplacement notes finales", self.location_var)
+        )
+        prefer_cb.grid(row=6, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            prefer_cb,
+            "Si activé, l'aperçu en marge est tronqué selon « Amorce (mots) ». Si "
+            "désactivé, il est tronqué selon « Amorce (caractères) ».",
+        )
+
+        location_entry = _add_row(self, 7, "Emplacement notes finales", self.location_var)
+        add_tooltip(
+            location_entry,
+            "Où placer la liste des notes complètes : « end_of_article » les regroupe "
+            "à la fin de chaque billet/page.\n"
+            "Exemple : end_of_article",
+        )
         self.grid_columnconfigure(1, weight=1)
 
     def set_data(self, notes: NotesRenderingConfig) -> None:
@@ -64,6 +124,8 @@ def _add_row(
     row: int,
     label: str,
     variable: tk.StringVar | tk.IntVar,
-) -> None:
+) -> ttk.Entry:
     ttk.Label(master, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
-    ttk.Entry(master, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    entry = ttk.Entry(master, textvariable=variable)
+    entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    return entry

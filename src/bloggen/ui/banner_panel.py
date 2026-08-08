@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from bloggen.config.models import BannerConfig
+from bloggen.ui.tooltip import add_tooltip
 
 
 class BannerPanel(ttk.Frame):
@@ -20,18 +21,65 @@ class BannerPanel(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        ttk.Checkbutton(self, text="Activer la bannière", variable=self.enabled_var).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=8, pady=6
+        ttk.Label(
+            self,
+            text=(
+                "Image large affichée en haut de la page d'accueil (et éventuellement des "
+                "autres pages), au-dessus du menu ou du titre."
+            ),
+            wraplength=680,
+            justify="left",
+            foreground="#444444",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10))
+
+        enable_cb = ttk.Checkbutton(
+            self, text="Activer la bannière", variable=self.enabled_var
         )
-        _add_entry_row(self, 1, "Image", self.image_var)
-        _add_entry_row(self, 2, "Lien", self.link_var)
-        _add_entry_row(self, 3, "Alt", self.alt_var)
-        _add_entry_row(self, 4, "Hauteur (px)", self.height_var)
-        ttk.Checkbutton(
+        enable_cb.grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=6)
+        add_tooltip(enable_cb, "Si désactivé, aucune bannière n'est affichée et les autres champs sont ignorés.")
+
+        image_entry = _add_entry_row(self, 2, "Image", self.image_var)
+        add_tooltip(
+            image_entry,
+            "Chemin de l'image de bannière, relatif au dossier assets (onglet Chemins).\n"
+            "Exemple : assets/images/banniere.jpg",
+        )
+
+        link_entry = _add_entry_row(self, 3, "Lien", self.link_var)
+        add_tooltip(
+            link_entry,
+            "Page ouverte lorsqu'on clique sur la bannière (chemin interne commençant "
+            "par / ou URL externe complète).\n"
+            "Exemple : /index.html",
+        )
+
+        alt_entry = _add_entry_row(self, 4, "Alt", self.alt_var)
+        add_tooltip(
+            alt_entry,
+            "Texte alternatif de l'image, lu par les lecteurs d'écran et affiché si "
+            "l'image ne charge pas. Important pour l'accessibilité.\n"
+            "Exemple : Vue aérienne du campus au printemps",
+        )
+
+        height_entry = _add_entry_row(self, 5, "Hauteur (px)", self.height_var)
+        add_tooltip(
+            height_entry,
+            "Hauteur d'affichage de la bannière en pixels (nombre entier). L'image est "
+            "recadrée pour remplir cette hauteur.\n"
+            "Exemple : 220",
+        )
+
+        overlay_cb = ttk.Checkbutton(
             self,
             text="Afficher le titre sur l'image",
             variable=self.show_title_overlay_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=6)
+        )
+        overlay_cb.grid(row=6, column=0, columnspan=2, sticky="w", padx=8, pady=6)
+        add_tooltip(
+            overlay_cb,
+            "Si activé, le titre du site (onglet Site) est superposé en texte sur "
+            "la bannière plutôt qu'affiché séparément en dessous.",
+        )
         self.grid_columnconfigure(1, weight=1)
 
     def set_data(self, banner: BannerConfig) -> None:
@@ -58,6 +106,8 @@ def _add_entry_row(
     row: int,
     label: str,
     variable: tk.StringVar | tk.IntVar,
-) -> None:
+) -> ttk.Entry:
     ttk.Label(master, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
-    ttk.Entry(master, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    entry = ttk.Entry(master, textvariable=variable)
+    entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    return entry

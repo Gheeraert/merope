@@ -27,6 +27,7 @@ from bloggen.ui.banner_panel import BannerPanel
 from bloggen.ui.media_panel import MediaPanel
 from bloggen.ui.menu_editor import SideMenuEditor, TopMenuEditor
 from bloggen.ui.notes_panel import NotesPanel
+from bloggen.ui.tooltip import add_tooltip
 
 
 class MainWindow(tk.Tk):
@@ -57,6 +58,40 @@ class MainWindow(tk.Tk):
                 ("author", "Auteur", ""),
                 ("description", "Description", ""),
             ],
+            intro=(
+                "Identité générale du site : ce qui apparaît dans l'onglet du navigateur, "
+                "l'en-tête des pages et les métadonnées (SEO, flux RSS)."
+            ),
+            help_texts={
+                "title": (
+                    "Nom du site, affiché dans l'onglet du navigateur et en haut de chaque page.\n"
+                    "Obligatoire (ne peut pas être vide).\n"
+                    "Exemple : Carnets de recherche"
+                ),
+                "subtitle": (
+                    "Accroche courte affichée sous le titre, optionnelle.\n"
+                    "Exemple : Notes de terrain et carnets d'enquête"
+                ),
+                "language": (
+                    "Code de langue du contenu (norme ISO 639-1), utilisé dans le HTML "
+                    "généré (attribut lang) et les flux RSS.\n"
+                    "Obligatoire. Exemple : fr, en, es"
+                ),
+                "base_url": (
+                    "Adresse complète où le site sera publié, sans slash final. "
+                    "Sert à générer les liens absolus, le sitemap et le flux RSS.\n"
+                    "Exemple : https://moncarnet.example.org"
+                ),
+                "author": (
+                    "Nom affiché comme auteur du site (métadonnées, footer).\n"
+                    "Exemple : Jeanne Dupont"
+                ),
+                "description": (
+                    "Résumé en une phrase du contenu du site, utilisé pour le SEO "
+                    "(balise meta description) et les aperçus de partage.\n"
+                    "Exemple : Carnet de recherche sur les archives orales du XIXe siècle."
+                ),
+            },
         )
         self.notebook.add(self.site_tab, text="Site")
 
@@ -77,6 +112,63 @@ class MainWindow(tk.Tk):
                 ("output_dir", "Dossier sortie", "site"),
                 ("tei_dir", "Dossier TEI", "build/tei"),
             ],
+            intro=(
+                "Emplacements de tous les dossiers utilisés par le générateur. "
+                "Les chemins sont relatifs à la « racine projet », sauf celle-ci qui peut être "
+                "absolue. Ces dossiers n'ont pas besoin d'exister à l'avance : MEROPE les crée si besoin."
+            ),
+            help_texts={
+                "project_root": (
+                    "Dossier de base du projet : tous les autres chemins de cet onglet en "
+                    "partent (sauf s'ils sont eux-mêmes absolus). Laissez « . » pour dire "
+                    "« le dossier où se trouve le fichier de configuration ».\n"
+                    "Exemple : . ou C:/Users/moi/mon-carnet"
+                ),
+                "content_dir": (
+                    "Dossier qui regroupe l'ensemble du contenu source (pages + billets), "
+                    "relatif à la racine projet.\n"
+                    "Exemple : content"
+                ),
+                "pages_dir": (
+                    "Dossier des pages statiques (à propos, contact...), généralement un "
+                    "sous-dossier du dossier contenu.\n"
+                    "Exemple : content/pages"
+                ),
+                "posts_dir": (
+                    "Dossier des billets de blog (articles datés), généralement un "
+                    "sous-dossier du dossier contenu.\n"
+                    "Exemple : content/posts"
+                ),
+                "assets_dir": (
+                    "Dossier des fichiers annexes à copier tels quels vers le site généré "
+                    "(images, PDF, etc.).\n"
+                    "Exemple : assets"
+                ),
+                "theme_dir": (
+                    "Dossier du thème graphique (contient les templates et le CSS/JS).\n"
+                    "Exemple : theme"
+                ),
+                "templates_dir": (
+                    "Sous-dossier du thème contenant les fichiers de gabarit HTML "
+                    "(page.html, post.html...).\n"
+                    "Exemple : theme/templates"
+                ),
+                "xslt_dir": (
+                    "Sous-dossier du thème contenant les feuilles de style XSLT utilisées "
+                    "pour transformer le TEI en HTML.\n"
+                    "Exemple : theme/xslt"
+                ),
+                "output_dir": (
+                    "Dossier où le site HTML final est généré. Peut être nettoyé "
+                    "automatiquement à chaque génération (voir onglet Génération).\n"
+                    "Exemple : site"
+                ),
+                "tei_dir": (
+                    "Dossier intermédiaire où les fichiers TEI (XML) générés depuis le "
+                    "Markdown sont conservés, utile pour inspection/débogage.\n"
+                    "Exemple : build/tei"
+                ),
+            },
         )
         self.notebook.add(self.paths_tab, text="Chemins")
 
@@ -93,6 +185,46 @@ class MainWindow(tk.Tk):
                 ("use_front_matter", "Utiliser front matter", True),
                 ("copy_linked_assets", "Copier assets liés", True),
             ],
+            intro=(
+                "Comment MEROPE doit lire et interpréter vos fichiers sources (Markdown) "
+                "avant de les transformer en pages web."
+            ),
+            help_texts={
+                "source_format": (
+                    "Format des fichiers sources à importer. Actuellement seul le Markdown "
+                    "est pris en charge.\n"
+                    "Valeur attendue : markdown"
+                ),
+                "markdown_origin": (
+                    "Outil d'où proviennent vos fichiers Markdown, pour adapter le nettoyage "
+                    "et la conversion (ex. suppression des artefacts d'export Google Docs).\n"
+                    "Exemple : google_docs_export"
+                ),
+                "default_page_layout": (
+                    "Nom du template utilisé par défaut pour une page qui ne précise pas "
+                    "de layout dans son en-tête (front matter).\n"
+                    "Exemple : page (correspond à theme/templates/page.html)"
+                ),
+                "default_post_layout": (
+                    "Nom du template utilisé par défaut pour un billet qui ne précise pas "
+                    "de layout dans son en-tête (front matter).\n"
+                    "Exemple : post (correspond à theme/templates/post.html)"
+                ),
+                "slugify_mode": (
+                    "Méthode de fabrication des identifiants d'URL (slugs) à partir des "
+                    "titres : « ascii » translittère les accents (é -> e) pour des URL "
+                    "sans accents ni caractères spéciaux.\n"
+                    "Exemple : ascii"
+                ),
+                "use_front_matter": (
+                    "Si activé, MEROPE lit les métadonnées (titre, date, layout...) placées "
+                    "en tête de chaque fichier Markdown, entre deux lignes « --- »."
+                ),
+                "copy_linked_assets": (
+                    "Si activé, les images et fichiers référencés depuis vos billets/pages "
+                    "sont automatiquement copiés dans le site généré."
+                ),
+            },
         )
         self.notebook.add(self.content_tab, text="Contenus")
 
@@ -107,6 +239,27 @@ class MainWindow(tk.Tk):
                 ("enabled", "Activer accueil", True),
                 ("show_recent_posts", "Afficher billets récents", True),
             ],
+            intro="Configuration de la page d'accueil du site (index.html).",
+            help_texts={
+                "source": (
+                    "Chemin (relatif à la racine projet) du fichier Markdown utilisé comme "
+                    "contenu de la page d'accueil.\n"
+                    "Exemple : content/pages/accueil.md"
+                ),
+                "layout": (
+                    "Nom du template HTML utilisé pour la page d'accueil.\n"
+                    "Exemple : home (correspond à theme/templates/home.html)"
+                ),
+                "recent_posts_count": (
+                    "Nombre de billets récents à afficher sur l'accueil (nombre entier).\n"
+                    "Exemple : 5"
+                ),
+                "enabled": "Si désactivé, aucune page d'accueil n'est générée.",
+                "show_recent_posts": (
+                    "Si activé, une liste des derniers billets publiés est affichée sur "
+                    "la page d'accueil."
+                ),
+            },
         )
         self.notebook.add(self.home_tab, text="Accueil")
 
@@ -122,6 +275,34 @@ class MainWindow(tk.Tk):
                 ("generate_archive_page", "Générer archive", True),
                 ("sort_descending_by_date", "Tri décroissant par date", True),
             ],
+            intro=(
+                "Comportement de la section « blog » : liste chronologique des billets "
+                "et page d'archive."
+            ),
+            help_texts={
+                "posts_per_page": (
+                    "Nombre de billets affichés par page d'archive avant pagination "
+                    "(nombre entier).\n"
+                    "Exemple : 10"
+                ),
+                "archive_title": (
+                    "Titre affiché en haut de la page listant tous les billets.\n"
+                    "Exemple : Billets"
+                ),
+                "archive_path": (
+                    "Segment d'URL de la page d'archive, sans slash de début ni de fin.\n"
+                    "Exemple : billets (donnera /billets/index.html)"
+                ),
+                "enabled": "Si désactivé, aucune page de blog ni d'archive n'est générée.",
+                "generate_archive_page": (
+                    "Si activé, une page listant tous les billets est générée à l'adresse "
+                    "définie par « Chemin archive »."
+                ),
+                "sort_descending_by_date": (
+                    "Si activé, les billets les plus récents apparaissent en premier "
+                    "dans les listes (archive, accueil, RSS)."
+                ),
+            },
         )
         self.notebook.add(self.blog_tab, text="Blog")
 
@@ -146,6 +327,51 @@ class MainWindow(tk.Tk):
                 ("generate_tei_files", "Conserver TEI", True),
                 ("enable_lightbox", "Activer lightbox", True),
             ],
+            intro=(
+                "Quels fichiers de thème utiliser pour transformer le contenu en pages HTML, "
+                "et options d'affichage des images (lightbox)."
+            ),
+            help_texts={
+                "theme_name": (
+                    "Nom du thème actif, à titre indicatif/documentaire (n'affecte pas "
+                    "directement les chemins, définis dans l'onglet Chemins).\n"
+                    "Exemple : default"
+                ),
+                "html_template": (
+                    "Nom de fichier du gabarit HTML utilisé pour les pages, cherché dans "
+                    "le dossier templates (onglet Chemins).\n"
+                    "Exemple : page.html"
+                ),
+                "post_template": (
+                    "Nom de fichier du gabarit HTML utilisé pour les billets.\n"
+                    "Exemple : post.html"
+                ),
+                "home_template": (
+                    "Nom de fichier du gabarit HTML utilisé pour la page d'accueil.\n"
+                    "Exemple : home.html"
+                ),
+                "tei_to_html_xslt": (
+                    "Nom de fichier de la feuille XSLT qui transforme le TEI intermédiaire "
+                    "en HTML, cherché dans le dossier XSLT (onglet Chemins).\n"
+                    "Exemple : tei_to_html.xsl"
+                ),
+                "lightbox_engine": (
+                    "Bibliothèque JavaScript utilisée pour agrandir les images cliquées.\n"
+                    "Exemple : fancybox"
+                ),
+                "pretty_print_html": (
+                    "Si activé, le HTML généré est indenté et lisible (plus volumineux mais "
+                    "plus facile à relire/déboguer)."
+                ),
+                "generate_tei_files": (
+                    "Si activé, les fichiers TEI intermédiaires sont conservés dans le "
+                    "dossier TEI au lieu d'être supprimés après génération."
+                ),
+                "enable_lightbox": (
+                    "Si activé, les images des articles s'ouvrent en grand dans une visionneuse "
+                    "au clic plutôt que de simplement s'afficher en ligne."
+                ),
+            },
         )
         self.notebook.add(self.render_tab, text="Rendu")
 
@@ -162,6 +388,21 @@ class MainWindow(tk.Tk):
                 ("show_generation_info", "Afficher info génération", True),
                 ("show_last_build_date", "Afficher date build", True),
             ],
+            intro="Contenu affiché en bas de chaque page du site.",
+            help_texts={
+                "text": (
+                    "Texte libre affiché dans le pied de page (copyright, mentions légales...).\n"
+                    "Exemple : © 2026 Jeanne Dupont — Tous droits réservés"
+                ),
+                "show_generation_info": (
+                    "Si activé, une mention « généré avec MEROPE » est ajoutée dans le pied "
+                    "de page."
+                ),
+                "show_last_build_date": (
+                    "Si activé, la date de la dernière génération du site est affichée dans "
+                    "le pied de page."
+                ),
+            },
         )
         self.notebook.add(self.footer_tab, text="Footer")
 
@@ -174,6 +415,35 @@ class MainWindow(tk.Tk):
                 ("fail_on_missing_assets", "Échouer si assets manquants", False),
                 ("fail_on_invalid_config", "Échouer si config invalide", True),
             ],
+            intro=(
+                "Réglages du processus de génération du site, déclenché via le menu "
+                "Actions > Générer le site."
+            ),
+            help_texts={
+                "pandoc_command": (
+                    "Commande ou chemin complet vers l'exécutable Pandoc, utilisé pour "
+                    "certaines conversions. Laissez « pandoc » si l'outil est déjà dans le "
+                    "PATH du système.\n"
+                    "Exemple : pandoc ou C:/Program Files/Pandoc/pandoc.exe"
+                ),
+                "clean_output_dir": (
+                    "Si activé, le dossier de sortie (onglet Chemins) est entièrement vidé "
+                    "avant chaque génération, pour éviter les fichiers obsolètes."
+                ),
+                "copy_assets": (
+                    "Si activé, le dossier assets (onglet Chemins) est copié vers la sortie "
+                    "à chaque génération."
+                ),
+                "fail_on_missing_assets": (
+                    "Si activé, la génération s'arrête en erreur lorsqu'un fichier "
+                    "(image, PDF...) référencé dans le contenu est introuvable. Si désactivé, "
+                    "un avertissement est affiché mais la génération continue."
+                ),
+                "fail_on_invalid_config": (
+                    "Si activé, la génération est bloquée tant que la configuration contient "
+                    "des erreurs de validation (voir les messages d'erreur affichés)."
+                ),
+            },
         )
         self.notebook.add(self.build_tab, text="Génération")
 
@@ -329,25 +599,42 @@ def _create_form_tab(
     notebook: ttk.Notebook,
     text_fields: list[tuple[str, str, str]],
     bool_fields: list[tuple[str, str, bool]] | None = None,
+    intro: str | None = None,
+    help_texts: dict[str, str] | None = None,
 ) -> tuple[ttk.Frame, dict[str, tk.Variable]]:
     frame = ttk.Frame(notebook)
     vars_map: dict[str, tk.Variable] = {}
+    help_texts = help_texts or {}
 
     row = 0
+    if intro:
+        ttk.Label(
+            frame, text=intro, wraplength=680, justify="left", foreground="#444444"
+        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10))
+        row += 1
+
     for field_name, label, default in text_fields:
         var = tk.StringVar(value=default)
         vars_map[field_name] = var
-        ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
-        ttk.Entry(frame, textvariable=var).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+        label_widget = ttk.Label(frame, text=label)
+        label_widget.grid(row=row, column=0, sticky="w", padx=8, pady=4)
+        entry = ttk.Entry(frame, textvariable=var)
+        entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+        help_text = help_texts.get(field_name)
+        if help_text:
+            add_tooltip(label_widget, help_text)
+            add_tooltip(entry, help_text)
         row += 1
 
     if bool_fields:
         for field_name, label, default in bool_fields:
             var = tk.BooleanVar(value=default)
             vars_map[field_name] = var
-            ttk.Checkbutton(frame, text=label, variable=var).grid(
-                row=row, column=0, columnspan=2, sticky="w", padx=8, pady=4
-            )
+            checkbutton = ttk.Checkbutton(frame, text=label, variable=var)
+            checkbutton.grid(row=row, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+            help_text = help_texts.get(field_name)
+            if help_text:
+                add_tooltip(checkbutton, help_text)
             row += 1
 
     frame.grid_columnconfigure(1, weight=1)

@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from bloggen.config.models import MediaHandlingConfig
+from bloggen.ui.tooltip import add_tooltip
 
 
 class MediaPanel(ttk.Frame):
@@ -20,24 +21,78 @@ class MediaPanel(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        _add_row(self, 0, "Stratégie", self.strategy_var)
-        _add_row(self, 1, "Dossier images", self.images_dir_var)
-        ttk.Checkbutton(self, text="Copier les médias vers la sortie", variable=self.copy_media_var).grid(
-            row=2, column=0, columnspan=2, sticky="w", padx=8, pady=4
+        ttk.Label(
+            self,
+            text=(
+                "Comment les images référencées dans vos billets/pages sont récupérées, "
+                "copiées et affichées (agrandissement au clic)."
+            ),
+            wraplength=680,
+            justify="left",
+            foreground="#444444",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10))
+
+        strategy_entry = _add_row(self, 1, "Stratégie", self.strategy_var)
+        add_tooltip(
+            strategy_entry,
+            "Méthode de récupération des médias référencés dans le contenu : "
+            "« copy_local_assets » copie les fichiers déjà présents localement vers "
+            "le dossier images de sortie.\n"
+            "Exemple : copy_local_assets",
         )
-        ttk.Checkbutton(
+
+        images_entry = _add_row(self, 2, "Dossier images", self.images_dir_var)
+        add_tooltip(
+            images_entry,
+            "Dossier (relatif à la racine projet) où sont copiées les images utilisées "
+            "dans le site généré.\n"
+            "Exemple : assets/images",
+        )
+
+        copy_cb = ttk.Checkbutton(
+            self, text="Copier les médias vers la sortie", variable=self.copy_media_var
+        )
+        copy_cb.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            copy_cb,
+            "Si activé, les images sont copiées dans le dossier de sortie à chaque "
+            "génération. À désactiver seulement si vous gérez les images vous-même.",
+        )
+
+        clickable_cb = ttk.Checkbutton(
             self,
             text="Figures cliquables",
             variable=self.clickable_figures_var,
-        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=4)
-        ttk.Checkbutton(self, text="Regrouper les figures par article", variable=self.group_posts_var).grid(
-            row=4, column=0, columnspan=2, sticky="w", padx=8, pady=4
         )
-        ttk.Checkbutton(
+        clickable_cb.grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            clickable_cb,
+            "Si activé, chaque image insérée dans un article devient cliquable pour "
+            "s'afficher en grand (lightbox).",
+        )
+
+        group_cb = ttk.Checkbutton(
+            self, text="Regrouper les figures par article", variable=self.group_posts_var
+        )
+        group_cb.grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            group_cb,
+            "Si activé, les images d'un même article forment un groupe dans la "
+            "visionneuse : on peut naviguer entre elles avec les flèches sans en "
+            "sortir. Nécessite le moteur lightbox « fancybox » (onglet Rendu).",
+        )
+
+        caption_cb = ttk.Checkbutton(
             self,
             text="Utiliser les légendes comme légendes lightbox",
             variable=self.caption_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        )
+        caption_cb.grid(row=6, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            caption_cb,
+            "Si activé, la légende Markdown d'une image (texte sous l'image) est "
+            "réutilisée comme légende dans la visionneuse plein écran.",
+        )
         self.grid_columnconfigure(1, weight=1)
 
     def set_data(self, media: MediaHandlingConfig) -> None:
@@ -59,6 +114,8 @@ class MediaPanel(ttk.Frame):
         )
 
 
-def _add_row(master: tk.Misc, row: int, label: str, variable: tk.StringVar) -> None:
+def _add_row(master: tk.Misc, row: int, label: str, variable: tk.StringVar) -> ttk.Entry:
     ttk.Label(master, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
-    ttk.Entry(master, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    entry = ttk.Entry(master, textvariable=variable)
+    entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+    return entry
