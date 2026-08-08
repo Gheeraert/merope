@@ -56,6 +56,31 @@ def read_markdown_with_front_matter(path: str | Path) -> FrontMatterResult:
     return parse_front_matter(text)
 
 
+def format_front_matter(metadata: dict[str, str]) -> str:
+    """Serialize a flat metadata mapping into a ``---`` front matter block.
+
+    This is the inverse of :func:`parse_front_matter`, which has no escape
+    syntax for quotes, so values are quoted with whichever of ``"``/``'``
+    does not appear in them; a value containing both is a documented edge
+    case and has its double quotes stripped rather than corrupting the
+    front matter block. Values must not contain newlines (they are
+    replaced with spaces).
+    """
+    lines = ["---"]
+    for key, value in metadata.items():
+        text = str(value).replace("\n", " ").replace("\r", " ")
+        if '"' not in text:
+            quoted = f'"{text}"'
+        elif "'" not in text:
+            quoted = f"'{text}'"
+        else:
+            quoted = f'"{text.replace(chr(34), "")}"'
+        lines.append(f"{key}: {quoted}")
+    lines.append("---")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _strip_quotes(value: str) -> str:
     if len(value) >= 2 and ((value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'"))):
         return value[1:-1]

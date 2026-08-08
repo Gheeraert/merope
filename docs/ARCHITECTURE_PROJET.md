@@ -26,6 +26,7 @@ Le système est organisé en modules correspondant au pipeline réel :
 - dialogues
 - éditeur de menus
 - panneaux bannière / médias / notes
+- éditeur de contenu WYSIWYG (pages/billets)
 
 ### `content/`
 - chargement des fichiers
@@ -61,3 +62,18 @@ Le système est organisé en modules correspondant au pipeline réel :
 - pas de parseur Markdown maison
 - Pandoc reste la brique de conversion
 - HTML final produit à partir de la TEI
+
+### Exception bornée : éditeur de contenu WYSIWYG
+
+L’éditeur de contenu intégré (`ui/content_editor.py`) permet de rouvrir en
+WYSIWYG un fichier qu’il a lui-même écrit. Cela suppose un import Markdown
+limité (`markdown/rich_text_import.py`), ce qui touche en apparence à la
+règle « pas de parseur Markdown maison ». Portée de l’exception :
+- cet importeur ne comprend que le sous-ensemble Markdown produit par
+  `markdown/rich_text_export.py` (titres ATX, gras/italique/barré, liens,
+  images, notes, listes simples, citations, tableaux pipe) ;
+- tout ce qu’il ne reconnaît pas avec confiance devient un bloc « verbatim »
+  reproduit tel quel, jamais deviné ni perdu ;
+- il ne remplace en rien Pandoc : la chaîne de génération du site
+  (Markdown → TEI → HTML) reste exclusivement basée sur Pandoc et n’utilise
+  jamais cet importeur.

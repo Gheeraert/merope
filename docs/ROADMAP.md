@@ -12,6 +12,7 @@
 - CLI headless (`bloggen build --config ...`)
 - RSS (`feed.xml`), sitemap (`sitemap.xml`) et méta SEO de base (si `site.base_url` renseigné)
 - surcharge de thème (CSS/JS) et de gabarits HTML par projet
+- éditeur de contenu WYSIWYG intégré (création/édition de pages et billets sans quitter l'application)
 
 ## V1.1
 - amélioration responsive

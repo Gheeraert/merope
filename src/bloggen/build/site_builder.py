@@ -44,7 +44,7 @@ class GeneratedItem:
 
 
 def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> BuildReport:
-    project_root = _resolve_project_root(config, config_path)
+    project_root = resolve_project_root(config, config_path)
     runtime_config = copy.deepcopy(config)
     output_root = (project_root / config.paths.output_dir).resolve()
     requested_tei_root = (project_root / config.paths.tei_dir).resolve()
@@ -470,7 +470,7 @@ def _generate_feed_and_sitemap(
         report.generated_html.append(sitemap_path)
 
 
-def _resolve_project_root(config: ProjectConfig, config_path: Path | None) -> Path:
+def resolve_project_root(config: ProjectConfig, config_path: Path | None) -> Path:
     configured = Path(config.paths.project_root)
     if configured.is_absolute():
         return configured.resolve()

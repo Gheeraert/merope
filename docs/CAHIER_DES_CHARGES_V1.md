@@ -33,6 +33,7 @@ Développer un générateur de site statique léger, pérenne et simple d’usag
 - panneau bannière
 - panneau médias
 - panneau notes
+- éditeur de contenu WYSIWYG intégré (pages/billets, aller-retour Markdown borné à ce que l’éditeur produit lui-même)
 - lancement de génération
 
 ### Rendu
@@ -48,4 +49,3 @@ Développer un générateur de site statique léger, pérenne et simple d’usag
 - taxonomies complexes
 - API Google Docs
 - multi-utilisateur
-- édition WYSIWYG interne

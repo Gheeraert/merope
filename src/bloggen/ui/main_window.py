@@ -7,7 +7,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from bloggen.build.reports import format_build_report
-from bloggen.build.site_builder import build_site
+from bloggen.build.site_builder import build_site, resolve_project_root
 from bloggen.config.defaults import build_default_config
 from bloggen.config.io import ConfigValidationError, load_config, save_config
 from bloggen.config.models import (
@@ -24,6 +24,7 @@ from bloggen.config.models import (
 )
 from bloggen.config.validator import validate_config_model
 from bloggen.ui.banner_panel import BannerPanel
+from bloggen.ui.content_editor import ContentEditorWindow
 from bloggen.ui.media_panel import MediaPanel
 from bloggen.ui.menu_editor import SideMenuEditor, TopMenuEditor
 from bloggen.ui.notes_panel import NotesPanel
@@ -508,11 +509,23 @@ class MainWindow(tk.Tk):
         save_as_button = ttk.Button(
             toolbar, text="Enregistrer sous...", command=self.save_config_as_dialog
         )
-        save_as_button.pack(side="left")
+        save_as_button.pack(side="left", padx=(0, 6))
         add_tooltip(
             save_as_button,
             "Enregistre la configuration actuelle dans un nouveau fichier JSON, "
             "en demandant toujours l'emplacement.",
+        )
+
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
+
+        editor_button = ttk.Button(
+            toolbar, text="Éditeur de contenu...", command=self.open_content_editor
+        )
+        editor_button.pack(side="left")
+        add_tooltip(
+            editor_button,
+            "Ouvre l'éditeur pour rédiger ou modifier des pages et des billets "
+            "directement, sans quitter MEROPE.",
         )
 
     def new_config(self) -> None:
@@ -587,6 +600,22 @@ class MainWindow(tk.Tk):
             messagebox.showinfo("Génération terminée", details)
         else:
             messagebox.showerror("Génération échouée", details)
+
+    def open_content_editor(self) -> None:
+        paths = PathsConfig(**_read_vars(self.paths_vars))
+        project_root = resolve_project_root(ProjectConfig(paths=paths), self.current_config_path)
+        pages_dir = (project_root / paths.pages_dir).resolve()
+        posts_dir = (project_root / paths.posts_dir).resolve()
+        images_dir = (project_root / self.media_panel.images_dir_var.get()).resolve()
+        slugify_mode = self.content_vars["slugify_mode"].get().strip() or "ascii"
+
+        ContentEditorWindow(
+            self,
+            pages_dir=pages_dir,
+            posts_dir=posts_dir,
+            images_dir=images_dir,
+            slugify_mode=slugify_mode,
+        )
 
     def stub_open_output(self) -> None:
         messagebox.showinfo(

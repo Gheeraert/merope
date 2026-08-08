@@ -51,7 +51,7 @@ def build_content_metadata(
     date = (front_matter.get("date") or "").strip() or None
     if declared_type == "post" and not date:
         raise ContentMetadataError(f"Champ obligatoire manquant: date pour un post{context}.")
-    if date is not None and not _is_valid_iso_date(date):
+    if date is not None and not is_valid_iso_date(date):
         raise ContentMetadataError(f"Date invalide '{date}' (format attendu YYYY-MM-DD){context}.")
 
     draft = _parse_optional_bool(front_matter.get("draft"), key="draft", context=context)
@@ -71,7 +71,7 @@ def build_content_metadata(
     )
 
 
-def _is_valid_iso_date(value: str) -> bool:
+def is_valid_iso_date(value: str) -> bool:
     try:
         datetime.strptime(value, "%Y-%m-%d")
     except ValueError:

@@ -22,13 +22,18 @@ Sauf mention contraire, les chemins de fichiers/dossiers demandés sont **relati
 
 **Fichier**
 - **Nouveau** : repart d'une configuration vierge (valeurs par défaut).
-- **Charger JSON...** : ouvre un fichier de configuration `.json` existant pour continuer à l'éditer.
-- **Enregistrer** : sauvegarde l'état actuel du formulaire. La première fois, une fenêtre demande où créer le fichier.
+- **Charger JSON...** (Ctrl+O) : ouvre un fichier de configuration `.json` existant pour continuer à l'éditer.
+- **Enregistrer** (Ctrl+S) : sauvegarde l'état actuel du formulaire dans le fichier en cours (demande un emplacement s'il n'y en a pas encore).
+- **Enregistrer sous...** (Ctrl+Maj+S) : enregistre dans un nouveau fichier, en demandant toujours l'emplacement.
 - **Quitter**.
 
 **Actions**
 - **Générer le site** : construit les pages HTML à partir de la configuration actuelle et du contenu présent dans les dossiers configurés. Un rapport s'affiche à la fin (succès, avertissements, ou erreurs à corriger).
 - **Ouvrir dossier de sortie** : pas encore disponible dans cette version (affiche un message d'information).
+
+## Barre d'outils
+
+Sous la barre de menu, une rangée de boutons donne un accès direct à **Charger... / Enregistrer / Enregistrer sous...** (mêmes actions que le menu Fichier) et à l'**Éditeur de contenu...**, détaillé plus bas.
 
 ---
 
@@ -201,6 +206,26 @@ Actions disponibles (boutons à droite de la liste) :
 
 ---
 
+## Éditeur de contenu
+
+*Fenêtre séparée (bouton « Éditeur de contenu... » dans la barre d'outils) pour rédiger des pages et des billets en saisie visuelle (WYSIWYG) — sans écrire de Markdown à la main — et les enregistrer directement dans les dossiers `pages_dir`/`posts_dir` définis dans l'onglet Chemins.*
+
+**Colonne de gauche** : liste des pages et billets déjà présents sur le disque.
+- **Nouvelle page** / **Nouveau billet** : repart d'un document vierge du type choisi.
+- **Ouvrir** (ou double-clic) : recharge le fichier sélectionné en saisie visuelle.
+- **Supprimer** : supprime définitivement le fichier sélectionné (confirmation demandée).
+- **Actualiser** : recharge la liste depuis le disque.
+
+**Barre de mise en forme** (au-dessus de la zone de texte) : sélectionnez du texte puis cliquez sur **G** (gras), **I** (italique), **S** (barré), ou placez le curseur sur une ligne puis cliquez sur **H1-H4** (titre), **Citation**, **Liste à puces**, **Liste numérotée** pour transformer la ligne. **Lien...** transforme la sélection en lien (demande l'URL). **Image...** insère une image existante (sélecteur de fichier ; l'image est copiée dans le dossier images du projet). **Tableau...** insère un tableau simple (nombre de lignes/colonnes demandé), modifiable ensuite comme du texte structuré dans la zone grisée. **Note...** insère un appel de note de bas de page (le texte de la note est saisi dans une petite fenêtre et apparaît automatiquement en fin de document à l'enregistrement).
+
+**Métadonnées...** : ouvre une petite fenêtre pour renseigner le titre, le slug (identifiant d'URL, suggéré automatiquement à partir du titre), la date (pour un billet), l'auteur, la description, le gabarit (`layout`, optionnel) et le statut brouillon. C'est l'équivalent du front matter YAML en tête d'un fichier Markdown classique, mais rempli via un formulaire plutôt qu'à la main.
+
+**Enregistrer** : convertit le contenu saisi en Markdown (avec front matter) et l'écrit sur disque ; si les métadonnées n'ont pas encore été renseignées, la fenêtre de métadonnées s'ouvre automatiquement avant l'enregistrement.
+
+> Limite assumée : cet éditeur ne comprend, à la réouverture d'un fichier, que le Markdown qu'il produit lui-même (voir `docs/ARCHITECTURE_PROJET.md`). Un passage non reconnu (HTML brut, syntaxe inhabituelle) est affiché tel quel dans une zone repérable (fond jauni) plutôt que d'être mal interprété ou perdu.
+
+---
+
 ## Validation
 
 Avant sauvegarde ou génération, la configuration est vérifiée automatiquement. Les erreurs (ex. champ obligatoire vide, chemin manquant) s'affichent dans une boîte de dialogue et empêchent l'opération tant qu'elles ne sont pas corrigées.
@@ -214,3 +239,6 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 - `src/bloggen/ui/menu_editor.py` — onglets Menu supérieur / Menu latéral.
 - `src/bloggen/ui/dialogs.py` — boîtes de dialogue d'ajout/modification d'une entrée de menu ou d'une section.
 - `src/bloggen/ui/tooltip.py` — composant d'info-bulle affiché au survol des champs.
+- `src/bloggen/ui/content_editor.py` — fenêtre de l'éditeur de contenu WYSIWYG et boîte de dialogue des métadonnées.
+- `src/bloggen/markdown/rich_text_model.py`, `rich_text_export.py`, `rich_text_import.py` — modèle pivot et conversions Markdown <-> saisie visuelle.
+- `src/bloggen/content/writer.py` — écriture des fichiers de pages/billets (slug, nom de fichier, front matter).
