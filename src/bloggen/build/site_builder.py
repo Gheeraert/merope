@@ -17,7 +17,7 @@ from bloggen.build.assets import (
 from bloggen.build.reports import BuildReport
 from bloggen.config.models import ProjectConfig
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
-from bloggen.render.feeds import FeedItem, render_rss_feed, render_sitemap
+from bloggen.render.feeds import FeedItem, render_robots_txt, render_rss_feed, render_sitemap
 from bloggen.render.html_templates import render_archive_fragment, render_page_document
 from bloggen.render.theme import load_custom_template
 from bloggen.render.lightbox import apply_lightbox_markup
@@ -439,6 +439,13 @@ def _generate_feed_and_sitemap(
     base_url = (config.site.base_url or "").strip()
     want_feed = config.blog.enabled and config.blog.generate_rss_feed
     want_sitemap = config.build.generate_sitemap
+    want_robots = config.build.generate_robots_txt
+
+    if want_robots:
+        robots_txt = render_robots_txt(base_url=base_url, include_sitemap=want_sitemap and bool(base_url))
+        robots_path = output_root / "robots.txt"
+        robots_path.write_text(robots_txt, encoding="utf-8")
+        report.generated_html.append(robots_path)
 
     if not base_url:
         if want_feed:
@@ -464,14 +471,16 @@ def _generate_feed_and_sitemap(
         report.generated_html.append(feed_path)
 
     if want_sitemap:
-        urls: list[str] = []
+        urls: list[tuple[str, str | None]] = []
         if config.home.enabled:
-            urls.append("/index.html")
+            home_lastmod = posts[0].date if posts else None
+            urls.append(("/index.html", home_lastmod))
         if config.blog.enabled and config.blog.generate_archive_page:
             archive_path = config.blog.archive_path.strip("/") or "billets"
-            urls.append(f"/{archive_path}/index.html")
-        urls.extend(item.url for item in pages)
-        urls.extend(item.url for item in posts)
+            archive_lastmod = posts[0].date if posts else None
+            urls.append((f"/{archive_path}/index.html", archive_lastmod))
+        urls.extend((item.url, item.date) for item in pages)
+        urls.extend((item.url, item.date) for item in posts)
 
         sitemap_xml = render_sitemap(base_url=base_url, urls=urls)
         sitemap_path = output_root / "sitemap.xml"

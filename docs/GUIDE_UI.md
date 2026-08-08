@@ -53,6 +53,8 @@ Demande un dossier (vide de préférence) puis y crée une arborescence complèt
 | Auteur | Le nom affiché comme auteur du site. | `Jeanne Dupont` |
 | Description | Un résumé en une phrase, utilisé pour le référencement (SEO) et les aperçus de partage sur les réseaux. | `Carnet de recherche sur les archives orales du XIXe siècle.` |
 
+**Référencement (SEO)** : dès que « Base URL » est renseignée, chaque page générée reçoit automatiquement une balise `<link rel="canonical">`, une méta-description, les balises Open Graph et Twitter Card (aperçus de partage sur les réseaux), un bloc de données structurées `schema.org` (JSON-LD — `Article` pour les billets avec leur date de publication, `WebSite` pour la page d'accueil), ainsi qu'un `sitemap.xml` (avec date de dernière modification), un `feed.xml` (RSS) et un `robots.txt` référençant le sitemap. Sans « Base URL », ces fichiers annexes ne sont pas générés (avertissement affiché), mais un `robots.txt` minimal (`Allow: /`) est tout de même produit.
+
 ## 2. Bannière
 *Image large affichée en haut de la page d'accueil (et éventuellement des autres pages), au-dessus du menu ou du titre. Entièrement facultative.*
 

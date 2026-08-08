@@ -54,15 +54,25 @@ def render_rss_feed(
     )
 
 
-def render_sitemap(*, base_url: str, urls: list[str]) -> str:
+def render_sitemap(*, base_url: str, urls: list[tuple[str, str | None]]) -> str:
     base = base_url.rstrip("/")
-    entries = "".join(f"<url><loc>{xml_escape(base + url)}</loc></url>" for url in urls)
+    entries = []
+    for url, lastmod in urls:
+        lastmod_tag = f"<lastmod>{xml_escape(lastmod)}</lastmod>" if lastmod else ""
+        entries.append(f"<url><loc>{xml_escape(base + url)}</loc>{lastmod_tag}</url>")
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-        + entries
+        + "".join(entries)
         + "</urlset>\n"
     )
+
+
+def render_robots_txt(*, base_url: str, include_sitemap: bool) -> str:
+    lines = ["User-agent: *", "Allow: /"]
+    if include_sitemap and base_url:
+        lines.append(f"Sitemap: {base_url.rstrip('/')}/sitemap.xml")
+    return "\n".join(lines) + "\n"
 
 
 def _format_rfc822(date: str | None) -> str | None:

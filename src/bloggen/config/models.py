@@ -142,6 +142,7 @@ class BuildConfig:
     fail_on_invalid_config: bool = True
     pandoc_command: str = "pandoc"
     generate_sitemap: bool = True
+    generate_robots_txt: bool = True
 
 
 @dataclass(slots=True)

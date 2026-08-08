@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from html import escape
+import json
 from pathlib import PurePosixPath
 import re
 from string import Template
@@ -39,7 +40,14 @@ def render_page_document(
     app_js_src = _asset_url("static/js/app.js", asset_prefix=asset_prefix)
     lightbox_js_src = _asset_url("static/js/lightbox.js", asset_prefix=asset_prefix)
     search_js_src = _asset_url("static/js/search.js", asset_prefix=asset_prefix)
-    seo_html = _render_seo_meta(config, title=title, current_path=current_path, description=description)
+    seo_html = _render_seo_meta(
+        config,
+        title=title,
+        current_path=current_path,
+        description=description,
+        is_article=bool(article_date),
+        published_date=article_date,
+    )
 
     side_class = "has-side-menu" if side_menu_html else "no-side-menu"
     lightbox_enabled_attr = "1" if config.render.enable_lightbox else "0"
@@ -200,32 +208,104 @@ def _render_seo_meta(
     title: str,
     current_path: str,
     description: str | None,
+    is_article: bool = False,
+    published_date: str | None = None,
 ) -> str:
     meta_description = (description or config.site.description or "").strip()
     base_url = (config.site.base_url or "").strip()
     canonical_url = f"{base_url.rstrip('/')}{current_path}" if base_url else None
+    author = (config.site.author or "").strip()
 
     lines: list[str] = []
     if meta_description:
         lines.append(f'    <meta name="description" content="{escape(meta_description)}">')
+    if author:
+        lines.append(f'    <meta name="author" content="{escape(author)}">')
     if canonical_url:
         lines.append(f'    <link rel="canonical" href="{escape(canonical_url)}">')
 
     lines.append(f'    <meta property="og:title" content="{escape(title)}">')
-    lines.append('    <meta property="og:type" content="website">')
+    lines.append(f'    <meta property="og:type" content="{"article" if is_article else "website"}">')
     if meta_description:
         lines.append(f'    <meta property="og:description" content="{escape(meta_description)}">')
     if canonical_url:
         lines.append(f'    <meta property="og:url" content="{escape(canonical_url)}">')
+    if is_article and published_date:
+        lines.append(
+            f'    <meta property="article:published_time" content="{escape(published_date)}T00:00:00Z">'
+        )
+    if is_article and author:
+        lines.append(f'    <meta property="article:author" content="{escape(author)}">')
 
+    image_url = None
     image = (config.banner.image or "").strip()
     if base_url and image and not (_URI_SCHEME_RE.match(image) or image.startswith("//")):
         image_url = f"{base_url.rstrip('/')}/{image.lstrip('/')}"
         lines.append(f'    <meta property="og:image" content="{escape(image_url)}">')
 
+    lines.append('    <meta name="twitter:card" content="summary_large_image">')
+    lines.append(f'    <meta name="twitter:title" content="{escape(title)}">')
+    if meta_description:
+        lines.append(f'    <meta name="twitter:description" content="{escape(meta_description)}">')
+    if image_url:
+        lines.append(f'    <meta name="twitter:image" content="{escape(image_url)}">')
+
+    json_ld = _render_json_ld(
+        config,
+        title=title,
+        meta_description=meta_description,
+        canonical_url=canonical_url,
+        current_path=current_path,
+        is_article=is_article,
+        published_date=published_date,
+        author=author,
+    )
+    if json_ld:
+        lines.append(json_ld)
+
     if not lines:
         return ""
     return "\n".join(lines) + "\n"
+
+
+def _render_json_ld(
+    config: ProjectConfig,
+    *,
+    title: str,
+    meta_description: str,
+    canonical_url: str | None,
+    current_path: str,
+    is_article: bool,
+    published_date: str | None,
+    author: str,
+) -> str:
+    if is_article and canonical_url:
+        data: dict[str, object] = {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "headline": title,
+            "url": canonical_url,
+        }
+        if meta_description:
+            data["description"] = meta_description
+        if published_date:
+            data["datePublished"] = f"{published_date}T00:00:00Z"
+        if author:
+            data["author"] = {"@type": "Person", "name": author}
+    elif current_path == "/index.html" and canonical_url:
+        data = {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": config.site.title,
+            "url": canonical_url,
+        }
+        if meta_description:
+            data["description"] = meta_description
+    else:
+        return ""
+
+    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    return f'    <script type="application/ld+json">{payload}</script>'
 
 
 def _asset_url(path: str, *, asset_prefix: str) -> str:

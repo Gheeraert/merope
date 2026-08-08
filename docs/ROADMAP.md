@@ -10,7 +10,7 @@
 - images + lightbox
 - notes marginales + notes finales
 - CLI headless (`bloggen build --config ...`)
-- RSS (`feed.xml`), sitemap (`sitemap.xml`) et méta SEO de base (si `site.base_url` renseigné)
+- RSS (`feed.xml`), sitemap (`sitemap.xml`, avec `lastmod`), `robots.txt` et méta SEO (Open Graph, Twitter Card, JSON-LD Article/WebSite) — sitemap/RSS si `site.base_url` renseigné
 - surcharge de thème (CSS/JS) et de gabarits HTML par projet
 - éditeur de contenu WYSIWYG intégré (création/édition de pages et billets sans quitter l'application)
 - import Markdown et copier-coller nettoyé depuis Word/Google Docs dans l'éditeur
