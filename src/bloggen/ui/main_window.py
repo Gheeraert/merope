@@ -41,9 +41,10 @@ class MainWindow(tk.Tk):
 
     def _build_ui(self) -> None:
         self._build_menu_bar()
+        self._build_toolbar()
 
         self.path_label = ttk.Label(self, text="Configuration: (nouvelle)")
-        self.path_label.pack(fill="x", padx=8, pady=(8, 2))
+        self.path_label.pack(fill="x", padx=8, pady=(0, 2))
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True, padx=8, pady=8)
@@ -464,8 +465,11 @@ class MainWindow(tk.Tk):
         menu = tk.Menu(self)
         file_menu = tk.Menu(menu, tearoff=False)
         file_menu.add_command(label="Nouveau", command=self.new_config)
-        file_menu.add_command(label="Charger JSON...", command=self.open_config_dialog)
-        file_menu.add_command(label="Enregistrer", command=self.save_config_dialog)
+        file_menu.add_command(label="Charger JSON...", command=self.open_config_dialog, accelerator="Ctrl+O")
+        file_menu.add_command(label="Enregistrer", command=self.save_config_dialog, accelerator="Ctrl+S")
+        file_menu.add_command(
+            label="Enregistrer sous...", command=self.save_config_as_dialog, accelerator="Ctrl+Shift+S"
+        )
         file_menu.add_separator()
         file_menu.add_command(label="Quitter", command=self.destroy)
 
@@ -476,6 +480,40 @@ class MainWindow(tk.Tk):
         menu.add_cascade(label="Fichier", menu=file_menu)
         menu.add_cascade(label="Actions", menu=actions_menu)
         self.config(menu=menu)
+
+        self.bind_all("<Control-o>", lambda _e: self.open_config_dialog())
+        self.bind_all("<Control-s>", lambda _e: self.save_config_dialog())
+        self.bind_all("<Control-S>", lambda _e: self.save_config_as_dialog())
+
+    def _build_toolbar(self) -> None:
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill="x", padx=8, pady=(8, 0))
+
+        load_button = ttk.Button(toolbar, text="Charger...", command=self.open_config_dialog)
+        load_button.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            load_button,
+            "Ouvre un fichier de configuration JSON existant et remplit le formulaire "
+            "avec son contenu.",
+        )
+
+        save_button = ttk.Button(toolbar, text="Enregistrer", command=self.save_config_dialog)
+        save_button.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            save_button,
+            "Enregistre la configuration actuelle dans le fichier JSON en cours "
+            "(demande un emplacement si aucun fichier n'est encore défini).",
+        )
+
+        save_as_button = ttk.Button(
+            toolbar, text="Enregistrer sous...", command=self.save_config_as_dialog
+        )
+        save_as_button.pack(side="left")
+        add_tooltip(
+            save_as_button,
+            "Enregistre la configuration actuelle dans un nouveau fichier JSON, "
+            "en demandant toujours l'emplacement.",
+        )
 
     def new_config(self) -> None:
         self.current_config_path = None
@@ -501,25 +539,33 @@ class MainWindow(tk.Tk):
 
     def save_config_dialog(self) -> None:
         if self.current_config_path is None:
-            destination = filedialog.asksaveasfilename(
-                title="Enregistrer la configuration",
-                defaultextension=".json",
-                filetypes=[("JSON", "*.json"), ("Tous les fichiers", "*.*")],
-            )
-            if not destination:
-                return
-            self.current_config_path = Path(destination)
+            self.save_config_as_dialog()
+            return
+        self._write_config_to(self.current_config_path)
 
+    def save_config_as_dialog(self) -> None:
+        destination = filedialog.asksaveasfilename(
+            title="Enregistrer la configuration sous...",
+            defaultextension=".json",
+            initialfile=self.current_config_path.name if self.current_config_path else "config.json",
+            filetypes=[("JSON", "*.json"), ("Tous les fichiers", "*.*")],
+        )
+        if not destination:
+            return
+        self._write_config_to(Path(destination))
+
+    def _write_config_to(self, destination: Path) -> None:
         try:
             config = self._collect_from_form()
             errors = validate_config_model(config)
             if errors:
                 raise ConfigValidationError(errors)
-            save_config(config, self.current_config_path)
+            save_config(config, destination)
         except (ConfigValidationError, OSError, ValueError) as exc:
             messagebox.showerror("Erreur", f"Enregistrement impossible:\n{exc}")
             return
 
+        self.current_config_path = destination
         self._set_path_label()
         messagebox.showinfo("Configuration", "Configuration enregistrée.")
 
