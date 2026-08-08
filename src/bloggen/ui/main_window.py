@@ -10,6 +10,7 @@ from bloggen.build.reports import format_build_report
 from bloggen.build.site_builder import build_site, resolve_project_root
 from bloggen.config.defaults import build_default_config
 from bloggen.config.io import ConfigValidationError, load_config, save_config
+from bloggen.config.scaffold import create_new_project
 from bloggen.config.models import (
     BlogConfig,
     BuildConfig,
@@ -466,6 +467,7 @@ class MainWindow(tk.Tk):
         menu = tk.Menu(self)
         file_menu = tk.Menu(menu, tearoff=False)
         file_menu.add_command(label="Nouveau", command=self.new_config)
+        file_menu.add_command(label="Nouveau projet...", command=self.new_project_dialog)
         file_menu.add_command(label="Charger JSON...", command=self.open_config_dialog, accelerator="Ctrl+O")
         file_menu.add_command(label="Enregistrer", command=self.save_config_dialog, accelerator="Ctrl+S")
         file_menu.add_command(
@@ -489,6 +491,19 @@ class MainWindow(tk.Tk):
     def _build_toolbar(self) -> None:
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=8, pady=(8, 0))
+
+        new_project_button = ttk.Button(
+            toolbar, text="Nouveau projet...", command=self.new_project_dialog
+        )
+        new_project_button.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            new_project_button,
+            "Crée un nouveau dossier de projet tout équipé : structure de dossiers, "
+            "une page et un billet de bienvenue, et une configuration prête à l'emploi. "
+            "Vous pourrez ensuite changer les dossiers librement dans l'onglet Chemins.",
+        )
+
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
 
         load_button = ttk.Button(toolbar, text="Charger...", command=self.open_config_dialog)
         load_button.pack(side="left", padx=(0, 6))
@@ -521,17 +536,54 @@ class MainWindow(tk.Tk):
         editor_button = ttk.Button(
             toolbar, text="Éditeur de contenu...", command=self.open_content_editor
         )
-        editor_button.pack(side="left")
+        editor_button.pack(side="left", padx=(0, 6))
         add_tooltip(
             editor_button,
             "Ouvre l'éditeur pour rédiger ou modifier des pages et des billets "
             "directement, sans quitter MEROPE.",
         )
 
+        generate_button = ttk.Button(toolbar, text="Générer le site", command=self.generate_site)
+        generate_button.pack(side="left")
+        add_tooltip(
+            generate_button,
+            "Construit le site HTML à partir de la configuration actuelle et du "
+            "contenu présent dans les dossiers configurés (équivalent à Actions > "
+            "Générer le site).",
+        )
+
     def new_config(self) -> None:
         self.current_config_path = None
         self._load_into_form(build_default_config())
         self._set_path_label()
+
+    def new_project_dialog(self) -> None:
+        directory = filedialog.askdirectory(title="Choisir le dossier du nouveau projet")
+        if not directory:
+            return
+
+        root = Path(directory)
+        if any(root.iterdir()) and not messagebox.askyesno(
+            "Nouveau projet",
+            f"Le dossier « {root} » n'est pas vide. Créer le projet ici quand même ?",
+        ):
+            return
+
+        try:
+            config_path = create_new_project(root)
+            config = load_config(config_path)
+        except (ConfigValidationError, OSError, ValueError) as exc:
+            messagebox.showerror("Nouveau projet", f"Impossible de créer le projet :\n{exc}")
+            return
+
+        self.current_config_path = config_path
+        self._load_into_form(config)
+        self._set_path_label()
+        messagebox.showinfo(
+            "Nouveau projet",
+            f"Projet créé dans {root}.\n\nUne page et un billet de bienvenue ont été "
+            "ajoutés pour vous aider à démarrer.",
+        )
 
     def open_config_dialog(self) -> None:
         file_path = filedialog.askopenfilename(

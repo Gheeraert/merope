@@ -25,6 +25,7 @@ from bloggen.content.writer import (
     write_content_file,
 )
 from bloggen.markdown.front_matter import parse_front_matter
+from bloggen.markdown.html_paste_import import html_to_blocks
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks, parse_table_lines
 from bloggen.markdown.rich_text_model import (
@@ -48,6 +49,7 @@ from bloggen.markdown.typography import (
     OPENING_GUILLEMET,
     apply_french_typography,
 )
+from bloggen.ui.clipboard_html import read_html_clipboard
 from bloggen.ui.image_widget import ImageWidget, copy_into_images_dir
 from bloggen.ui.tooltip import add_tooltip
 
@@ -256,6 +258,12 @@ class ContentEditorWindow(tk.Toplevel):
             ("Nouvelle page", lambda: self._new_document("page"), "Crée une page vierge."),
             ("Nouveau billet", lambda: self._new_document("post"), "Crée un billet vierge."),
             ("Ouvrir", self._open_selected, "Ouvre le fichier sélectionné dans la liste."),
+            (
+                "Importer...",
+                self._import_markdown_file,
+                "Importe un fichier Markdown existant (venant d'ailleurs que ce projet) "
+                "dans l'éditeur, pour compléter ses métadonnées et l'enregistrer ici.",
+            ),
             ("Supprimer", self._delete_selected, "Supprime définitivement le fichier sélectionné."),
             ("Actualiser", self._refresh_file_list, "Recharge la liste depuis le disque."),
         ]
@@ -344,6 +352,7 @@ class ContentEditorWindow(tk.Toplevel):
         self.text.pack(fill="both", expand=True)
         self._configure_tags()
         self.text.bind("<KeyRelease>", self._on_key_release, add="+")
+        self.text.bind("<<Paste>>", self._on_paste)
 
         notes_frame = ttk.Frame(vertical_paned)
         vertical_paned.add(notes_frame, weight=1)
@@ -500,6 +509,98 @@ class ContentEditorWindow(tk.Toplevel):
         self.text.delete(start, end)
         self.text.insert(start, fixed)
 
+    # -- rich paste (Word / Google Docs) -------------------------------------
+
+    def _on_paste(self, _event: tk.Event) -> str | None:
+        """Handle ``<<Paste>>``: if the clipboard holds HTML (as Word,
+        Google Docs, or a browser puts there alongside plain text), convert
+        and insert it with formatting instead of Tk's default plain-text
+        paste. Falls through to that default (return ``None``) whenever
+        rich paste isn't applicable, so a normal ``Ctrl+V`` never breaks.
+        """
+        if self._current_line_is_raw():
+            return None
+        html = read_html_clipboard()
+        if not html:
+            return None
+        try:
+            blocks = html_to_blocks(html, images_dir=self.images_dir)
+        except Exception:
+            return None
+        if not blocks:
+            return None
+        self._insert_pasted_blocks_at_cursor(blocks)
+        return "break"
+
+    def _insert_pasted_blocks_at_cursor(self, blocks: list[Block]) -> None:
+        """Cursor-relative counterpart to :meth:`_insert_block`/
+        :meth:`_insert_runs` (which always append at "end", for whole-
+        document loading). Deliberately separate rather than parametrized:
+        this session already found two subtle Tk index bugs in the
+        append-only path, so a small amount of duplication here is worth
+        not risking that already-tested code. Only PARAGRAPH/HEADING/
+        BLOCKQUOTE/BULLET_LIST/ORDERED_LIST are handled: the HTML paste
+        importer never produces TABLE/VERBATIM/FOOTNOTE_DEFINITION blocks.
+        """
+        for index, block in enumerate(blocks):
+            if index > 0:
+                self.text.insert("insert", "\n\n")
+            self._insert_block_at_cursor(block)
+
+    def _insert_block_at_cursor(self, block: Block) -> None:
+        if block.kind == PARAGRAPH:
+            start = self.text.index("insert")
+            self._insert_runs_at_cursor(block.runs)
+            self.text.tag_add("plain", start, self.text.index("insert"))
+        elif block.kind == HEADING:
+            start = self.text.index("insert")
+            self._insert_runs_at_cursor(block.runs)
+            self.text.tag_add(f"h{block.level or 1}", start, self.text.index("insert"))
+        elif block.kind == BLOCKQUOTE:
+            start = self.text.index("insert")
+            self._insert_runs_at_cursor(block.runs)
+            self.text.tag_add("blockquote", start, self.text.index("insert"))
+        elif block.kind in (BULLET_LIST, ORDERED_LIST):
+            tag = "bullet_item" if block.kind == BULLET_LIST else "ordered_item"
+            for i, item in enumerate(block.children):
+                if i > 0:
+                    self.text.insert("insert", "\n")
+                start = self.text.index("insert")
+                self._insert_runs_at_cursor(item.runs)
+                self.text.tag_add(tag, start, self.text.index("insert"))
+
+    def _insert_runs_at_cursor(self, runs: list[InlineRun]) -> None:
+        for run in runs:
+            if run.image_src is not None:
+                width = int(run.image_width) if run.image_width else None
+                height = int(run.image_height) if run.image_height else None
+                self._insert_image_widget(
+                    "insert",
+                    run.image_src,
+                    run.image_alt or "",
+                    width=width,
+                    height=height,
+                    align=run.image_align,
+                )
+                continue
+            if run.footnote_ref is not None:
+                continue  # not produced by the HTML paste importer
+
+            start = self.text.index("insert")
+            self.text.insert("insert", run.text)
+            end = self.text.index("insert")
+            if run.bold:
+                self.text.tag_add("bold", start, end)
+            if run.italic:
+                self.text.tag_add("italic", start, end)
+            if run.strikethrough:
+                self.text.tag_add("strike", start, end)
+            if run.link_href:
+                tag = self._new_tag("link")
+                self.link_data[tag] = run.link_href
+                self.text.tag_add(tag, start, end)
+                self.text.tag_add("link_style", start, end)
+
     # -- file list ----------------------------------------------------------
 
     def _refresh_file_list(self) -> None:
@@ -540,6 +641,32 @@ class ContentEditorWindow(tk.Toplevel):
         self.metadata = metadata
         self.current_kind = kind
         self.current_path = path
+
+    def _import_markdown_file(self) -> None:
+        source = filedialog.askopenfilename(
+            title="Importer un fichier Markdown",
+            filetypes=[("Markdown", "*.md *.markdown"), ("Tous les fichiers", "*.*")],
+        )
+        if not source:
+            return
+        try:
+            text = Path(source).read_text(encoding="utf-8")
+        except OSError as exc:
+            messagebox.showerror("Importer", f"Impossible de lire le fichier :\n{exc}")
+            return
+
+        result = parse_front_matter(text)
+        kind = result.metadata.get("type") if result.metadata.get("type") in ("page", "post") else "page"
+        self._new_document(kind)
+        self._populate_from_blocks(markdown_to_blocks(result.body))
+        self.metadata = dict(result.metadata)
+        self.metadata.setdefault("type", kind)
+        self.current_kind = kind
+        messagebox.showinfo(
+            "Importer",
+            "Fichier importé dans l'éditeur. Vérifiez/complétez les métadonnées "
+            "(bouton Métadonnées...) puis enregistrez pour l'ajouter au projet.",
+        )
 
     def _delete_selected(self) -> None:
         entry = self._selected_entry()

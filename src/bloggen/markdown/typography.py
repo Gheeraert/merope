@@ -9,22 +9,43 @@ from __future__ import annotations
 
 NBSP = " "
 DOUBLE_PUNCTUATION = ";:!?"
+CURLY_OPENING_QUOTE = "“"
+CURLY_CLOSING_QUOTE = "”"
 OPENING_GUILLEMET = "«"  # «
 CLOSING_GUILLEMET = "»"  # »
 
 
 def apply_french_typography(text: str) -> str:
-    """Convert straight double quotes to alternating « » (with a non-breaking
-    space glued to the inside), and ensure a single non-breaking space
-    before ``; : ! ?``. Idempotent: running it twice does not add extra
-    spaces or re-toggle quote parity incorrectly.
+    """Convert straight/curly double quotes to alternating guillemets (with a
+    non-breaking space glued to the inside), and ensure a single
+    non-breaking space before ``; : ! ?``. Idempotent: running it twice
+    does not add extra spaces or re-toggle quote parity incorrectly.
     """
-    return _fix_double_punctuation_spacing(_convert_straight_quotes(text))
+    text = convert_curly_quotes_to_guillemets(text)
+    text = _convert_straight_quotes(text)
+    return fix_double_punctuation_spacing(text)
 
 
-def _convert_straight_quotes(text: str) -> str:
+def convert_curly_quotes_to_guillemets(text: str) -> str:
+    """Directly map already-curly quotes (e.g. from Word/Google Docs
+    autocorrect) to guillemets. Unlike straight quotes, curly quotes are
+    unambiguous (open vs close is encoded in the character itself), so no
+    parity tracking is needed.
+    """
+    text = text.replace(CURLY_OPENING_QUOTE, OPENING_GUILLEMET + NBSP)
+    return text.replace(CURLY_CLOSING_QUOTE, NBSP + CLOSING_GUILLEMET)
+
+
+def convert_straight_quotes_stateful(text: str, *, opening_next: bool = True) -> tuple[str, bool]:
+    """Same conversion as used above, but threads the opening/closing parity
+    across multiple calls instead of always restarting at "opening". Needed
+    when converting pasted content run by run in document order, where a
+    quote pair can span more than one inline run (e.g. a quote containing a
+    bolded word).
+
+    Returns ``(converted_text, next_opening_next)``.
+    """
     result: list[str] = []
-    opening_next = True
     for char in text:
         if char == '"':
             if opening_next:
@@ -34,10 +55,21 @@ def _convert_straight_quotes(text: str) -> str:
             opening_next = not opening_next
         else:
             result.append(char)
-    return "".join(result)
+    return "".join(result), opening_next
 
 
-def _fix_double_punctuation_spacing(text: str) -> str:
+def _convert_straight_quotes(text: str) -> str:
+    converted, _ = convert_straight_quotes_stateful(text, opening_next=True)
+    return converted
+
+
+def fix_double_punctuation_spacing(text: str) -> str:
+    """Ensure a single non-breaking space precedes ``; : ! ?`` (replacing a
+    preceding regular space, or inserting one if the punctuation is glued
+    to the previous word). Idempotent. Exposed publicly so callers that
+    process text run-by-run (e.g. paste import) can apply it without going
+    through the quote-conversion half of :func:`apply_french_typography`.
+    """
     result: list[str] = []
     for index, char in enumerate(text):
         if char in DOUBLE_PUNCTUATION:

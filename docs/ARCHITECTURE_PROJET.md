@@ -77,3 +77,13 @@ règle « pas de parseur Markdown maison ». Portée de l’exception :
 - il ne remplace en rien Pandoc : la chaîne de génération du site
   (Markdown → TEI → HTML) reste exclusivement basée sur Pandoc et n’utilise
   jamais cet importeur.
+
+Le collage riche depuis Word/Google Docs (`ui/clipboard_html.py` +
+`markdown/html_paste_import.py`) est une seconde exception du même esprit,
+mais pour du HTML plutôt que du Markdown : lecture du format presse-papiers
+« HTML Format » (via `ctypes`, sans dépendance supplémentaire) puis import
+borné (`html.parser.HTMLParser`) vers le même modèle de blocs. Portée
+identique : reconnaît un sous-ensemble pratique (paragraphes, titres,
+gras/italique/barré, liens, listes à un niveau, citations, images), et tout
+élément non reconnu conserve son texte visible plutôt que d’afficher du
+HTML brut ou de planter. Ne touche pas non plus au pipeline Pandoc.

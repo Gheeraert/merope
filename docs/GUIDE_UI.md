@@ -33,7 +33,11 @@ Sauf mention contraire, les chemins de fichiers/dossiers demandés sont **relati
 
 ## Barre d'outils
 
-Sous la barre de menu, une rangée de boutons donne un accès direct à **Charger... / Enregistrer / Enregistrer sous...** (mêmes actions que le menu Fichier) et à l'**Éditeur de contenu...**, détaillé plus bas.
+Sous la barre de menu, une rangée de boutons donne un accès direct à **Nouveau projet...**, **Charger... / Enregistrer / Enregistrer sous...** (mêmes actions que le menu Fichier), à l'**Éditeur de contenu...** (détaillé plus bas) et à **Générer le site** (équivalent à Actions > Générer le site).
+
+### Nouveau projet...
+
+Demande un dossier (vide de préférence) puis y crée une arborescence complète et prête à l'emploi : `content/pages`, `content/posts`, `assets/images`, `assets/banner`, `theme/templates`, `theme/xslt`, une page « Bienvenue » et un billet « Bienvenue ! » contenant des explications simples pour démarrer, et une configuration (`config/site.json`) déjà chargée dans le formulaire (accueil pointant sur la page de bienvenue). Les dossiers restent modifiables ensuite dans l'onglet Chemins comme pour n'importe quel projet.
 
 ---
 
@@ -213,12 +217,15 @@ Actions disponibles (boutons à droite de la liste) :
 **Colonne de gauche** : liste des pages et billets déjà présents sur le disque.
 - **Nouvelle page** / **Nouveau billet** : repart d'un document vierge du type choisi.
 - **Ouvrir** (ou double-clic) : recharge le fichier sélectionné en saisie visuelle.
+- **Importer...** : charge un fichier Markdown existant (venant d'ailleurs que ce projet) dans l'éditeur pour compléter ses métadonnées et l'enregistrer ici.
 - **Supprimer** : supprime définitivement le fichier sélectionné (confirmation demandée).
 - **Actualiser** : recharge la liste depuis le disque.
 
 **Barre de mise en forme** (au-dessus de la zone de texte) : sélectionnez du texte puis cliquez sur **G** (gras), **I** (italique), **S** (barré), ou placez le curseur sur une ligne puis cliquez sur **H1-H4** (titre), **Citation**, **Liste à puces**, **Liste numérotée** pour transformer la ligne. **Lien...** transforme la sélection en lien (demande l'URL). **Image...** insère une image existante (voir plus bas). **Tableau...** insère un tableau simple (nombre de lignes/colonnes demandé), modifiable ensuite comme du texte structuré dans la zone grisée. **Note...** insère un appel de note de bas de page (voir plus bas). **Corriger la typographie** applique aux guillemets et à la ponctuation de la sélection les mêmes règles qu'à la frappe (utile après un collage — voir ci-dessous ; remplace le texte sélectionné, la mise en forme de la sélection n'est pas conservée).
 
 **Typographie française automatique** : en tapant directement dans l'éditeur, les guillemets droits (`"`) sont convertis à la volée en guillemets français alternés (`«`/`»`, ouvrant puis fermant, puis ouvrant à nouveau...), avec une espace insécable collée à l'intérieur. Une espace insécable est aussi automatiquement posée avant `; : ! ?` (qu'elle soit tapée avec ou sans espace avant). Cela ne s'applique pas dans les zones de tableau ou de contenu non reconnu (fond grisé/jauni).
+
+**Coller depuis Word ou Google Docs** : un `Ctrl+V` normal dans la zone de texte détecte automatiquement si le presse-papiers contient de la mise en forme (copie depuis Word, Google Docs, un navigateur...) et, si oui, colle le texte **avec** son gras/italique/barré/titres/liens/listes, nettoyé au passage des scories propres à ces logiciels (styles internes, balises techniques, commentaires) et retypographié à la française (guillemets, espaces insécables) comme à la frappe. Si le presse-papiers ne contient que du texte brut (ex. copié depuis le Bloc-notes), le collage classique s'effectue normalement, sans changement de comportement. Les images copiées depuis Google Docs (hébergées à distance) sont automatiquement téléchargées et enregistrées dans le dossier images du projet ; en cas d'échec (pas de réseau), un texte `[Image : ...]` est inséré à la place plutôt que de bloquer le collage. Limite assumée : comme pour l'import Markdown, tout ce qui n'est pas reconnu conserve son texte visible mais perd sa mise en forme d'origine plutôt que de planter ou d'afficher du HTML brut.
 
 **Notes de bas de page** : un panneau dédié sous la zone de texte liste toutes les notes du document ([1], [2]...), avec un champ modifiable pour chacune — le texte de la note se corrige directement là, sans dialogue séparé. Cliquer sur un appel de note `[N]` dans le texte donne le focus à la note correspondante dans le panneau. **Supprimer** retire une note (les appels de note existants dans le texte ne sont pas retirés automatiquement).
 
@@ -254,4 +261,6 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 - `src/bloggen/markdown/rich_text_model.py`, `rich_text_export.py`, `rich_text_import.py` — modèle pivot et conversions Markdown <-> saisie visuelle.
 - `src/bloggen/markdown/typography.py` — conversion des guillemets et espaces insécables.
 - `src/bloggen/markdown/image_attributes.py` — suffixe `{width=... height=... align=...}` sur les images Markdown.
+- `src/bloggen/ui/clipboard_html.py` — lecture du presse-papiers au format HTML (Word/Google Docs/navigateurs).
+- `src/bloggen/markdown/html_paste_import.py` — conversion du HTML collé vers le modèle de blocs.
 - `src/bloggen/content/writer.py` — écriture des fichiers de pages/billets (slug, nom de fichier, front matter).
