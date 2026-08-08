@@ -169,6 +169,18 @@ class MainWindow(tk.Tk):
                     "Exemple : build/tei"
                 ),
             },
+            dir_fields={
+                "project_root",
+                "content_dir",
+                "pages_dir",
+                "posts_dir",
+                "assets_dir",
+                "theme_dir",
+                "templates_dir",
+                "xslt_dir",
+                "output_dir",
+                "tei_dir",
+            },
         )
         self.notebook.add(self.paths_tab, text="Chemins")
 
@@ -260,6 +272,7 @@ class MainWindow(tk.Tk):
                     "la page d'accueil."
                 ),
             },
+            file_fields={"source": [("Markdown", "*.md")]},
         )
         self.notebook.add(self.home_tab, text="Accueil")
 
@@ -601,16 +614,26 @@ def _create_form_tab(
     bool_fields: list[tuple[str, str, bool]] | None = None,
     intro: str | None = None,
     help_texts: dict[str, str] | None = None,
+    dir_fields: set[str] | None = None,
+    file_fields: dict[str, list[tuple[str, str]]] | None = None,
 ) -> tuple[ttk.Frame, dict[str, tk.Variable]]:
+    """Build a simple grid form tab.
+
+    ``dir_fields`` marks field names that get a "Parcourir..." button opening a
+    folder picker. ``file_fields`` marks field names that get a button opening
+    a file picker, mapped to the filetypes list passed to the dialog.
+    """
     frame = ttk.Frame(notebook)
     vars_map: dict[str, tk.Variable] = {}
     help_texts = help_texts or {}
+    dir_fields = dir_fields or set()
+    file_fields = file_fields or {}
 
     row = 0
     if intro:
         ttk.Label(
             frame, text=intro, wraplength=680, justify="left", foreground="#444444"
-        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10))
+        ).grid(row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 10))
         row += 1
 
     for field_name, label, default in text_fields:
@@ -624,6 +647,19 @@ def _create_form_tab(
         if help_text:
             add_tooltip(label_widget, help_text)
             add_tooltip(entry, help_text)
+        if field_name in dir_fields:
+            browse = ttk.Button(
+                frame, text="Parcourir...", command=lambda v=var: _browse_directory(v)
+            )
+            browse.grid(row=row, column=2, sticky="ew", padx=(0, 8), pady=4)
+            add_tooltip(browse, "Ouvre un sélecteur pour choisir un dossier existant sur le disque.")
+        elif field_name in file_fields:
+            filetypes = file_fields[field_name]
+            browse = ttk.Button(
+                frame, text="Parcourir...", command=lambda v=var, ft=filetypes: _browse_file(v, ft)
+            )
+            browse.grid(row=row, column=2, sticky="ew", padx=(0, 8), pady=4)
+            add_tooltip(browse, "Ouvre un sélecteur pour choisir un fichier existant sur le disque.")
         row += 1
 
     if bool_fields:
@@ -639,6 +675,22 @@ def _create_form_tab(
 
     frame.grid_columnconfigure(1, weight=1)
     return frame, vars_map
+
+
+def _browse_directory(var: tk.StringVar) -> None:
+    selected = filedialog.askdirectory(title="Choisir un dossier", initialdir=var.get() or ".")
+    if selected:
+        var.set(selected)
+
+
+def _browse_file(var: tk.StringVar, filetypes: list[tuple[str, str]]) -> None:
+    selected = filedialog.askopenfilename(
+        title="Choisir un fichier",
+        initialdir=Path(var.get()).parent if var.get() else ".",
+        filetypes=[*filetypes, ("Tous les fichiers", "*.*")],
+    )
+    if selected:
+        var.set(selected)
 
 
 def _set_vars(vars_map: dict[str, tk.Variable], source: object) -> None:

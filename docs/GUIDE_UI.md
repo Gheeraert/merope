@@ -3,6 +3,8 @@
 Ce guide explique, en langage courant, ce que fait chaque onglet de la fenêtre MEROPE et **quoi écrire dans chaque champ**, avec un exemple concret à chaque fois.
 
 > Astuce : dans l'application, chaque champ et chaque case à cocher a maintenant une **info-bulle** — laissez la souris quelques instants au-dessus d'un champ (ou de son libellé) pour voir s'afficher la même explication + exemple que dans ce document, sans avoir à revenir ici.
+>
+> Un bouton **« Parcourir... »** ouvre un sélecteur de fichier/dossier natif à côté des champs suivants : tous les dossiers de l'onglet Chemins, le fichier Markdown de l'onglet Accueil, l'image de l'onglet Bannière, et le dossier images de l'onglet Médias. Les autres chemins (gabarits, XSLT...) restent à saisir à la main car ce sont des noms de fichiers internes au thème, pas des chemins à choisir sur le disque.
 
 ## Comment lire ce document
 

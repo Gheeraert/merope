@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, ttk
 
 from bloggen.config.models import MediaHandlingConfig
 from bloggen.ui.tooltip import add_tooltip
@@ -48,6 +48,9 @@ class MediaPanel(ttk.Frame):
             "dans le site généré.\n"
             "Exemple : assets/images",
         )
+        images_browse = ttk.Button(self, text="Parcourir...", command=self._browse_images_dir)
+        images_browse.grid(row=2, column=2, sticky="ew", padx=(0, 8), pady=4)
+        add_tooltip(images_browse, "Ouvre un sélecteur pour choisir un dossier existant sur le disque.")
 
         copy_cb = ttk.Checkbutton(
             self, text="Copier les médias vers la sortie", variable=self.copy_media_var
@@ -94,6 +97,13 @@ class MediaPanel(ttk.Frame):
             "réutilisée comme légende dans la visionneuse plein écran.",
         )
         self.grid_columnconfigure(1, weight=1)
+
+    def _browse_images_dir(self) -> None:
+        selected = filedialog.askdirectory(
+            title="Choisir le dossier images", initialdir=self.images_dir_var.get() or "."
+        )
+        if selected:
+            self.images_dir_var.set(selected)
 
     def set_data(self, media: MediaHandlingConfig) -> None:
         self.strategy_var.set(media.strategy)

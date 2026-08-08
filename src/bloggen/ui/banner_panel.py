@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from pathlib import Path
+from tkinter import filedialog, ttk
 
 from bloggen.config.models import BannerConfig
 from bloggen.ui.tooltip import add_tooltip
@@ -44,6 +45,9 @@ class BannerPanel(ttk.Frame):
             "Chemin de l'image de bannière, relatif au dossier assets (onglet Chemins).\n"
             "Exemple : assets/images/banniere.jpg",
         )
+        image_browse = ttk.Button(self, text="Parcourir...", command=self._browse_image)
+        image_browse.grid(row=2, column=2, sticky="ew", padx=(0, 8), pady=4)
+        add_tooltip(image_browse, "Ouvre un sélecteur pour choisir une image existante sur le disque.")
 
         link_entry = _add_entry_row(self, 3, "Lien", self.link_var)
         add_tooltip(
@@ -81,6 +85,18 @@ class BannerPanel(ttk.Frame):
             "la bannière plutôt qu'affiché séparément en dessous.",
         )
         self.grid_columnconfigure(1, weight=1)
+
+    def _browse_image(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="Choisir une image de bannière",
+            initialdir=Path(self.image_var.get()).parent if self.image_var.get() else ".",
+            filetypes=[
+                ("Images", "*.jpg *.jpeg *.png *.gif *.webp"),
+                ("Tous les fichiers", "*.*"),
+            ],
+        )
+        if selected:
+            self.image_var.set(selected)
 
     def set_data(self, banner: BannerConfig) -> None:
         self.enabled_var.set(banner.enabled)
