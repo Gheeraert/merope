@@ -1,4 +1,4 @@
-﻿from bloggen.config.models import MenuLink, SideMenuSection
+﻿from bloggen.config.models import MenuLink, SideMenuSection, SideMenuSubSection
 from bloggen.render.html_templates import render_archive_fragment
 from bloggen.render.navigation import build_side_menu_html, resolve_navigation_href
 
@@ -74,3 +74,102 @@ def test_side_menu_section_can_have_both_own_link_and_children():
     )
     assert 'href="../projet/index.html">Le projet</a></h3>' in html
     assert 'href="../corpus/index.html">Corpus</a>' in html
+
+
+def test_side_menu_subsection_without_target_renders_plain_heading():
+    html = build_side_menu_html(
+        [SideMenuSection(label="Groupe", subsections=[SideMenuSubSection(label="Sous-groupe")])],
+        current_path="/index.html",
+    )
+    assert '<li class="side-menu-subsection"><h4>Sous-groupe</h4></li>' in html
+
+
+def test_side_menu_subsection_with_target_renders_clickable_heading():
+    html = build_side_menu_html(
+        [
+            SideMenuSection(
+                label="Groupe",
+                subsections=[SideMenuSubSection(label="Sous-groupe", target="/projet/index.html")],
+            )
+        ],
+        current_path="/billets/index.html",
+    )
+    assert '<h4><a class="side-menu-subsection-link" href="../projet/index.html">Sous-groupe</a></h4>' in html
+
+
+def test_side_menu_subsection_renders_its_leaf_children():
+    html = build_side_menu_html(
+        [
+            SideMenuSection(
+                label="Groupe",
+                subsections=[
+                    SideMenuSubSection(
+                        label="Sous-groupe",
+                        children=[MenuLink(label="Billet", target="/billets/x/index.html")],
+                    )
+                ],
+            )
+        ],
+        current_path="/index.html",
+    )
+    assert '<h4>Sous-groupe</h4><ul><li class="menu-item"><a href="billets/x/index.html">Billet</a></li></ul>' in html
+
+
+def test_numbered_section_prefixes_roman_numeral_and_subsections_get_letters():
+    html = build_side_menu_html(
+        [
+            SideMenuSection(
+                label="Rhétorique",
+                numbered=True,
+                subsections=[
+                    SideMenuSubSection(label="Bossuet"),
+                    SideMenuSubSection(label="Figures"),
+                ],
+            )
+        ],
+        current_path="/index.html",
+    )
+    assert "<h3>I. Rhétorique</h3>" in html
+    assert "<h4>A. Bossuet</h4>" in html
+    assert "<h4>B. Figures</h4>" in html
+
+
+def test_numbering_only_counts_numbered_sections_skipping_others():
+    html = build_side_menu_html(
+        [
+            SideMenuSection(label="Rhétorique", numbered=True),
+            SideMenuSection(label="Navigation"),
+            SideMenuSection(label="Style", numbered=True),
+        ],
+        current_path="/index.html",
+    )
+    assert "<h3>I. Rhétorique</h3>" in html
+    assert "<h3>Navigation</h3>" in html
+    assert "<h3>II. Style</h3>" in html
+
+
+def test_unnumbered_section_subsections_have_no_letter_prefix():
+    html = build_side_menu_html(
+        [SideMenuSection(label="Groupe", subsections=[SideMenuSubSection(label="Sous-groupe")])],
+        current_path="/index.html",
+    )
+    assert "<h4>Sous-groupe</h4>" in html
+    assert "<h4>A. Sous-groupe</h4>" not in html
+
+
+def test_disabled_subsections_and_children_are_excluded():
+    html = build_side_menu_html(
+        [
+            SideMenuSection(
+                label="Groupe",
+                numbered=True,
+                subsections=[
+                    SideMenuSubSection(label="Visible", children=[MenuLink(label="Actif", target="/a/index.html")]),
+                    SideMenuSubSection(label="Cachee", enabled=False),
+                ],
+            )
+        ],
+        current_path="/index.html",
+    )
+    assert "A. Visible" in html
+    assert "Cachee" not in html

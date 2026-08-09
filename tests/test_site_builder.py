@@ -299,6 +299,84 @@ def test_site_builder_generates_iframe_page_for_external_side_section(monkeypatc
     assert "Accueil</a></li>" in home_html
 
 
+def test_site_builder_renders_three_level_numbered_outline(monkeypatch):
+    """Real end-to-end reproduction of the rhetoric-plan example that
+    motivated the third menu level: I. Rhétorique / A. Bossuet et la
+    rhétorique chrétienne / <billets>, generated through the actual
+    Pandoc/TEI/XSLT pipeline, not just navigation.py in isolation."""
+    project = RUNTIME_ROOT / f"site_builder_outline_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    from bloggen.config.models import MenuLink, SideMenuSection, SideMenuSubSection
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.menus.side.append(
+        SideMenuSection(
+            label="Rhétorique",
+            numbered=True,
+            subsections=[
+                SideMenuSubSection(
+                    label="Bossuet et la rhétorique chrétienne",
+                    children=[
+                        MenuLink(label="L'héritage de saint Augustin", target="/billets/a/index.html"),
+                        MenuLink(label="La place de l'héritage profane", target="/billets/b/index.html"),
+                    ],
+                ),
+                SideMenuSubSection(
+                    label="Des figures pour convaincre",
+                    children=[
+                        MenuLink(label="Convaincre la raison", target="/billets/c/index.html"),
+                        MenuLink(label="Persuader le coeur", target="/billets/d/index.html"),
+                    ],
+                ),
+            ],
+        )
+    )
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(TEI_SAMPLE, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    home_html = (project / "site/index.html").read_text(encoding="utf-8")
+    assert "<h3>I. Rhétorique</h3>" in home_html
+    assert "<h4>A. Bossuet et la rhétorique chrétienne</h4>" in home_html
+    assert "<h4>B. Des figures pour convaincre</h4>" in home_html
+    assert 'href="billets/a/index.html">L&#x27;héritage de saint Augustin</a>' in home_html
+    assert 'href="billets/d/index.html">Persuader le coeur</a>' in home_html
+
+
 def test_site_builder_disables_missing_banner_without_failing(monkeypatch):
     project = RUNTIME_ROOT / f"site_builder_banner_{uuid.uuid4().hex}"
     (project / "content/pages").mkdir(parents=True)

@@ -11,8 +11,8 @@ import tkinter as tk
 
 import pytest
 
-from bloggen.config.models import MenuLink, SideMenuSection
-from bloggen.ui.dialogs import MenuLinkDialog, SideSectionDialog
+from bloggen.config.models import MenuLink, SideMenuSection, SideMenuSubSection
+from bloggen.ui.dialogs import MenuLinkDialog, SideSectionDialog, SideSubSectionDialog
 from bloggen.ui.menu_editor import SideMenuEditor
 
 
@@ -208,3 +208,132 @@ def test_side_menu_editor_get_and_set_sections_preserve_target(root):
     sections = editor.get_sections()
     assert sections[0].target == "/projet/index.html"
     assert sections[0].target_type == "internal"
+
+
+def test_section_numbered_checkbox_defaults_false_and_survives_apply(root):
+    dialog = _make_section_dialog(root, SideMenuSection(label=""))
+    assert dialog.numbered_var.get() is False
+    dialog.label_var.set("Rhétorique")
+    dialog.numbered_var.set(True)
+    dialog.apply()
+    assert dialog.result.numbered is True
+
+
+def test_section_numbered_checkbox_preloads_from_initial(root):
+    dialog = _make_section_dialog(root, SideMenuSection(label="Rhétorique", numbered=True))
+    assert dialog.numbered_var.get() is True
+
+
+def test_section_apply_preserves_subsections(root):
+    initial = SideMenuSection(label="Rhétorique", subsections=[SideMenuSubSection(label="Bossuet")])
+    dialog = _make_section_dialog(root, initial)
+    dialog.apply()
+    assert dialog.result.subsections == initial.subsections
+
+
+def _make_subsection_dialog(
+    root: tk.Tk, initial: SideMenuSubSection, content_targets=None
+) -> SideSubSectionDialog:
+    dialog = SideSubSectionDialog.__new__(SideSubSectionDialog)
+    dialog.initial = initial
+    dialog.content_targets = content_targets or []
+    dialog.result = None
+    frame = tk.Frame(root)
+    frame.pack()
+    dialog.body(frame)
+    root.update_idletasks()
+    return dialog
+
+
+def test_subsection_defaults_to_no_link_when_target_empty(root):
+    dialog = _make_subsection_dialog(root, SideMenuSubSection(label=""))
+    assert dialog.pointing_type_var.get() == SideSubSectionDialog._POINTING_NONE
+    assert not dialog._target_entry.grid_info()
+
+
+def test_subsection_apply_variants(root):
+    targets = [("Corpus (page)", "/corpus/index.html")]
+
+    none_dialog = _make_subsection_dialog(root, SideMenuSubSection(label=""), content_targets=targets)
+    none_dialog.label_var.set("Bossuet")
+    none_dialog.apply()
+    assert none_dialog.result == SideMenuSubSection(
+        label="Bossuet", enabled=True, target="", target_type="internal", children=[]
+    )
+
+    internal_dialog = _make_subsection_dialog(root, SideMenuSubSection(label=""), content_targets=targets)
+    internal_dialog.label_var.set("Figures")
+    internal_dialog.pointing_type_var.set(SideSubSectionDialog._POINTING_INTERNAL)
+    internal_dialog._on_pointing_type_changed()
+    internal_dialog.picker_var.set("Corpus (page)")
+    internal_dialog._on_picker_changed()
+    internal_dialog.apply()
+    assert internal_dialog.result.target == "/corpus/index.html"
+    assert internal_dialog.result.target_type == "internal"
+
+
+def test_subsection_apply_preserves_leaf_children(root):
+    initial = SideMenuSubSection(
+        label="Bossuet", children=[MenuLink(label="Billet A", target="/a/index.html")]
+    )
+    dialog = _make_subsection_dialog(root, initial)
+    dialog.apply()
+    assert dialog.result.children == initial.children
+
+
+def test_side_menu_editor_three_levels_end_to_end(root):
+    editor = SideMenuEditor(root)
+    editor.set_sections(
+        [
+            SideMenuSection(
+                label="Rhétorique",
+                numbered=True,
+                subsections=[
+                    SideMenuSubSection(
+                        label="Bossuet",
+                        children=[MenuLink(label="Billet A", target="/a/index.html")],
+                    ),
+                    SideMenuSubSection(
+                        label="Figures",
+                        children=[MenuLink(label="Billet B", target="/b/index.html")],
+                    ),
+                ],
+            )
+        ]
+    )
+    editor.section_list.selection_set(0)
+    editor._refresh_children()
+
+    assert editor._middle_rows == [("subsection", 0), ("subsection", 1)]
+
+    editor._select_middle_row("subsection", 1)
+    editor._refresh_leaves()
+    assert [editor.leaf_list.get(i) for i in range(editor.leaf_list.size())] == [
+        "[ON] Billet B -> /b/index.html"
+    ]
+
+    sections = editor.get_sections()
+    assert sections[0].numbered is True
+    assert [sub.label for sub in sections[0].subsections] == ["Bossuet", "Figures"]
+    assert sections[0].subsections[1].children[0].label == "Billet B"
+
+
+def test_side_menu_editor_mixes_direct_children_and_subsections(root):
+    editor = SideMenuEditor(root)
+    editor.set_sections(
+        [
+            SideMenuSection(
+                label="Navigation",
+                children=[MenuLink(label="Accueil", target="/index.html")],
+                subsections=[SideMenuSubSection(label="Groupe")],
+            )
+        ]
+    )
+    editor.section_list.selection_set(0)
+    editor._refresh_children()
+    assert editor._middle_rows == [("child", 0), ("subsection", 0)]
+
+    editor._select_middle_row("child", 0)
+    editor._refresh_leaves()
+    assert editor.leaf_list.size() == 0
+    assert editor._current_subsection() is None

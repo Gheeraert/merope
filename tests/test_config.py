@@ -44,3 +44,28 @@ def test_serialization_round_trip_is_stable():
     loaded = parse_config(json.loads(json_first))
     json_second = serialize_config(loaded)
     assert json_first == json_second
+
+
+def test_side_menu_subsection_round_trip():
+    from bloggen.config.models import MenuLink, SideMenuSection, SideMenuSubSection
+
+    config = build_default_config()
+    config.menus.side.append(
+        SideMenuSection(
+            label="Rhétorique",
+            numbered=True,
+            subsections=[
+                SideMenuSubSection(
+                    label="Bossuet et la rhétorique chrétienne",
+                    children=[MenuLink(label="Billet A", target="/billets/a/index.html")],
+                )
+            ],
+        )
+    )
+
+    loaded = parse_config(json.loads(serialize_config(config)))
+    section = loaded.menus.side[-1]
+    assert section.numbered is True
+    assert len(section.subsections) == 1
+    assert section.subsections[0].label == "Bossuet et la rhétorique chrétienne"
+    assert section.subsections[0].children[0].target == "/billets/a/index.html"

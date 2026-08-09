@@ -235,6 +235,35 @@ button:focus-visible {
   font-weight: 700;
 }
 
+.side-menu-subsection {
+  list-style: none;
+  margin: 0.5rem 0 0.2rem;
+}
+
+.side-menu-subsection h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #4a5560;
+}
+
+.side-menu-subsection-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.side-menu-subsection-link:hover {
+  text-decoration: underline;
+}
+
+.side-menu-subsection-link.is-active {
+  color: var(--accent);
+}
+
+.side-menu-subsection ul {
+  padding-left: 1rem;
+}
+
 .main-content {
   background: var(--paper);
   border: 1px solid var(--border);

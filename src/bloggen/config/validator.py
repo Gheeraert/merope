@@ -166,7 +166,52 @@ def _validate_side_section(section: Any, errors: list[str], index: int) -> None:
     if not isinstance(target_type, str):
         errors.append(f"{base_path}.target_type doit être une chaîne.")
 
+    numbered = section.get("numbered", False)
+    if not isinstance(numbered, bool):
+        errors.append(f"{base_path}.numbered doit être un booléen.")
+
     children = section.get("children")
+    if not isinstance(children, list):
+        errors.append(f"{base_path}.children doit être une liste.")
+    else:
+        for child_index, child in enumerate(children):
+            child_path = f"{base_path}.children[{child_index}]"
+            _validate_menu_link(child, errors, child_path)
+            if isinstance(child, dict) and "children" in child:
+                errors.append(f"{child_path} ne peut pas contenir de sous-niveau supplémentaire.")
+
+    subsections = section.get("subsections", [])
+    if not isinstance(subsections, list):
+        errors.append(f"{base_path}.subsections doit être une liste.")
+        return
+
+    for sub_index, subsection in enumerate(subsections):
+        sub_path = f"{base_path}.subsections[{sub_index}]"
+        _validate_side_subsection(subsection, errors, sub_path)
+
+
+def _validate_side_subsection(subsection: Any, errors: list[str], base_path: str) -> None:
+    if not isinstance(subsection, dict):
+        errors.append(f"{base_path} doit être un objet.")
+        return
+
+    label = subsection.get("label")
+    if not isinstance(label, str) or not label.strip():
+        errors.append(f"{base_path}.label est requis.")
+
+    enabled = subsection.get("enabled", True)
+    if not isinstance(enabled, bool):
+        errors.append(f"{base_path}.enabled doit être un booléen.")
+
+    target = subsection.get("target", "")
+    if not isinstance(target, str):
+        errors.append(f"{base_path}.target doit être une chaîne.")
+
+    target_type = subsection.get("target_type", "internal")
+    if not isinstance(target_type, str):
+        errors.append(f"{base_path}.target_type doit être une chaîne.")
+
+    children = subsection.get("children")
     if not isinstance(children, list):
         errors.append(f"{base_path}.children doit être une liste.")
         return

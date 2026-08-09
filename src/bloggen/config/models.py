@@ -81,12 +81,28 @@ class MenuLink:
 
 
 @dataclass(slots=True)
+class SideMenuSubSection:
+    """The optional third menu level: a lettered (A., B., C.) group of leaf
+    links nested inside a numbered ``SideMenuSection`` — e.g. for an outline
+    like "I. Rhétorique / A. Bossuet et la rhétorique chrétienne / <billets>".
+    """
+
+    label: str
+    enabled: bool = True
+    target: str = ""  # optional: makes the subsection header itself a clickable link
+    target_type: str = "internal"
+    children: list[MenuLink] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class SideMenuSection:
     label: str
     enabled: bool = True
     target: str = ""  # optional: makes the section header itself a clickable link
     target_type: str = "internal"
+    numbered: bool = False  # prefixes this section "I.", "II."... and its subsections "A.", "B."...
     children: list[MenuLink] = field(default_factory=list)
+    subsections: list[SideMenuSubSection] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -229,16 +245,36 @@ def _menus_from_dict(raw: dict[str, Any]) -> MenusConfig:
         for child in section.get("children", []):
             if isinstance(child, dict):
                 children.append(_menu_link_from_dict(child))
+        subsections: list[SideMenuSubSection] = []
+        for subsection in section.get("subsections", []):
+            if isinstance(subsection, dict):
+                subsections.append(_side_subsection_from_dict(subsection))
         side_sections.append(
             SideMenuSection(
                 label=str(section.get("label", "")),
                 enabled=bool(section.get("enabled", True)),
                 target=str(section.get("target", "")),
                 target_type=str(section.get("target_type", "internal")),
+                numbered=bool(section.get("numbered", False)),
                 children=children,
+                subsections=subsections,
             )
         )
     return MenusConfig(top=top_items, side=side_sections)
+
+
+def _side_subsection_from_dict(raw: dict[str, Any]) -> SideMenuSubSection:
+    children: list[MenuLink] = []
+    for child in raw.get("children", []):
+        if isinstance(child, dict):
+            children.append(_menu_link_from_dict(child))
+    return SideMenuSubSection(
+        label=str(raw.get("label", "")),
+        enabled=bool(raw.get("enabled", True)),
+        target=str(raw.get("target", "")),
+        target_type=str(raw.get("target_type", "internal")),
+        children=children,
+    )
 
 
 def _menu_link_from_dict(raw: dict[str, Any]) -> MenuLink:

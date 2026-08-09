@@ -146,15 +146,22 @@ Actions disponibles (boutons à droite de la liste) :
 - **Activer/Désactiver** : bascule rapidement sans ouvrir la fenêtre d'édition.
 
 ## 8. Menu latéral
-*Menu affiché sur le côté des pages, organisé en deux étapes.*
+*Menu affiché sur le côté des pages, organisé sur trois niveaux au maximum. Aucun niveau au-delà de la section n'est obligatoire : une section seule, sans rien en dessous, fonctionne déjà comme un lien de menu simple.*
 
-Les deux colonnes sont **vides au départ** : c'est normal, il faut commencer par la colonne de gauche.
+Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer par la colonne de gauche.
 
-1. **Colonne de gauche (« 1. Sections »)** : créez d'abord une ou plusieurs sections avec **+ Section** (ex. `Le projet`). Actions : + Section / Modifier / Supprimer / Monter / Descendre / Activer-Désactiver. Une section a un nom, un statut activé/désactivé, et — nouveau — peut optionnellement être elle-même un lien cliquable :
-   - **Titre de section pointant vers : Aucun** (par défaut) : comportement inchangé, un simple titre de regroupement, non cliquable.
-   - **Lien interne** : le titre de section devient cliquable, vers une page/un billet choisi dans un menu déroulant dédié — **avec ou sans sous-entrées**. Les sous-menus ne sont donc plus obligatoires pour placer un billet ou une page au premier niveau du menu latéral : une section seule, sans aucune sous-entrée, suffit.
-   - **Lien externe** : le titre de section pointe vers un autre site, intégré dans un cadre (iframe) en conservant le menu et la bannière de ce site — même mécanisme que pour un lien externe en sous-entrée (voir « 7. Menu supérieur »).
-2. **Colonne de droite (« 2. Sous-entrées de la section sélectionnée »)** : cliquez sur une section à gauche pour voir/éditer ses sous-entrées ici. Elle reste vide tant qu'aucune section n'est sélectionnée ou créée, ou si la section n'a volontairement aucune sous-entrée (cas d'une section qui n'est qu'un lien direct). Cliquer sur **+ Sous-entrée** sans avoir sélectionné de section affiche un message vous invitant à en créer/sélectionner une d'abord, au lieu de ne rien faire silencieusement. Chaque sous-entrée a les mêmes champs qu'une entrée du menu supérieur (label, lien interne/externe, destination, activé) — voir la section « 7. Menu supérieur » ci-dessus pour le détail de ces champs.
+1. **Colonne de gauche (« 1. Sections »)** : créez d'abord une ou plusieurs sections avec **+ Section** (ex. `Rhétorique`). Actions : + Section / Modifier / Supprimer / Monter / Descendre / Activer-Désactiver. Une section a un nom, un statut activé/désactivé, et peut optionnellement être elle-même un lien cliquable :
+   - **Titre de section pointant vers : Aucun** (par défaut) : un simple titre de regroupement, non cliquable.
+   - **Lien interne** : le titre de section devient cliquable, vers une page/un billet choisi dans un menu déroulant dédié — avec ou sans contenu en dessous.
+   - **Lien externe** : le titre de section pointe vers un autre site, intégré dans un cadre (iframe) en conservant le menu et la bannière de ce site — même mécanisme que pour un lien externe ailleurs dans les menus (voir « 7. Menu supérieur »).
+   - **Numérotée** (case à cocher) : préfixe automatiquement le titre de la section « I. », « II. », « III. »... selon sa position parmi les sections numérotées (les sections non numérotées ne comptent pas dans la numérotation, et le numéro n'est jamais tapé à la main : il est recalculé à chaque génération du site). Cochez-la pour un plan structuré, ex. « I. Rhétorique ».
+2. **Colonne du milieu (« 2. Sous-entrées / sous-sections de la section sélectionnée »)** : cliquez sur une section à gauche pour voir/éditer son contenu ici. Deux types de lignes peuvent y apparaître, dans n'importe quelle combinaison :
+   - **Sous-entrées** (bouton **+ Sous-entrée**) : un lien direct, comme avant — mêmes champs qu'une entrée du menu supérieur (label, lien interne/externe, destination, activé).
+   - **Sous-sections** (bouton **+ Sous-section**, préfixées `§` dans la liste) : un sous-groupe nommé (ex. `Bossuet et la rhétorique chrétienne`), qui peut lui-même être un simple titre ou un lien cliquable (mêmes trois choix que pour une section). Si la section est **numérotée**, ses sous-sections sont automatiquement préfixées « A. », « B. », « C. »... Sélectionnez une sous-section pour voir/éditer ses billets dans la colonne de droite.
+   - Cliquer sur **+ Sous-section**/**+ Sous-entrée** sans avoir sélectionné de section affiche un message vous invitant à en créer/sélectionner une d'abord.
+3. **Colonne de droite (« 3. Billets de la sous-section sélectionnée »)** : cliquez sur une sous-section au milieu pour voir/éditer ses billets ici (bouton **+ Billet** — mêmes champs qu'une sous-entrée). Reste vide tant qu'aucune sous-section n'est sélectionnée (une simple sous-entrée, elle, n'a pas de niveau en dessous).
+
+**Exemple** : pour un plan de type « I. Rhétorique / A. Bossuet et la rhétorique chrétienne / *L'héritage de saint Augustin*, *La place de l'héritage profane* » — créez la section `Rhétorique` (case Numérotée cochée), ajoutez-lui la sous-section `Bossuet et la rhétorique chrétienne`, puis ajoutez les deux billets dans la colonne de droite une fois cette sous-section sélectionnée.
 
 ## 9. Rendu
 *Quels fichiers de thème utiliser pour transformer le contenu en HTML, et options d'affichage des images.*

@@ -19,6 +19,7 @@
 - alignement de paragraphe (gauche/centré/droite/justifié) dans l'éditeur, reporté sur le site généré
 - sélecteur de page/billet existant pour les liens de menu internes ; les liens externes s'ouvrent intégrés (iframe) en conservant menus et bannière
 - sections de premier niveau du menu latéral pouvant pointer directement vers une page/un billet/un site externe, sans sous-menu obligatoire
+- menu latéral à 3 niveaux (sections, sous-sections, billets) avec numérotation automatique optionnelle (I., II.../A., B...) pour les plans structurés
 
 ## V1.1
 - amélioration responsive

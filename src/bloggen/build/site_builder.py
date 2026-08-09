@@ -15,7 +15,7 @@ from bloggen.build.assets import (
     copy_theme_resources,
 )
 from bloggen.build.reports import BuildReport
-from bloggen.config.models import MenuLink, ProjectConfig, SideMenuSection
+from bloggen.config.models import MenuLink, ProjectConfig, SideMenuSection, SideMenuSubSection
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
 from bloggen.content.slugify import ensure_unique_slug, slugify
 from bloggen.render.feeds import FeedItem, render_robots_txt, render_rss_feed, render_sitemap
@@ -615,13 +615,17 @@ def _generate_external_link_pages(
     page is rendered, since every page includes the top/side menus built from
     these same links.
     """
-    external_links: list[MenuLink | SideMenuSection] = [
+    external_links: list[MenuLink | SideMenuSection | SideMenuSubSection] = [
         item for item in config.menus.top if item.target_type == "external"
     ]
     for section in config.menus.side:
         if section.target_type == "external":
             external_links.append(section)
         external_links.extend(child for child in section.children if child.target_type == "external")
+        for subsection in section.subsections:
+            if subsection.target_type == "external":
+                external_links.append(subsection)
+            external_links.extend(child for child in subsection.children if child.target_type == "external")
     external_links = [item for item in external_links if (item.target or "").strip()]
     if not external_links:
         return
