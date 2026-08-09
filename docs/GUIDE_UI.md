@@ -136,10 +136,11 @@ Le contenu de l'article commence ici...
 Actions disponibles (boutons à droite de la liste) :
 - **Ajouter / Modifier** : ouvre une fenêtre avec :
   - **Label (obligatoire)** : texte du lien. Exemple : `Billets`
-  - **Target (obligatoire)** : destination — un chemin interne commençant par `/` (ex. `/billets/index.html`) ou une URL externe complète (ex. `https://example.org`)
-  - **Type** : `internal` (page de ce site) ou `external` (autre site)
+  - **Entrée de menu pointant vers :** deux choix :
+    - **Lien interne** (par défaut) : une page ou un billet déjà présent sur ce site. Un second menu déroulant, **Page ou billet**, apparaît alors pour le choisir directement dans la liste (accueil, archive des billets, ou n'importe quelle page/billet existant) — il remplit automatiquement le champ Destination ci-dessous.
+    - **Lien externe** : un autre site web. Ce lien ne fait pas sortir du site : la page générée affiche le site externe intégré dans un cadre (iframe), en conservant le menu latéral et le haut de la page de ce site, avec un lien de secours au cas où le site visé refuse d'être ainsi intégré (certains sites l'interdisent — limite du site externe, pas de ce logiciel).
+  - **Destination (obligatoire)** : chemin ou URL vers laquelle ce lien pointe réellement — rempli automatiquement pour un lien interne (via le sélecteur ci-dessus), à saisir à la main pour un lien externe (ex. `https://example.org`). Reste modifiable dans tous les cas.
   - **Activé** : décocher pour masquer le lien sans le supprimer
-  - **Nouvel onglet** : ouvre le lien dans un nouvel onglet du navigateur
 - **Supprimer** : retire le lien définitivement.
 - **Monter / Descendre** : change l'ordre d'affichage.
 - **Activer/Désactiver** : bascule rapidement sans ouvrir la fenêtre d'édition.
@@ -149,8 +150,11 @@ Actions disponibles (boutons à droite de la liste) :
 
 Les deux colonnes sont **vides au départ** : c'est normal, il faut commencer par la colonne de gauche.
 
-1. **Colonne de gauche (« 1. Sections »)** : créez d'abord une ou plusieurs sections avec **+ Section** (ex. `Le projet`). Actions : + Section / Modifier / Supprimer / Monter / Descendre / Activer-Désactiver. Une section n'a qu'un nom et un statut activé/désactivé.
-2. **Colonne de droite (« 2. Sous-entrées de la section sélectionnée »)** : cliquez sur une section à gauche pour voir/éditer ses sous-entrées ici. Elle reste vide tant qu'aucune section n'est sélectionnée ou créée. Cliquer sur **+ Sous-entrée** sans avoir sélectionné de section affiche un message vous invitant à en créer/sélectionner une d'abord, au lieu de ne rien faire silencieusement. Chaque sous-entrée a les mêmes champs qu'une entrée du menu supérieur (label, cible, type, activé, nouvel onglet).
+1. **Colonne de gauche (« 1. Sections »)** : créez d'abord une ou plusieurs sections avec **+ Section** (ex. `Le projet`). Actions : + Section / Modifier / Supprimer / Monter / Descendre / Activer-Désactiver. Une section a un nom, un statut activé/désactivé, et — nouveau — peut optionnellement être elle-même un lien cliquable :
+   - **Titre de section pointant vers : Aucun** (par défaut) : comportement inchangé, un simple titre de regroupement, non cliquable.
+   - **Lien interne** : le titre de section devient cliquable, vers une page/un billet choisi dans un menu déroulant dédié — **avec ou sans sous-entrées**. Les sous-menus ne sont donc plus obligatoires pour placer un billet ou une page au premier niveau du menu latéral : une section seule, sans aucune sous-entrée, suffit.
+   - **Lien externe** : le titre de section pointe vers un autre site, intégré dans un cadre (iframe) en conservant le menu et la bannière de ce site — même mécanisme que pour un lien externe en sous-entrée (voir « 7. Menu supérieur »).
+2. **Colonne de droite (« 2. Sous-entrées de la section sélectionnée »)** : cliquez sur une section à gauche pour voir/éditer ses sous-entrées ici. Elle reste vide tant qu'aucune section n'est sélectionnée ou créée, ou si la section n'a volontairement aucune sous-entrée (cas d'une section qui n'est qu'un lien direct). Cliquer sur **+ Sous-entrée** sans avoir sélectionné de section affiche un message vous invitant à en créer/sélectionner une d'abord, au lieu de ne rien faire silencieusement. Chaque sous-entrée a les mêmes champs qu'une entrée du menu supérieur (label, lien interne/externe, destination, activé) — voir la section « 7. Menu supérieur » ci-dessus pour le détail de ces champs.
 
 ## 9. Rendu
 *Quels fichiers de thème utiliser pour transformer le contenu en HTML, et options d'affichage des images.*
@@ -234,6 +238,12 @@ Les deux colonnes sont **vides au départ** : c'est normal, il faut commencer pa
 - *Deuxième ligne* — **Espace insécable** insère une espace insécable au curseur (empêche par exemple la coupure entre un nombre et son unité, ex. `10 km`) ; elle est déjà posée automatiquement par la typographie française avant `; : ! ?` et dans les guillemets, ce bouton sert pour les autres cas. **Lien...** transforme la sélection en lien (demande l'URL). **Image...** insère une image existante (voir plus bas). **Tableau...** insère un tableau simple (nombre de lignes/colonnes demandé), modifiable ensuite comme du texte structuré dans la zone grisée. **Note...** insère un appel de note de bas de page (voir plus bas). **Corriger la typographie** applique aux guillemets et à la ponctuation de la sélection les mêmes règles qu'à la frappe (utile après un collage — voir ci-dessous ; remplace le texte sélectionné, la mise en forme de la sélection n'est pas conservée).
 
 **Typographie française automatique** : en tapant directement dans l'éditeur, les guillemets droits (`"`) sont convertis à la volée en guillemets français alternés (`«`/`»`, ouvrant puis fermant, puis ouvrant à nouveau...), avec une espace insécable collée à l'intérieur. Une espace insécable est aussi automatiquement posée avant `; : ! ?` (qu'elle soit tapée avec ou sans espace avant). Les siècles écrits en chiffres romains suivis de « er »/« e » (ex. « Ier siècle », « XXIe siècle ») voient automatiquement leur terminaison ordinale passer en exposant (Iᵉʳ, XXIᵉ). Cela ne s'applique pas dans les zones de tableau ou de contenu non reconnu (fond grisé/jauni).
+
+**Raccourcis clavier** : Ctrl+B (gras), Ctrl+I (italique), Ctrl+Maj+S (barré), Ctrl+Maj+= (exposant), Alt+Espace (espace insécable), Alt+J (bascule le paragraphe courant entre aligné à gauche et justifié, comme sous WordPress).
+
+**Zoom (Ctrl+molette)** : en maintenant Ctrl et en tournant la molette de la souris au-dessus de la zone de texte ou du panneau des notes, la taille du texte (titres, gras, exposants...) et des notes de bas de page s'agrandit ou se réduit ensemble, sans modifier le texte lui-même ni le rendu du site généré (c'est un confort de lecture/saisie, propre à cette fenêtre).
+
+**Défilement** : une échelle (ascenseur) à droite de la zone de texte permet de faire défiler le document vers le haut ou le bas, en plus de la molette et des flèches.
 
 **Coller depuis Word ou Google Docs** : un `Ctrl+V` normal dans la zone de texte détecte automatiquement si le presse-papiers contient de la mise en forme (copie depuis Word, Google Docs, un navigateur...) et, si oui, colle le texte **avec** son gras/italique/barré/exposant/titres/liens/listes, nettoyé au passage des scories propres à ces logiciels (styles internes, balises techniques, commentaires) et retypographié à la française (guillemets, espaces insécables, siècles en exposant) comme à la frappe. Si le presse-papiers ne contient que du texte brut (ex. copié depuis le Bloc-notes), le collage classique s'effectue normalement, sans changement de comportement. Les images copiées depuis Google Docs (hébergées à distance) sont automatiquement téléchargées et enregistrées dans le dossier images du projet ; en cas d'échec (pas de réseau), un texte `[Image : ...]` est inséré à la place plutôt que de bloquer le collage. Limite assumée : comme pour l'import Markdown, tout ce qui n'est pas reconnu conserve son texte visible mais perd sa mise en forme d'origine plutôt que de planter ou d'afficher du HTML brut.
 

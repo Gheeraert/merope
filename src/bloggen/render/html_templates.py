@@ -109,6 +109,25 @@ def render_page_document(
     )
 
 
+def render_external_link_fragment(*, label: str, url: str) -> str:
+    """Content for the wrapper page generated for a "lien externe" menu entry.
+
+    Embeds the external URL in an ``<iframe>`` so the site's own banner/menus
+    stay visible around it, instead of navigating away. Not every external
+    site allows this (``X-Frame-Options``/CSP can refuse to be framed), so a
+    plain fallback link is always shown above the frame.
+    """
+    escaped_url = escape(url)
+    return (
+        '<div class="external-embed">'
+        '<p class="external-embed-notice">Contenu externe : '
+        f'<a href="{escaped_url}" target="_blank" rel="noopener noreferrer">{escaped_url}</a>'
+        "</p>"
+        f'<iframe class="external-embed-frame" src="{escaped_url}" title="{escape(label)}" loading="lazy"></iframe>'
+        "</div>"
+    )
+
+
 def render_archive_fragment(
     title: str,
     items: list[tuple[str, str] | tuple[str, str, str | None]],

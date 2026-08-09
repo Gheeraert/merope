@@ -17,6 +17,8 @@
 - exposants et conversion automatique des ordinaux de siècle (« Ier siècle », « XXIe siècle »)
 - recherche plein texte statique côté client (index JSON généré au build, sans serveur ni base de données)
 - alignement de paragraphe (gauche/centré/droite/justifié) dans l'éditeur, reporté sur le site généré
+- sélecteur de page/billet existant pour les liens de menu internes ; les liens externes s'ouvrent intégrés (iframe) en conservant menus et bannière
+- sections de premier niveau du menu latéral pouvant pointer directement vers une page/un billet/un site externe, sans sous-menu obligatoire
 
 ## V1.1
 - amélioration responsive

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Callable
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -66,6 +67,8 @@ def toggle_side_section(sections: list[SideMenuSection], index: int) -> None:
     sections[index] = SideMenuSection(
         label=section.label,
         enabled=not section.enabled,
+        target=section.target,
+        target_type=section.target_type,
         children=list(section.children),
     )
 
@@ -126,9 +129,15 @@ def _clone_menu_link(item: MenuLink) -> MenuLink:
 
 
 class TopMenuEditor(ttk.Frame):
-    def __init__(self, master: tk.Misc) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        *,
+        get_content_targets: Callable[[], list[tuple[str, str]]] | None = None,
+    ) -> None:
         super().__init__(master)
         self.items: list[MenuLink] = []
+        self._get_content_targets = get_content_targets or (lambda: [])
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -155,8 +164,8 @@ class TopMenuEditor(ttk.Frame):
             (
                 "Ajouter",
                 self._add_item,
-                "Ouvre une fenêtre pour créer un nouveau lien de menu (label, cible, "
-                "type interne/externe, activé, nouvel onglet).",
+                "Ouvre une fenêtre pour créer un nouveau lien de menu (label, page/site "
+                "de destination, activé).",
             ),
             (
                 "Modifier",
@@ -212,7 +221,7 @@ class TopMenuEditor(ttk.Frame):
         return int(selected[0])
 
     def _add_item(self) -> None:
-        item = ask_menu_link(self, "Ajouter un item de menu")
+        item = ask_menu_link(self, "Ajouter un item de menu", content_targets=self._get_content_targets())
         if item is None:
             return
         add_top_menu_item(self.items, item)
@@ -223,7 +232,9 @@ class TopMenuEditor(ttk.Frame):
         index = self._selected_index()
         if index is None:
             return
-        edited = ask_menu_link(self, "Modifier un item de menu", self.items[index])
+        edited = ask_menu_link(
+            self, "Modifier un item de menu", self.items[index], content_targets=self._get_content_targets()
+        )
         if edited is None:
             return
         update_top_menu_item(self.items, index, edited)
@@ -263,9 +274,15 @@ class TopMenuEditor(ttk.Frame):
 
 
 class SideMenuEditor(ttk.Frame):
-    def __init__(self, master: tk.Misc) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        *,
+        get_content_targets: Callable[[], list[tuple[str, str]]] | None = None,
+    ) -> None:
         super().__init__(master)
         self.sections: list[SideMenuSection] = []
+        self._get_content_targets = get_content_targets or (lambda: [])
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -279,7 +296,10 @@ class SideMenuEditor(ttk.Frame):
                 "cliquables (colonne de droite, ex. « Présentation » -> une page du site) "
                 "avec le bouton « + Sous-entrée ». Un seul niveau de sous-entrées est "
                 "possible. Tant qu'aucune section n'existe, les deux colonnes restent "
-                "vides : c'est normal, commencez par « + Section »."
+                "vides : c'est normal, commencez par « + Section ». Les sous-entrées ne "
+                "sont pas obligatoires : une section peut aussi pointer elle-même "
+                "directement vers une page, un billet ou un site externe (champ "
+                "« Titre de section pointant vers » dans + Section/Modifier)."
             ),
             wraplength=680,
             justify="left",
@@ -298,7 +318,8 @@ class SideMenuEditor(ttk.Frame):
         self.section_list.bind("<<ListboxSelect>>", self._on_section_select)
         add_tooltip(
             self.section_list,
-            "Liste des sections du menu latéral : [ON/OFF] Nom de section. "
+            "Liste des sections du menu latéral : [ON/OFF] Nom de section (-> destination "
+            "si le titre de section est lui-même un lien). "
             "Sélectionnez une section pour voir/éditer ses sous-entrées à droite.",
         )
 
@@ -343,7 +364,7 @@ class SideMenuEditor(ttk.Frame):
                 "+ Sous-entrée",
                 self._add_child,
                 "Ajoute un lien dans la section actuellement sélectionnée à gauche "
-                "(label, cible, type interne/externe, activé, nouvel onglet). "
+                "(label, page/site de destination, activé). "
                 "Sélectionnez ou créez d'abord une section.",
             ),
             ("Modifier", self._edit_child, "Édite la sous-entrée sélectionnée."),
@@ -370,6 +391,8 @@ class SideMenuEditor(ttk.Frame):
             SideMenuSection(
                 label=section.label,
                 enabled=section.enabled,
+                target=section.target,
+                target_type=section.target_type,
                 children=[_clone_menu_link(child) for child in section.children],
             )
             for section in self.sections
@@ -380,6 +403,8 @@ class SideMenuEditor(ttk.Frame):
             SideMenuSection(
                 label=section.label,
                 enabled=section.enabled,
+                target=section.target,
+                target_type=section.target_type,
                 children=[_clone_menu_link(child) for child in section.children],
             )
             for section in sections
@@ -390,7 +415,8 @@ class SideMenuEditor(ttk.Frame):
         self.section_list.delete(0, tk.END)
         for section in self.sections:
             marker = "ON" if section.enabled else "OFF"
-            self.section_list.insert(tk.END, f"[{marker}] {section.label}")
+            link_suffix = f" -> {section.target}" if (section.target or "").strip() else ""
+            self.section_list.insert(tk.END, f"[{marker}] {section.label}{link_suffix}")
         self._refresh_children()
 
     def _refresh_children(self) -> None:
@@ -424,7 +450,7 @@ class SideMenuEditor(ttk.Frame):
         self._refresh_children()
 
     def _add_section(self) -> None:
-        section = ask_side_section(self, "Ajouter une section")
+        section = ask_side_section(self, "Ajouter une section", content_targets=self._get_content_targets())
         if section is None:
             return
         add_side_section(self.sections, section)
@@ -437,7 +463,9 @@ class SideMenuEditor(ttk.Frame):
         index = self._current_section_index()
         if index is None:
             return
-        updated = ask_side_section(self, "Modifier une section", self.sections[index])
+        updated = ask_side_section(
+            self, "Modifier une section", self.sections[index], content_targets=self._get_content_targets()
+        )
         if updated is None:
             return
         update_side_section(self.sections, index, updated)
@@ -494,7 +522,7 @@ class SideMenuEditor(ttk.Frame):
                     "Sélectionnez d'abord une section dans la colonne de gauche.",
                 )
             return
-        child = ask_menu_link(self, "Ajouter une sous-entrée")
+        child = ask_menu_link(self, "Ajouter une sous-entrée", content_targets=self._get_content_targets())
         if child is None:
             return
         add_side_child(section, child)
@@ -506,7 +534,12 @@ class SideMenuEditor(ttk.Frame):
         child_index = self._current_child_index()
         if section is None or child_index is None:
             return
-        updated = ask_menu_link(self, "Modifier une sous-entrée", section.children[child_index])
+        updated = ask_menu_link(
+            self,
+            "Modifier une sous-entrée",
+            section.children[child_index],
+            content_targets=self._get_content_targets(),
+        )
         if updated is None:
             return
         update_side_child(section, child_index, updated)

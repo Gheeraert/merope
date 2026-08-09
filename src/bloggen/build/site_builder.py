@@ -15,10 +15,15 @@ from bloggen.build.assets import (
     copy_theme_resources,
 )
 from bloggen.build.reports import BuildReport
-from bloggen.config.models import ProjectConfig
+from bloggen.config.models import MenuLink, ProjectConfig, SideMenuSection
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
+from bloggen.content.slugify import ensure_unique_slug, slugify
 from bloggen.render.feeds import FeedItem, render_robots_txt, render_rss_feed, render_sitemap
-from bloggen.render.html_templates import render_archive_fragment, render_page_document
+from bloggen.render.html_templates import (
+    render_archive_fragment,
+    render_external_link_fragment,
+    render_page_document,
+)
 from bloggen.render.theme import load_custom_template
 from bloggen.render.lightbox import apply_lightbox_markup
 from bloggen.render.margin_notes import apply_notes_rendering
@@ -58,6 +63,9 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         output_root.mkdir(parents=True, exist_ok=True)
 
         _guard_banner_asset(runtime_config, project_root=project_root, report=report)
+        _generate_external_link_pages(
+            runtime_config, project_root=project_root, output_root=output_root, report=report
+        )
 
         temporary_tei_root = output_root / "_tmp_tei_runtime"
         tei_root = requested_tei_root if runtime_config.render.generate_tei_files else temporary_tei_root
@@ -588,3 +596,58 @@ def _guard_banner_asset(config: ProjectConfig, *, project_root: Path, report: Bu
 
     config.banner.enabled = False
     report.warnings.append(f"Bannière désactivée: image introuvable ({candidate}).")
+
+
+_EXTERNAL_LINKS_PATH = "liens-externes"
+
+
+def _generate_external_link_pages(
+    config: ProjectConfig, *, project_root: Path, output_root: Path, report: BuildReport
+) -> None:
+    """"Lien externe" menu entries open in an iframe wrapped in the site's own
+    banner/menus/footer, instead of navigating away or opening a new tab.
+
+    Generates one wrapper page per external ``MenuLink`` (top menu, side menu
+    children, and side menu section headers themselves — a section can now be
+    a clickable link with or without children) and rewrites that link's
+    ``target`` in ``config`` (the build's runtime copy only — never the
+    on-disk config) to point at the generated page. Runs before any other
+    page is rendered, since every page includes the top/side menus built from
+    these same links.
+    """
+    external_links: list[MenuLink | SideMenuSection] = [
+        item for item in config.menus.top if item.target_type == "external"
+    ]
+    for section in config.menus.side:
+        if section.target_type == "external":
+            external_links.append(section)
+        external_links.extend(child for child in section.children if child.target_type == "external")
+    external_links = [item for item in external_links if (item.target or "").strip()]
+    if not external_links:
+        return
+
+    used_slugs: set[str] = set()
+    custom_template = load_custom_template(project_root, config, config.render.html_template)
+
+    for item in external_links:
+        original_url = item.target.strip()
+        slug = ensure_unique_slug(slugify(item.label, mode=config.content.slugify_mode), used_slugs)
+        wrapper_path = f"/{_EXTERNAL_LINKS_PATH}/{slug}/index.html"
+        wrapper_file = output_root / _EXTERNAL_LINKS_PATH / slug / "index.html"
+
+        content_html = render_external_link_fragment(label=item.label, url=original_url)
+        html = render_page_document(
+            config=config,
+            title=item.label,
+            content_html=content_html,
+            current_path=wrapper_path,
+            asset_prefix=_relative_path(wrapper_file.parent, output_root),
+            custom_template=custom_template,
+        )
+        wrapper_file.parent.mkdir(parents=True, exist_ok=True)
+        wrapper_file.write_text(html, encoding="utf-8")
+        report.generated_html.append(wrapper_file)
+
+        item.target = wrapper_path
+
+    report.warnings.append(f"Liens externes intégrés en iframe: {len(external_links)}.")

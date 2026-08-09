@@ -38,6 +38,44 @@ def scan_existing_slugs(pages_dir: Path, posts_dir: Path) -> set[str]:
     return slugs
 
 
+def list_content_targets(
+    pages_dir: Path, posts_dir: Path, *, archive_path: str = "billets"
+) -> list[tuple[str, str]]:
+    """List ``(display label, URL)`` pairs for the internal-link picker in the
+    menu-entry dialog: existing pages/posts, plus the home page and the blog
+    archive page (which aren't backed by an individually-slugged file).
+
+    Tolerant of unreadable/invalid files, like :func:`scan_existing_slugs` —
+    this is a convenience picker, not the strict build-time content loader.
+    """
+    archive_clean = archive_path.strip("/") or "billets"
+    targets: list[tuple[str, str]] = [
+        ("Accueil (page d'accueil du site)", "/index.html"),
+        ("Archive des billets", f"/{archive_clean}/index.html"),
+    ]
+
+    sources = (
+        (pages_dir, "page", lambda slug: f"/{slug}/index.html"),
+        (posts_dir, "billet", lambda slug: f"/{archive_clean}/{slug}/index.html"),
+    )
+    for directory, kind_label, build_url in sources:
+        if not directory.exists():
+            continue
+        for path in sorted(directory.rglob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8")
+                result = parse_front_matter(text)
+            except (OSError, ValueError):
+                continue
+            slug = result.metadata.get("slug", "").strip()
+            if not slug:
+                continue
+            title = result.metadata.get("title", "").strip() or slug
+            targets.append((f"{title} ({kind_label})", build_url(slug)))
+
+    return targets
+
+
 def suggest_slug(title: str, *, mode: str = "ascii", existing: set[str] | None = None) -> str:
     """Suggest a unique slug for ``title``, without reserving it.
 

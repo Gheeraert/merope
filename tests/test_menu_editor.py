@@ -9,6 +9,7 @@ from bloggen.ui.menu_editor import (
     remove_side_child,
     remove_top_menu_item,
     toggle_side_child,
+    toggle_side_section,
     toggle_top_menu_item,
 )
 
@@ -53,3 +54,11 @@ def test_side_menu_basic_manipulation():
 
     removed = remove_side_child(section, 1)
     assert removed.label == "Sous 1"
+
+
+def test_toggle_side_section_preserves_target():
+    sections = [SideMenuSection(label="Ext", target="https://example.org", target_type="external")]
+    toggle_side_section(sections, 0)
+    assert sections[0].enabled is False
+    assert sections[0].target == "https://example.org"
+    assert sections[0].target_type == "external"

@@ -84,6 +84,8 @@ class MenuLink:
 class SideMenuSection:
     label: str
     enabled: bool = True
+    target: str = ""  # optional: makes the section header itself a clickable link
+    target_type: str = "internal"
     children: list[MenuLink] = field(default_factory=list)
 
 
@@ -231,6 +233,8 @@ def _menus_from_dict(raw: dict[str, Any]) -> MenusConfig:
             SideMenuSection(
                 label=str(section.get("label", "")),
                 enabled=bool(section.get("enabled", True)),
+                target=str(section.get("target", "")),
+                target_type=str(section.get("target_type", "internal")),
                 children=children,
             )
         )

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from tkinter import messagebox, filedialog, simpledialog, ttk
+from tkinter import font as tkfont, messagebox, filedialog, simpledialog, ttk
 import tkinter as tk
 
 from bloggen.content.metadata import is_valid_iso_date
@@ -285,13 +285,13 @@ class ContentEditorWindow(tk.Toplevel):
         toolbar_row2.pack(fill="x", pady=(0, 4))
 
         char_buttons = [
-            ("G", lambda: self._toggle_char_tag("bold"), "Gras"),
-            ("I", lambda: self._toggle_char_tag("italic"), "Italique"),
-            ("S", lambda: self._toggle_char_tag("strike"), "Barré"),
+            ("G", lambda: self._toggle_char_tag("bold"), "Gras (Ctrl+B)."),
+            ("I", lambda: self._toggle_char_tag("italic"), "Italique (Ctrl+I)."),
+            ("S", lambda: self._toggle_char_tag("strike"), "Barré (Ctrl+Maj+S)."),
             (
                 "X²",
                 lambda: self._toggle_char_tag("superscript"),
-                "Exposant (ex. 2e, XXe, notes de calcul).",
+                "Exposant (ex. 2e, XXe, notes de calcul). Raccourci : Ctrl+Maj+= (Ctrl++).",
             ),
         ]
         for label, command, tip in char_buttons:
@@ -331,7 +331,8 @@ class ContentEditorWindow(tk.Toplevel):
                 "justify",
                 "Justifie le paragraphe (texte étiré pour toucher les deux marges). "
                 "Rendu réel uniquement sur le site généré : l'aperçu dans cet éditeur "
-                "affiche un alignement à gauche par simplification.",
+                "affiche un alignement à gauche par simplification. "
+                "Raccourci : Alt+J (bascule entre gauche et justifié, comme sous WordPress).",
             ),
         ]
         for label, alignment, tip in align_buttons:
@@ -345,7 +346,8 @@ class ContentEditorWindow(tk.Toplevel):
                 self._insert_nbsp,
                 "Insère une espace insécable au curseur (empêche la coupure entre deux "
                 "mots, ex. avant « : » ou dans « 10 km »). Déjà posée automatiquement "
-                "par la typographie française avant ; : ! ? et dans les guillemets.",
+                "par la typographie française avant ; : ! ? et dans les guillemets. "
+                "Raccourci : Alt+Espace.",
             ),
             ("Lien...", self._insert_link, "Transforme la sélection en lien hypertexte."),
             ("Image...", self._insert_image, "Insère une image depuis un fichier existant."),
@@ -388,10 +390,29 @@ class ContentEditorWindow(tk.Toplevel):
         text_frame = ttk.Frame(vertical_paned)
         vertical_paned.add(text_frame, weight=5)
         self.text = tk.Text(text_frame, wrap="word", undo=True, font=("TkDefaultFont", 11))
-        self.text.pack(fill="both", expand=True)
+        text_scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=self.text.yview)
+        self.text.configure(yscrollcommand=text_scrollbar.set)
+        text_scrollbar.pack(side="right", fill="y")
+        self.text.pack(side="left", fill="both", expand=True)
+        add_tooltip(text_scrollbar, "Fait défiler le texte vers le haut ou le bas.")
+        add_tooltip(
+            self.text,
+            "Ctrl+molette : agrandit/réduit le texte et les notes. "
+            "Raccourcis : Ctrl+B (gras), Ctrl+I (italique), Ctrl+Maj+S (barré), "
+            "Ctrl+Maj+= (exposant), Alt+Espace (espace insécable), "
+            "Alt+J (bascule gauche/justifié).",
+        )
         self._configure_tags()
+        self._init_zoom()
         self.text.bind("<KeyRelease>", self._on_key_release, add="+")
         self.text.bind("<<Paste>>", self._on_paste)
+        self.text.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
+        self.text.bind("<Control-b>", self._shortcut_bold)
+        self.text.bind("<Control-i>", self._shortcut_italic)
+        self.text.bind("<Control-Shift-S>", self._shortcut_strike)
+        self.text.bind("<Control-plus>", self._shortcut_superscript)
+        self.text.bind("<Alt-space>", self._shortcut_nbsp)
+        self.text.bind("<Alt-j>", self._shortcut_toggle_justify)
 
         notes_frame = ttk.Frame(vertical_paned)
         vertical_paned.add(notes_frame, weight=1)
@@ -426,6 +447,76 @@ class ContentEditorWindow(tk.Toplevel):
         for tag in ("bold", "italic", "strike", "superscript", "link_style", "image_style", "footnote_style"):
             text.tag_raise(tag)
 
+    # -- zoom (Ctrl+molette) -------------------------------------------------
+
+    def _init_zoom(self) -> None:
+        self._zoom_scale = 1.0
+        # Reference ("100%") sizes matching _configure_tags above.
+        self._base_font_sizes = {
+            "h1": 20,
+            "h2": 17,
+            "h3": 14,
+            "h4": 12,
+            "body": 11,
+            "mono": 10,
+            "superscript": 8,
+            "superscript_offset": 6,
+        }
+        self._notes_font = tkfont.Font(family="TkDefaultFont", size=self._base_font_sizes["body"])
+
+    def _on_ctrl_mousewheel(self, event: tk.Event) -> str:
+        step = 0.1 if event.delta > 0 else -0.1
+        self._zoom_scale = min(3.0, max(0.5, self._zoom_scale + step))
+        self._apply_zoom()
+        return "break"
+
+    def _apply_zoom(self) -> None:
+        scale = self._zoom_scale
+        sizes = {key: max(6, round(value * scale)) for key, value in self._base_font_sizes.items()}
+        text = self.text
+        text.configure(font=("TkDefaultFont", sizes["body"]))
+        text.tag_configure("h1", font=("TkDefaultFont", sizes["h1"], "bold"))
+        text.tag_configure("h2", font=("TkDefaultFont", sizes["h2"], "bold"))
+        text.tag_configure("h3", font=("TkDefaultFont", sizes["h3"], "bold"))
+        text.tag_configure("h4", font=("TkDefaultFont", sizes["h4"], "bold"))
+        text.tag_configure("bold", font=("TkDefaultFont", sizes["body"], "bold"))
+        text.tag_configure("italic", font=("TkDefaultFont", sizes["body"], "italic"))
+        text.tag_configure("table_source", font=("Courier New", sizes["mono"]))
+        text.tag_configure("verbatim", font=("Courier New", sizes["mono"]))
+        text.tag_configure(
+            "superscript", offset=sizes["superscript_offset"], font=("TkDefaultFont", sizes["superscript"])
+        )
+        self._notes_font.configure(size=sizes["body"])
+
+    # -- keyboard shortcuts ---------------------------------------------------
+
+    def _shortcut_bold(self, _event: tk.Event) -> str:
+        self._toggle_char_tag("bold")
+        return "break"
+
+    def _shortcut_italic(self, _event: tk.Event) -> str:
+        self._toggle_char_tag("italic")
+        return "break"
+
+    def _shortcut_strike(self, _event: tk.Event) -> str:
+        self._toggle_char_tag("strike")
+        return "break"
+
+    def _shortcut_superscript(self, _event: tk.Event) -> str:
+        self._toggle_char_tag("superscript")
+        return "break"
+
+    def _shortcut_nbsp(self, _event: tk.Event) -> str:
+        self._insert_nbsp()
+        return "break"
+
+    def _shortcut_toggle_justify(self, _event: tk.Event) -> str:
+        """Alt+J: toggle the current paragraph between left and justify,
+        the same two-state shortcut convention as WordPress/Gutenberg."""
+        current = self._line_alignment(self._current_line())
+        self._set_alignment("left" if current == "justify" else "justify")
+        return "break"
+
     def _build_notes_panel(self, master: tk.Misc) -> None:
         ttk.Label(master, text="Notes de bas de page", foreground="#444444").pack(
             anchor="w", padx=4, pady=(2, 4)
@@ -445,6 +536,8 @@ class ContentEditorWindow(tk.Toplevel):
         self._notes_canvas.configure(yscrollcommand=scrollbar.set)
         self._notes_canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        self._notes_canvas.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
+        self.notes_list_frame.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
 
         self._refresh_notes_panel()
 
@@ -466,8 +559,9 @@ class ContentEditorWindow(tk.Toplevel):
             ttk.Label(row, text=f"[{note_id}]", width=4).pack(side="left")
 
             var = tk.StringVar(value=self.footnote_definitions[note_id])
-            entry = ttk.Entry(row, textvariable=var)
+            entry = ttk.Entry(row, textvariable=var, font=self._notes_font)
             entry.pack(side="left", fill="x", expand=True, padx=4)
+            entry.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
             add_tooltip(entry, "Texte de la note, modifiable directement ici.")
             var.trace_add(
                 "write",

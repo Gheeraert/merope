@@ -39,7 +39,15 @@ def build_side_menu_html(sections: list[SideMenuSection], *, current_path: str =
     parts = ['<aside class="side-menu side-nav" aria-label="Navigation latérale">']
     for section in enabled_sections:
         parts.append('<section class="side-menu-section">')
-        parts.append(f"<h3>{escape(section.label)}</h3>")
+        section_target = (section.target or "").strip()
+        if section_target:
+            classes = ["side-menu-section-link"]
+            if _normalize_path(section_target) == _normalize_path(current_path):
+                classes.append("is-active")
+            href = resolve_navigation_href(section_target, current_path=current_path)
+            parts.append(f'<h3><a class="{" ".join(classes)}" href="{escape(href)}">{escape(section.label)}</a></h3>')
+        else:
+            parts.append(f"<h3>{escape(section.label)}</h3>")
         enabled_children = [child for child in section.children if child.enabled]
         if enabled_children:
             parts.append("<ul>")

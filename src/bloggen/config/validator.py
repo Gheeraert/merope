@@ -158,6 +158,14 @@ def _validate_side_section(section: Any, errors: list[str], index: int) -> None:
     if not isinstance(enabled, bool):
         errors.append(f"{base_path}.enabled doit être un booléen.")
 
+    target = section.get("target", "")
+    if not isinstance(target, str):
+        errors.append(f"{base_path}.target doit être une chaîne.")
+
+    target_type = section.get("target_type", "internal")
+    if not isinstance(target_type, str):
+        errors.append(f"{base_path}.target_type doit être une chaîne.")
+
     children = section.get("children")
     if not isinstance(children, list):
         errors.append(f"{base_path}.children doit être une liste.")

@@ -4,6 +4,7 @@ import pytest
 
 from bloggen.content.writer import (
     default_filename,
+    list_content_targets,
     read_content_file,
     scan_existing_slugs,
     suggest_slug,
@@ -60,3 +61,51 @@ def test_scan_existing_slugs_tolerates_broken_files(tmp_path: Path):
     write_content_file(pages, "ok.md", {"title": "Ok", "slug": "ok", "type": "page"}, "Corps\n")
 
     assert scan_existing_slugs(pages, posts) == {"ok"}
+
+
+def test_list_content_targets_includes_home_and_archive_by_default(tmp_path: Path):
+    pages = tmp_path / "pages"
+    posts = tmp_path / "posts"
+    targets = list_content_targets(pages, posts)
+    assert ("Accueil (page d'accueil du site)", "/index.html") in targets
+    assert ("Archive des billets", "/billets/index.html") in targets
+
+
+def test_list_content_targets_lists_pages_and_posts_with_correct_urls(tmp_path: Path):
+    pages = tmp_path / "pages"
+    posts = tmp_path / "posts"
+    write_content_file(pages, "accueil.md", {"title": "Accueil", "slug": "accueil", "type": "page"}, "Corps\n")
+    write_content_file(
+        posts,
+        "2026-08-08-billet.md",
+        {"title": "Mon billet", "slug": "mon-billet", "type": "post", "date": "2026-08-08"},
+        "Corps\n",
+    )
+
+    targets = list_content_targets(pages, posts, archive_path="billets")
+    assert ("Accueil (page)", "/accueil/index.html") in targets
+    assert ("Mon billet (billet)", "/billets/mon-billet/index.html") in targets
+
+
+def test_list_content_targets_respects_custom_archive_path(tmp_path: Path):
+    posts = tmp_path / "posts"
+    write_content_file(
+        posts,
+        "2026-08-08-billet.md",
+        {"title": "Billet", "slug": "un-billet", "type": "post", "date": "2026-08-08"},
+        "Corps\n",
+    )
+
+    targets = list_content_targets(tmp_path / "pages", posts, archive_path="/journal/")
+    assert ("Billet (billet)", "/journal/un-billet/index.html") in targets
+    assert ("Archive des billets", "/journal/index.html") in targets
+
+
+def test_list_content_targets_tolerates_broken_files(tmp_path: Path):
+    pages = tmp_path / "pages"
+    posts = tmp_path / "posts"
+    pages.mkdir(parents=True)
+    (pages / "broken.md").write_text("---\nno closing delimiter\n", encoding="utf-8")
+
+    targets = list_content_targets(pages, posts)
+    assert all("broken" not in label for label, _url in targets)

@@ -175,6 +175,130 @@ def test_site_builder_skips_search_index_when_disabled(monkeypatch):
     assert "site-search" not in home_html
 
 
+def test_site_builder_generates_iframe_page_for_external_menu_link(monkeypatch):
+    project = RUNTIME_ROOT / f"site_builder_external_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    from bloggen.config.models import MenuLink
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.menus.top.append(
+        MenuLink(label="Wikipédia", target="https://fr.wikipedia.org", target_type="external")
+    )
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(TEI_SAMPLE, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    # The original config object is never mutated by the build.
+    assert config.menus.top[-1].target == "https://fr.wikipedia.org"
+
+    wrapper = project / "site/liens-externes/wikipedia/index.html"
+    assert wrapper.exists()
+    wrapper_html = wrapper.read_text(encoding="utf-8")
+    assert '<iframe class="external-embed-frame" src="https://fr.wikipedia.org"' in wrapper_html
+    assert 'target="_blank"' in wrapper_html  # the plain fallback link, not the nav link
+
+    home_html = (project / "site/index.html").read_text(encoding="utf-8")
+    assert 'href="liens-externes/wikipedia/index.html"' in home_html
+    assert "https://fr.wikipedia.org" not in home_html
+
+
+def test_site_builder_generates_iframe_page_for_external_side_section(monkeypatch):
+    project = RUNTIME_ROOT / f"site_builder_external_section_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    from bloggen.config.models import MenuLink, SideMenuSection
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.menus.side.append(
+        SideMenuSection(
+            label="Ressources",
+            target="https://fr.wikipedia.org",
+            target_type="external",
+            children=[MenuLink(label="Accueil", target="/index.html")],
+        )
+    )
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(TEI_SAMPLE, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert config.menus.side[-1].target == "https://fr.wikipedia.org"  # original untouched
+
+    wrapper = project / "site/liens-externes/ressources/index.html"
+    assert wrapper.exists()
+
+    home_html = (project / "site/index.html").read_text(encoding="utf-8")
+    assert 'class="side-menu-section-link" href="liens-externes/ressources/index.html"' in home_html
+    # the section's own children still render alongside its own link
+    assert "Accueil</a></li>" in home_html
+
+
 def test_site_builder_disables_missing_banner_without_failing(monkeypatch):
     project = RUNTIME_ROOT / f"site_builder_banner_{uuid.uuid4().hex}"
     (project / "content/pages").mkdir(parents=True)
