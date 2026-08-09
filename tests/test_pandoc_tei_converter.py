@@ -136,6 +136,34 @@ def test_image_attributes_survive_real_pandoc_conversion_to_tei():
     assert "align-left" in html
 
 
+def test_paragraph_alignment_survives_real_pandoc_conversion_to_html():
+    if shutil.which("pandoc") is None:
+        pytest.skip("Pandoc non disponible dans l'environnement de test.")
+
+    markdown_source = RUNTIME_DIR / "pipeline_alignment_source.md"
+    markdown_source.write_text(
+        "# Titre\n\n"
+        "{{align=center}}Paragraphe centre.\n\n"
+        "Paragraphe normal.\n\n"
+        "> {{align=right}}Citation a droite.\n",
+        encoding="utf-8",
+    )
+
+    output_path = RUNTIME_DIR / "pipeline_alignment_output.xml"
+    result = convert_markdown_file_to_tei(markdown_source, output_path, pandoc_command="pandoc")
+
+    assert result.success is True
+    tei_content = output_path.read_text(encoding="utf-8")
+    assert 'rend="align-center"' in tei_content
+    assert 'rend="align-right"' in tei_content
+    assert "{{align=" not in tei_content
+
+    html = render_tei_file_to_html_fragment(output_path, parameters={"article_slug": "alignment"})
+    assert '<p class="align-center">Paragraphe centre.</p>' in html
+    assert "<p>Paragraphe normal.</p>" in html
+    assert '<blockquote><p class="align-right">Citation a droite.</p></blockquote>' in html
+
+
 def test_superscript_survives_real_pandoc_conversion_to_html():
     if shutil.which("pandoc") is None:
         pytest.skip("Pandoc non disponible dans l'environnement de test.")

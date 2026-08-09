@@ -285,6 +285,22 @@ button:focus-visible {
   margin: 0.9rem 0;
 }
 
+.tei-fragment p.align-left {
+  text-align: left;
+}
+
+.tei-fragment p.align-center {
+  text-align: center;
+}
+
+.tei-fragment p.align-right {
+  text-align: right;
+}
+
+.tei-fragment p.align-justify {
+  text-align: justify;
+}
+
 .tei-fragment blockquote {
   margin: 1rem 0;
   padding: 0.7rem 1rem;

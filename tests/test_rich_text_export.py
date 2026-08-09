@@ -114,6 +114,21 @@ def test_blockquote():
     assert blocks_to_markdown(blocks) == "> Une citation.\n"
 
 
+def test_paragraph_alignment_marker():
+    blocks = [Block(kind=PARAGRAPH, runs=[InlineRun(text="Centre.")], alignment="center")]
+    assert blocks_to_markdown(blocks) == "{{align=center}}Centre.\n"
+
+
+def test_paragraph_left_alignment_has_no_marker():
+    blocks = [Block(kind=PARAGRAPH, runs=[InlineRun(text="Normal.")], alignment="left")]
+    assert blocks_to_markdown(blocks) == "Normal.\n"
+
+
+def test_blockquote_alignment_marker():
+    blocks = [Block(kind=BLOCKQUOTE, runs=[InlineRun(text="Citation.")], alignment="right")]
+    assert blocks_to_markdown(blocks) == "> {{align=right}}Citation.\n"
+
+
 def test_bullet_and_ordered_lists():
     bullet = Block(
         kind=BULLET_LIST,

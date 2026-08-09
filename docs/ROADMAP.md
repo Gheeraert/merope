@@ -16,6 +16,7 @@
 - import Markdown et copier-coller nettoyé depuis Word/Google Docs dans l'éditeur
 - exposants et conversion automatique des ordinaux de siècle (« Ier siècle », « XXIe siècle »)
 - recherche plein texte statique côté client (index JSON généré au build, sans serveur ni base de données)
+- alignement de paragraphe (gauche/centré/droite/justifié) dans l'éditeur, reporté sur le site généré
 
 ## V1.1
 - amélioration responsive

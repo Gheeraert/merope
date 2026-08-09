@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 
 from bloggen.markdown.image_attributes import parse_image_attributes
+from bloggen.markdown.paragraph_alignment import strip_alignment_marker
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -93,7 +94,8 @@ def _chunk_to_block(lines: list[str]) -> Block:
 
     if all(_BLOCKQUOTE_LINE_RE.match(line) for line in lines):
         content = " ".join(_BLOCKQUOTE_LINE_RE.match(line).group(1) for line in lines)
-        return Block(kind=BLOCKQUOTE, runs=_parse_inline(content))
+        content, alignment = strip_alignment_marker(content)
+        return Block(kind=BLOCKQUOTE, runs=_parse_inline(content), alignment=alignment)
 
     bullet_list = _try_list(lines, _BULLET_ITEM_RE, BULLET_LIST)
     if bullet_list is not None:
@@ -105,7 +107,8 @@ def _chunk_to_block(lines: list[str]) -> Block:
 
     if not any(_STRUCTURAL_LINE_RE.match(line) for line in lines):
         text = " ".join(line.strip() for line in lines)
-        return Block(kind=PARAGRAPH, runs=_parse_inline(text))
+        text, alignment = strip_alignment_marker(text)
+        return Block(kind=PARAGRAPH, runs=_parse_inline(text), alignment=alignment)
 
     return Block(kind=VERBATIM, raw_text="\n".join(lines))
 

@@ -145,10 +145,12 @@ Actions disponibles (boutons à droite de la liste) :
 - **Activer/Désactiver** : bascule rapidement sans ouvrir la fenêtre d'édition.
 
 ## 8. Menu latéral
-*Menu affiché sur le côté des pages, organisé en sections (colonne de gauche) contenant chacune des sous-entrées (colonne de droite). Un seul niveau de sous-entrées est possible — pas de sous-sous-menu.*
+*Menu affiché sur le côté des pages, organisé en deux étapes.*
 
-- Colonne de gauche (**sections**) : + Section / Modifier / Supprimer / Monter / Descendre / Activer-Désactiver. Une section n'a qu'un nom (ex. `Navigation`) et un statut activé/désactivé.
-- Colonne de droite (**sous-entrées de la section sélectionnée**) : mêmes actions, et chaque sous-entrée a les mêmes champs qu'une entrée du menu supérieur (label, cible, type, activé, nouvel onglet).
+Les deux colonnes sont **vides au départ** : c'est normal, il faut commencer par la colonne de gauche.
+
+1. **Colonne de gauche (« 1. Sections »)** : créez d'abord une ou plusieurs sections avec **+ Section** (ex. `Le projet`). Actions : + Section / Modifier / Supprimer / Monter / Descendre / Activer-Désactiver. Une section n'a qu'un nom et un statut activé/désactivé.
+2. **Colonne de droite (« 2. Sous-entrées de la section sélectionnée »)** : cliquez sur une section à gauche pour voir/éditer ses sous-entrées ici. Elle reste vide tant qu'aucune section n'est sélectionnée ou créée. Cliquer sur **+ Sous-entrée** sans avoir sélectionné de section affiche un message vous invitant à en créer/sélectionner une d'abord, au lieu de ne rien faire silencieusement. Chaque sous-entrée a les mêmes champs qu'une entrée du menu supérieur (label, cible, type, activé, nouvel onglet).
 
 ## 9. Rendu
 *Quels fichiers de thème utiliser pour transformer le contenu en HTML, et options d'affichage des images.*
@@ -227,7 +229,9 @@ Actions disponibles (boutons à droite de la liste) :
 - **Supprimer** : supprime définitivement le fichier sélectionné (confirmation demandée).
 - **Actualiser** : recharge la liste depuis le disque.
 
-**Barre de mise en forme** (au-dessus de la zone de texte) : sélectionnez du texte puis cliquez sur **G** (gras), **I** (italique), **S** (barré), **X²** (exposant), ou placez le curseur sur une ligne puis cliquez sur **H1-H4** (titre), **Citation**, **Liste à puces**, **Liste numérotée** pour transformer la ligne. **Lien...** transforme la sélection en lien (demande l'URL). **Image...** insère une image existante (voir plus bas). **Tableau...** insère un tableau simple (nombre de lignes/colonnes demandé), modifiable ensuite comme du texte structuré dans la zone grisée. **Note...** insère un appel de note de bas de page (voir plus bas). **Corriger la typographie** applique aux guillemets et à la ponctuation de la sélection les mêmes règles qu'à la frappe (utile après un collage — voir ci-dessous ; remplace le texte sélectionné, la mise en forme de la sélection n'est pas conservée).
+**Barre de mise en forme** (au-dessus de la zone de texte, sur deux lignes) :
+- *Première ligne* — sélectionnez du texte puis cliquez sur **G** (gras), **I** (italique), **S** (barré), **X²** (exposant) ; ou placez le curseur sur une ligne puis cliquez sur **H1-H4** (titre), **Citation**, **Liste à puces**, **Liste numérotée** pour transformer la ligne. **Gauche / Centré / Droite / Justifié** alignent le paragraphe (ou la citation) où se trouve le curseur, ou tous les paragraphes couverts par la sélection — chaque bouton fixe directement cet alignement (ce n'est pas un bascule on/off). Limite assumée : « Justifié » ne peut pas s'afficher tel quel dans cet éditeur (Tk ne sait pas dessiner un texte étiré aux deux marges), il apparaît aligné à gauche ici, mais le rendu réel — vraiment justifié — apparaît correctement sur le site généré.
+- *Deuxième ligne* — **Espace insécable** insère une espace insécable au curseur (empêche par exemple la coupure entre un nombre et son unité, ex. `10 km`) ; elle est déjà posée automatiquement par la typographie française avant `; : ! ?` et dans les guillemets, ce bouton sert pour les autres cas. **Lien...** transforme la sélection en lien (demande l'URL). **Image...** insère une image existante (voir plus bas). **Tableau...** insère un tableau simple (nombre de lignes/colonnes demandé), modifiable ensuite comme du texte structuré dans la zone grisée. **Note...** insère un appel de note de bas de page (voir plus bas). **Corriger la typographie** applique aux guillemets et à la ponctuation de la sélection les mêmes règles qu'à la frappe (utile après un collage — voir ci-dessous ; remplace le texte sélectionné, la mise en forme de la sélection n'est pas conservée).
 
 **Typographie française automatique** : en tapant directement dans l'éditeur, les guillemets droits (`"`) sont convertis à la volée en guillemets français alternés (`«`/`»`, ouvrant puis fermant, puis ouvrant à nouveau...), avec une espace insécable collée à l'intérieur. Une espace insécable est aussi automatiquement posée avant `; : ! ?` (qu'elle soit tapée avec ou sans espace avant). Les siècles écrits en chiffres romains suivis de « er »/« e » (ex. « Ier siècle », « XXIe siècle ») voient automatiquement leur terminaison ordinale passer en exposant (Iᵉʳ, XXIᵉ). Cela ne s'applique pas dans les zones de tableau ou de contenu non reconnu (fond grisé/jauni).
 

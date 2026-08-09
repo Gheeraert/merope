@@ -40,6 +40,32 @@ def test_footnote_reference_and_definition_roundtrip():
     assert _roundtrip(body).strip() == body.strip()
 
 
+def test_paragraph_alignment_marker_roundtrip():
+    body = "{{align=center}}Paragraphe centre.\n"
+    assert _roundtrip(body).strip() == body.strip()
+
+
+def test_paragraph_alignment_marker_parsed_and_stripped():
+    blocks = markdown_to_blocks("{{align=right}}Paragraphe a droite.\n")
+    assert len(blocks) == 1
+    assert blocks[0].kind == PARAGRAPH
+    assert blocks[0].alignment == "right"
+    assert blocks[0].runs[0].text == "Paragraphe a droite."
+
+
+def test_blockquote_alignment_marker_roundtrip():
+    body = "> {{align=right}}Citation.\n"
+    assert _roundtrip(body).strip() == body.strip()
+
+
+def test_blockquote_alignment_marker_parsed_and_stripped():
+    blocks = markdown_to_blocks("> {{align=justify}}Citation justifiee.\n")
+    assert len(blocks) == 1
+    assert blocks[0].kind == BLOCKQUOTE
+    assert blocks[0].alignment == "justify"
+    assert blocks[0].runs[0].text == "Citation justifiee."
+
+
 def test_bullet_and_ordered_list_roundtrip():
     bullet = "- un\n- **deux**\n- trois\n"
     ordered = "1. premier\n2. deuxieme\n"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from bloggen.config.models import MenuLink, SideMenuSection
 from bloggen.ui.dialogs import ask_menu_link, ask_side_section
@@ -272,17 +272,29 @@ class SideMenuEditor(ttk.Frame):
         ttk.Label(
             self,
             text=(
-                "Menu affiché sur le côté des pages, organisé en sections (colonne de "
-                "gauche) contenant chacune des sous-entrées (colonne de droite). Un seul "
-                "niveau de sous-entrées est possible."
+                "Menu affiché sur le côté des pages, organisé en deux étapes : "
+                "1) créez d'abord une ou plusieurs « sections » (colonne de gauche, "
+                "ex. « Le projet ») avec le bouton « + Section » ; "
+                "2) sélectionnez une section pour lui ajouter des sous-entrées "
+                "cliquables (colonne de droite, ex. « Présentation » -> une page du site) "
+                "avec le bouton « + Sous-entrée ». Un seul niveau de sous-entrées est "
+                "possible. Tant qu'aucune section n'existe, les deux colonnes restent "
+                "vides : c'est normal, commencez par « + Section »."
             ),
             wraplength=680,
             justify="left",
             foreground="#444444",
         ).grid(row=0, column=0, columnspan=4, sticky="w", padx=8, pady=(4, 8))
 
+        ttk.Label(self, text="1. Sections", font=("TkDefaultFont", 9, "bold")).grid(
+            row=1, column=0, sticky="w", padx=8
+        )
+        ttk.Label(
+            self, text="2. Sous-entrées de la section sélectionnée à gauche", font=("TkDefaultFont", 9, "bold")
+        ).grid(row=1, column=2, sticky="w", padx=8)
+
         self.section_list = tk.Listbox(self, height=12, exportselection=False)
-        self.section_list.grid(row=1, column=0, rowspan=7, sticky="nsew", padx=8, pady=8)
+        self.section_list.grid(row=2, column=0, rowspan=7, sticky="nsew", padx=8, pady=(2, 8))
         self.section_list.bind("<<ListboxSelect>>", self._on_section_select)
         add_tooltip(
             self.section_list,
@@ -291,17 +303,21 @@ class SideMenuEditor(ttk.Frame):
         )
 
         self.child_list = tk.Listbox(self, height=12, exportselection=False)
-        self.child_list.grid(row=1, column=2, rowspan=7, sticky="nsew", padx=8, pady=8)
+        self.child_list.grid(row=2, column=2, rowspan=7, sticky="nsew", padx=8, pady=(2, 8))
         add_tooltip(
             self.child_list,
-            "Sous-entrées de la section sélectionnée à gauche : [ON/OFF] Label -> Cible.",
+            "Sous-entrées de la section sélectionnée à gauche : [ON/OFF] Label -> Cible. "
+            "Vide si aucune section n'est sélectionnée à gauche, ou si la section "
+            "sélectionnée n'a pas encore de sous-entrée.",
         )
 
         section_buttons = [
             (
                 "+ Section",
                 self._add_section,
-                "Crée une nouvelle section (regroupement de liens) dans le menu latéral.",
+                "Crée une nouvelle section (regroupement de liens) dans le menu latéral. "
+                "À faire en premier : la colonne de droite reste vide tant qu'aucune "
+                "section n'existe.",
             ),
             ("Modifier", self._edit_section, "Renomme la section sélectionnée."),
             (
@@ -319,15 +335,16 @@ class SideMenuEditor(ttk.Frame):
         ]
         for idx, (label, callback, help_text) in enumerate(section_buttons):
             button = ttk.Button(self, text=label, command=callback)
-            button.grid(row=idx + 1, column=1, sticky="ew", padx=8, pady=4)
+            button.grid(row=idx + 2, column=1, sticky="ew", padx=8, pady=4)
             add_tooltip(button, help_text)
 
         child_buttons = [
             (
                 "+ Sous-entrée",
                 self._add_child,
-                "Ajoute un lien dans la section actuellement sélectionnée (label, cible, "
-                "type interne/externe, activé, nouvel onglet).",
+                "Ajoute un lien dans la section actuellement sélectionnée à gauche "
+                "(label, cible, type interne/externe, activé, nouvel onglet). "
+                "Sélectionnez ou créez d'abord une section.",
             ),
             ("Modifier", self._edit_child, "Édite la sous-entrée sélectionnée."),
             ("Supprimer", self._delete_child, "Supprime la sous-entrée sélectionnée."),
@@ -341,12 +358,12 @@ class SideMenuEditor(ttk.Frame):
         ]
         for idx, (label, callback, help_text) in enumerate(child_buttons):
             button = ttk.Button(self, text=label, command=callback)
-            button.grid(row=idx + 1, column=3, sticky="ew", padx=8, pady=4)
+            button.grid(row=idx + 2, column=3, sticky="ew", padx=8, pady=4)
             add_tooltip(button, help_text)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(2, weight=1)
-        self.grid_rowconfigure(7, weight=1)
+        self.grid_rowconfigure(8, weight=1)
 
     def get_sections(self) -> list[SideMenuSection]:
         return [
@@ -465,6 +482,17 @@ class SideMenuEditor(ttk.Frame):
     def _add_child(self) -> None:
         section = self._current_section()
         if section is None:
+            if not self.sections:
+                messagebox.showinfo(
+                    "Aucune section",
+                    "Créez d'abord une section avec « + Section » (colonne de gauche), "
+                    "puis sélectionnez-la pour pouvoir lui ajouter des sous-entrées.",
+                )
+            else:
+                messagebox.showinfo(
+                    "Aucune section sélectionnée",
+                    "Sélectionnez d'abord une section dans la colonne de gauche.",
+                )
             return
         child = ask_menu_link(self, "Ajouter une sous-entrée")
         if child is None:

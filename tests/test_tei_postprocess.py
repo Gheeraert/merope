@@ -2,6 +2,7 @@
 
 from bloggen.tei.postprocess import (
     apply_image_attributes_in_tei_xml,
+    apply_paragraph_alignment_in_tei_xml,
     postprocess_tei_xml,
     rewrite_graphic_urls_in_tei_xml,
 )
@@ -78,3 +79,44 @@ def test_apply_image_attributes_noop_when_no_matching_graphic():
         "</TEI>"
     )
     assert apply_image_attributes_in_tei_xml(raw, {"media/a.jpg": {"width": "300"}}) == raw
+
+
+def test_apply_paragraph_alignment_strips_marker_and_sets_rend():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><p>{{align=center}}Paragraphe centre.</p></body></text>"
+        "</TEI>"
+    )
+    rewritten = apply_paragraph_alignment_in_tei_xml(raw)
+    assert 'rend="align-center"' in rewritten
+    assert "{{align=" not in rewritten
+    assert "Paragraphe centre." in rewritten
+
+
+def test_apply_paragraph_alignment_inside_blockquote():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><quote><p>{{align=right}}Citation.</p></quote></body></text>"
+        "</TEI>"
+    )
+    rewritten = apply_paragraph_alignment_in_tei_xml(raw)
+    assert 'rend="align-right"' in rewritten
+    assert "{{align=" not in rewritten
+
+
+def test_apply_paragraph_alignment_noop_without_marker():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><p>Paragraphe normal.</p></body></text>"
+        "</TEI>"
+    )
+    assert apply_paragraph_alignment_in_tei_xml(raw) == raw
+
+
+def test_apply_paragraph_alignment_ignores_unknown_marker_value():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><p>{{align=bogus}}Paragraphe.</p></body></text>"
+        "</TEI>"
+    )
+    assert apply_paragraph_alignment_in_tei_xml(raw) == raw

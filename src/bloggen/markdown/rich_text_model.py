@@ -62,6 +62,7 @@ class Block:
     children: list["Block"] = field(default_factory=list)
     footnote_id: str | None = None  # for FOOTNOTE_DEFINITION blocks
     raw_text: str | None = None  # for VERBATIM blocks: reproduced as-is
+    alignment: str = "left"  # PARAGRAPH/BLOCKQUOTE only: "left"|"center"|"right"|"justify"
 
 
 def plain_text(runs: list[InlineRun]) -> str:

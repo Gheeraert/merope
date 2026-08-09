@@ -81,7 +81,14 @@
       </xsl:when>
       <xsl:when test="not(*) and preceding-sibling::*[1][self::tei:p[count(*) = 1 and tei:figure]] and normalize-space(.) = normalize-space(preceding-sibling::*[1]/tei:figure/tei:head[1])"/>
       <xsl:otherwise>
-        <p><xsl:apply-templates/></p>
+        <xsl:choose>
+          <xsl:when test="@rend = 'align-left' or @rend = 'align-center' or @rend = 'align-right' or @rend = 'align-justify'">
+            <p class="{@rend}"><xsl:apply-templates/></p>
+          </xsl:when>
+          <xsl:otherwise>
+            <p><xsl:apply-templates/></p>
+          </xsl:otherwise>
+        </xsl:choose>
       </xsl:otherwise>
     </xsl:choose>
   </xsl:template>
@@ -250,7 +257,14 @@
   </xsl:template>
 
   <xsl:template match="tei:p" mode="note-body">
-    <p><xsl:apply-templates mode="note-body"/></p>
+    <xsl:choose>
+      <xsl:when test="@rend = 'align-left' or @rend = 'align-center' or @rend = 'align-right' or @rend = 'align-justify'">
+        <p class="{@rend}"><xsl:apply-templates mode="note-body"/></p>
+      </xsl:when>
+      <xsl:otherwise>
+        <p><xsl:apply-templates mode="note-body"/></p>
+      </xsl:otherwise>
+    </xsl:choose>
   </xsl:template>
 
   <xsl:template match="tei:hi[contains(concat(' ', normalize-space(@rendition), ' '), ' simple:bold ') and contains(concat(' ', normalize-space(@rendition), ' '), ' simple:italic ')]" mode="note-body" priority="3">

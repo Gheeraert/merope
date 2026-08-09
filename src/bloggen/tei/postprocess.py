@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TypeVar
+import re
 import xml.etree.ElementTree as ET
 
 _T = TypeVar("_T")
 
 from bloggen.tei.header_builder import TEI_NAMESPACE, ensure_minimal_tei_header, ensure_text_body
+
+_ALIGN_MARKER_RE = re.compile(r"^\{\{align=(left|center|right|justify)\}\}")
 
 
 def postprocess_tei_xml(tei_xml: str, *, title: str | None = None) -> str:
@@ -141,6 +144,52 @@ def apply_image_attributes_in_tei_file(tei_path: Path, attributes_by_src: dict[s
     source = Path(tei_path)
     original = source.read_text(encoding="utf-8")
     rewritten = apply_image_attributes_in_tei_xml(original, attributes_by_src)
+    if rewritten == original:
+        return False
+
+    source.write_text(rewritten, encoding="utf-8")
+    return True
+
+
+def apply_paragraph_alignment_in_tei_xml(tei_xml: str) -> str:
+    """Turn a leading ``{{align=...}}`` marker (see
+    :mod:`bloggen.markdown.paragraph_alignment`) on a ``<p>`` element's own
+    text into a ``@rend="align-..."`` attribute, stripping the marker text.
+
+    The marker travels through Pandoc as ordinary leading text of the
+    paragraph (or, for a blockquote, of its wrapped ``<p>`` inside
+    ``<quote>``), so it is found directly on the element that carries it —
+    no positional matching against the source Markdown is needed.
+    """
+    try:
+        root = ET.fromstring(tei_xml)
+    except ET.ParseError as exc:
+        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+
+    changed = False
+    for element in root.iter():
+        if _local_name(element.tag) != "p":
+            continue
+        text = element.text or ""
+        match = _ALIGN_MARKER_RE.match(text)
+        if not match:
+            continue
+        element.text = text[match.end():]
+        element.set("rend", f"align-{match.group(1)}")
+        changed = True
+
+    if not changed:
+        return tei_xml
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    return ET.tostring(root, encoding="unicode") + "\n"
+
+
+def apply_paragraph_alignment_in_tei_file(tei_path: Path) -> bool:
+    source = Path(tei_path)
+    original = source.read_text(encoding="utf-8")
+    rewritten = apply_paragraph_alignment_in_tei_xml(original)
     if rewritten == original:
         return False
 

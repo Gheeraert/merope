@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 from bloggen.markdown.image_attributes import format_image_attributes
+from bloggen.markdown.paragraph_alignment import format_alignment_marker
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -36,7 +37,7 @@ def blocks_to_markdown(blocks: list[Block]) -> str:
 
 def _block_to_md(block: Block) -> str:
     if block.kind == PARAGRAPH:
-        return _runs_to_md(block.runs)
+        return format_alignment_marker(block.alignment) + _runs_to_md(block.runs)
     if block.kind == HEADING:
         level = block.level or 1
         return f"{'#' * level} {_runs_to_md(block.runs)}"
@@ -44,6 +45,7 @@ def _block_to_md(block: Block) -> str:
         inner = _runs_to_md(block.runs) if block.runs else "\n\n".join(
             _block_to_md(child) for child in block.children
         )
+        inner = format_alignment_marker(block.alignment) + inner
         return "\n".join(f"> {line}" if line else ">" for line in inner.split("\n"))
     if block.kind == BULLET_LIST:
         return "\n".join(_list_item_to_md(item, marker="-") for item in block.children)

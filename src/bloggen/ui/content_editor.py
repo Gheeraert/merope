@@ -58,6 +58,10 @@ from bloggen.ui.tooltip import add_tooltip
 _HEADING_TAGS = ("h1", "h2", "h3", "h4")
 _BLOCK_LINE_TAGS = {"h1", "h2", "h3", "h4", "blockquote", "bullet_item", "ordered_item", "table_source", "verbatim"}
 _CHAR_TAGS = ("bold", "italic", "strike", "superscript")
+# Alignment is orthogonal to _BLOCK_LINE_TAGS (a paragraph or blockquote line
+# can carry both its block-type tag and one of these). Only meaningful for
+# PARAGRAPH/BLOCKQUOTE on export (see bloggen.markdown.paragraph_alignment).
+_ALIGN_TAGS = ("align_left", "align_center", "align_right", "align_justify")
 _TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE_PUNCTUATION
 
 
@@ -275,8 +279,10 @@ class ContentEditorWindow(tk.Toplevel):
             add_tooltip(button, tip)
 
     def _build_editor(self, master: tk.Misc) -> None:
-        toolbar = ttk.Frame(master)
-        toolbar.pack(fill="x", pady=(0, 4))
+        toolbar_row1 = ttk.Frame(master)
+        toolbar_row1.pack(fill="x", pady=(0, 2))
+        toolbar_row2 = ttk.Frame(master)
+        toolbar_row2.pack(fill="x", pady=(0, 4))
 
         char_buttons = [
             ("G", lambda: self._toggle_char_tag("bold"), "Gras"),
@@ -289,18 +295,20 @@ class ContentEditorWindow(tk.Toplevel):
             ),
         ]
         for label, command, tip in char_buttons:
-            b = ttk.Button(toolbar, text=label, width=3, command=command)
+            b = ttk.Button(toolbar_row1, text=label, width=3, command=command)
             b.pack(side="left", padx=1)
             add_tooltip(b, tip)
 
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
+        ttk.Separator(toolbar_row1, orient="vertical").pack(side="left", fill="y", padx=4)
 
         for level in range(1, 5):
-            b = ttk.Button(toolbar, text=f"H{level}", width=3, command=lambda lv=level: self._toggle_heading(lv))
+            b = ttk.Button(
+                toolbar_row1, text=f"H{level}", width=3, command=lambda lv=level: self._toggle_heading(lv)
+            )
             b.pack(side="left", padx=1)
             add_tooltip(b, f"Titre de niveau {level} pour la ligne courante.")
 
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
+        ttk.Separator(toolbar_row1, orient="vertical").pack(side="left", fill="y", padx=4)
 
         block_buttons = [
             ("Citation", lambda: self._toggle_line_tag("blockquote"), "Transforme la ligne en citation."),
@@ -308,27 +316,51 @@ class ContentEditorWindow(tk.Toplevel):
             ("Liste numérotée", lambda: self._toggle_line_tag("ordered_item"), "Transforme la ligne en élément de liste numérotée."),
         ]
         for label, command, tip in block_buttons:
-            b = ttk.Button(toolbar, text=label, command=command)
+            b = ttk.Button(toolbar_row1, text=label, command=command)
             b.pack(side="left", padx=1)
             add_tooltip(b, tip)
 
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
+        ttk.Separator(toolbar_row1, orient="vertical").pack(side="left", fill="y", padx=4)
+
+        align_buttons = [
+            ("Gauche", "left", "Aligne le paragraphe à gauche (par défaut)."),
+            ("Centré", "center", "Centre le paragraphe."),
+            ("Droite", "right", "Aligne le paragraphe à droite."),
+            (
+                "Justifié",
+                "justify",
+                "Justifie le paragraphe (texte étiré pour toucher les deux marges). "
+                "Rendu réel uniquement sur le site généré : l'aperçu dans cet éditeur "
+                "affiche un alignement à gauche par simplification.",
+            ),
+        ]
+        for label, alignment, tip in align_buttons:
+            b = ttk.Button(toolbar_row1, text=label, command=lambda a=alignment: self._set_alignment(a))
+            b.pack(side="left", padx=1)
+            add_tooltip(b, tip)
 
         insert_buttons = [
+            (
+                "Espace insécable",
+                self._insert_nbsp,
+                "Insère une espace insécable au curseur (empêche la coupure entre deux "
+                "mots, ex. avant « : » ou dans « 10 km »). Déjà posée automatiquement "
+                "par la typographie française avant ; : ! ? et dans les guillemets.",
+            ),
             ("Lien...", self._insert_link, "Transforme la sélection en lien hypertexte."),
             ("Image...", self._insert_image, "Insère une image depuis un fichier existant."),
             ("Tableau...", self._insert_table, "Insère un tableau simple."),
             ("Note...", self._insert_footnote, "Insère une note de bas de page."),
         ]
         for label, command, tip in insert_buttons:
-            b = ttk.Button(toolbar, text=label, command=command)
+            b = ttk.Button(toolbar_row2, text=label, command=command)
             b.pack(side="left", padx=1)
             add_tooltip(b, tip)
 
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
+        ttk.Separator(toolbar_row2, orient="vertical").pack(side="left", fill="y", padx=4)
 
         typo_button = ttk.Button(
-            toolbar, text="Corriger la typographie", command=self._apply_typography_to_selection
+            toolbar_row2, text="Corriger la typographie", command=self._apply_typography_to_selection
         )
         typo_button.pack(side="left", padx=1)
         add_tooltip(
@@ -340,13 +372,13 @@ class ContentEditorWindow(tk.Toplevel):
             "italique) de la sélection n'est pas conservée.",
         )
 
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
+        ttk.Separator(toolbar_row2, orient="vertical").pack(side="left", fill="y", padx=4)
 
-        meta_button = ttk.Button(toolbar, text="Métadonnées...", command=self._edit_metadata)
+        meta_button = ttk.Button(toolbar_row2, text="Métadonnées...", command=self._edit_metadata)
         meta_button.pack(side="left", padx=1)
         add_tooltip(meta_button, "Titre, slug, date, auteur, description...")
 
-        save_button = ttk.Button(toolbar, text="Enregistrer", command=self._save)
+        save_button = ttk.Button(toolbar_row2, text="Enregistrer", command=self._save)
         save_button.pack(side="right", padx=1)
         add_tooltip(save_button, "Écrit ce contenu dans son fichier Markdown.")
 
@@ -376,6 +408,14 @@ class ContentEditorWindow(tk.Toplevel):
         text.tag_configure("ordered_item", lmargin1=20, lmargin2=32)
         text.tag_configure("table_source", font=("Courier New", 10), background="#f5f5f5")
         text.tag_configure("verbatim", font=("Courier New", 10), background="#fff3cd")
+        text.tag_configure("align_left", justify="left")
+        text.tag_configure("align_center", justify="center")
+        text.tag_configure("align_right", justify="right")
+        # Tk's Text widget has no true "justify" (fill) rendering; "left" is
+        # the closest visual approximation. The chosen alignment is still
+        # tracked and exported correctly (real CSS text-align: justify on
+        # the generated site, see resources/css/site.css).
+        text.tag_configure("align_justify", justify="left")
         text.tag_configure("bold", font=("TkDefaultFont", 11, "bold"))
         text.tag_configure("italic", font=("TkDefaultFont", 11, "italic"))
         text.tag_configure("strike", overstrike=True)
@@ -585,6 +625,7 @@ class ContentEditorWindow(tk.Toplevel):
             start = self.text.index("insert")
             self._insert_runs_at_cursor(block.runs)
             self.text.tag_add("plain", start, self.text.index("insert"))
+            self._tag_alignment(block.alignment, start, self.text.index("insert"))
         elif block.kind == HEADING:
             start = self.text.index("insert")
             self._insert_runs_at_cursor(block.runs)
@@ -593,6 +634,7 @@ class ContentEditorWindow(tk.Toplevel):
             start = self.text.index("insert")
             self._insert_runs_at_cursor(block.runs)
             self.text.tag_add("blockquote", start, self.text.index("insert"))
+            self._tag_alignment(block.alignment, start, self.text.index("insert"))
         elif block.kind in (BULLET_LIST, ORDERED_LIST):
             tag = "bullet_item" if block.kind == BULLET_LIST else "ordered_item"
             for i, item in enumerate(block.children):
@@ -805,6 +847,36 @@ class ContentEditorWindow(tk.Toplevel):
     def _new_tag(self, prefix: str) -> str:
         self._tag_counter += 1
         return f"{prefix}_{self._tag_counter}"
+
+    def _insert_nbsp(self) -> None:
+        self.text.insert("insert", NBSP)
+
+    def _set_alignment(self, alignment: str) -> None:
+        """Set paragraph alignment for the selected (or current) lines.
+
+        Unlike :meth:`_toggle_line_tag` (which toggles a tag on/off), each
+        alignment button always sets that exact alignment: clicking "Gauche"
+        on an already-left paragraph is a no-op, not a toggle, since "left"
+        is simply the absence of any ``_ALIGN_TAGS`` member.
+        """
+        start_line, end_line = self._selected_lines()
+        for line in range(start_line, end_line + 1):
+            line_start, line_end = f"{line}.0", f"{line}.end"
+            for existing in _ALIGN_TAGS:
+                self.text.tag_remove(existing, line_start, line_end)
+            if alignment != "left":
+                self.text.tag_add(f"align_{alignment}", line_start, line_end)
+
+    def _line_alignment(self, line: int) -> str:
+        tags = set(self.text.tag_names(f"{line}.0"))
+        for tag in _ALIGN_TAGS:
+            if tag in tags:
+                return tag.removeprefix("align_")
+        return "left"
+
+    def _tag_alignment(self, alignment: str, start: str, end: str) -> None:
+        if alignment and alignment != "left":
+            self.text.tag_add(f"align_{alignment}", start, end)
 
     def _insert_link(self) -> None:
         selected = self._selection_range()
@@ -1026,7 +1098,7 @@ class ContentEditorWindow(tk.Toplevel):
 
         if group_type == "blockquote":
             runs = self._merge_lines_runs(start_line, end_line)
-            return Block(kind=BLOCKQUOTE, runs=runs)
+            return Block(kind=BLOCKQUOTE, runs=runs, alignment=self._line_alignment(start_line))
 
         if group_type in ("bullet_item", "ordered_item"):
             items = [
@@ -1049,7 +1121,7 @@ class ContentEditorWindow(tk.Toplevel):
 
         # plain paragraph
         runs = self._merge_lines_runs(start_line, end_line)
-        return Block(kind=PARAGRAPH, runs=runs)
+        return Block(kind=PARAGRAPH, runs=runs, alignment=self._line_alignment(start_line))
 
     def _merge_lines_runs(self, start_line: int, end_line: int) -> list[InlineRun]:
         runs: list[InlineRun] = []
@@ -1086,6 +1158,7 @@ class ContentEditorWindow(tk.Toplevel):
             start = self.text.index("end-1c")
             self._insert_runs(block.runs)
             self.text.tag_add("plain", start, self.text.index("end-1c"))
+            self._tag_alignment(block.alignment, start, self.text.index("end-1c"))
         elif block.kind == HEADING:
             start = self.text.index("end-1c")
             self._insert_runs(block.runs)
@@ -1094,6 +1167,7 @@ class ContentEditorWindow(tk.Toplevel):
             start = self.text.index("end-1c")
             self._insert_runs(block.runs)
             self.text.tag_add("blockquote", start, self.text.index("end-1c"))
+            self._tag_alignment(block.alignment, start, self.text.index("end-1c"))
         elif block.kind in (BULLET_LIST, ORDERED_LIST):
             tag = "bullet_item" if block.kind == BULLET_LIST else "ordered_item"
             for i, item in enumerate(block.children):
