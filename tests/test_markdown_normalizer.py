@@ -17,6 +17,15 @@ def test_normalization_preserves_footnote_markdown():
     assert "[^1]: Une note." in normalized
 
 
+def test_normalization_converts_double_paren_note_shorthand():
+    # So hand-written or imported Markdown that never went through the
+    # WYSIWYG editor still gets the "((note))" Hypothèses shorthand
+    # recognized at build time, including glued to punctuation.
+    raw = "Une phrase avec une note((ceci est la note)). Suite.\n"
+    normalized = normalize_markdown_text(raw, google_docs_mode=False)
+    assert normalized == "Une phrase avec une note^[ceci est la note]. Suite.\n"
+
+
 def test_extract_simple_front_matter():
     text = (
         "---\n"

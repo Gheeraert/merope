@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from bloggen.markdown.google_docs_cleanup import cleanup_google_docs_markdown
+from bloggen.markdown.note_shortcuts import convert_double_paren_notes_in_markdown_text
 
 
 def normalize_markdown_text(text: str, *, google_docs_mode: bool = True) -> str:
@@ -12,6 +13,7 @@ def normalize_markdown_text(text: str, *, google_docs_mode: bool = True) -> str:
     value = value.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.rstrip(" \t") for line in value.split("\n")]
     normalized = "\n".join(lines)
+    normalized = convert_double_paren_notes_in_markdown_text(normalized)
     if not normalized.endswith("\n"):
         normalized += "\n"
     return normalized

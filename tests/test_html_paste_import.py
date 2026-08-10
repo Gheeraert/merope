@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from bloggen.markdown.html_paste_import import html_to_blocks
+from bloggen.markdown.note_shortcuts import convert_double_paren_notes_in_blocks
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.typography import CLOSING_GUILLEMET, NBSP, OPENING_GUILLEMET
 
@@ -45,6 +46,42 @@ def test_century_ordinal_auto_conversion_on_paste():
 def test_page_number_gets_non_breaking_space_on_paste():
     assert _export("<p>Voir p. 12.</p>") == f"Voir p.{NBSP}12.\n"
     assert _export("<p>Cf. pp. 12-15.</p>") == f"Cf. pp.{NBSP}12-15.\n"
+
+
+def _export_with_notes(html: str) -> tuple[str, dict[str, str]]:
+    """Mirrors exactly what the editor's paste handler
+    (ContentEditorWindow._on_paste) does with rich HTML: parse, then
+    convert any "((note))" shorthand, then export.
+    """
+    blocks = html_to_blocks(html)
+    definitions: dict[str, str] = {}
+
+    def register(text: str) -> str:
+        note_id = str(len(definitions) + 1)
+        definitions[note_id] = text
+        return note_id
+
+    convert_double_paren_notes_in_blocks(blocks, register)
+    return blocks_to_markdown(blocks), definitions
+
+
+def test_double_paren_note_converts_on_paste():
+    markdown, definitions = _export_with_notes(
+        "<p>Un texte avec une note ((ceci est la note)) et la suite.</p>"
+    )
+    assert markdown == "Un texte avec une note [^1] et la suite.\n"
+    assert definitions == {"1": "ceci est la note"}
+
+
+def test_double_paren_note_glued_to_punctuation_converts_on_paste():
+    # Regression: this is the exact case reported broken — a note placed
+    # right before the sentence's closing period, pasted from a rich-text
+    # source (Word/Google Docs), used to be silently left as literal text.
+    markdown, definitions = _export_with_notes(
+        "<p>Il a dit quelque chose ((une note explicative)). Suite du texte.</p>"
+    )
+    assert markdown == "Il a dit quelque chose [^1]. Suite du texte.\n"
+    assert definitions == {"1": "une note explicative"}
 
 
 def test_pre_existing_guillemets_keep_chevrons_but_get_nbsp_on_paste():

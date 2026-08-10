@@ -1,13 +1,26 @@
 """Auto-convert the Hypothèses/WordPress "double parenthesis" note
-shorthand: a span of text wrapped in ``((`` and ``))`` and flanked by a
-space on each side becomes a footnote reference.
+shorthand: a span of text wrapped in ``((`` and ``))`` becomes a footnote,
+wherever it appears — including right before punctuation (``((note)).``),
+which is how footnotes are placed in practice and is exactly what
+Hypothèses' own editor accepts (no flanking-space requirement: an earlier
+version of this module required one, which meant the extremely common
+"note right before the sentence's closing punctuation" case silently never
+converted).
 
-Used both for the live-typing autoformat and for content brought in via
-paste/import in :mod:`bloggen.ui.content_editor`, so the regex/splitting
-logic lives here once; the two call sites just supply where new footnote
-ids come from (allocating one and recording its definition text needs the
-editor's own ``footnote_definitions`` state, which this module knows
-nothing about).
+Two independent uses:
+- Live typing and pasted/imported rich content in
+  :mod:`bloggen.ui.content_editor`, via :func:`split_double_paren_notes` /
+  :func:`convert_double_paren_notes_in_blocks` (operate on the editor's
+  ``InlineRun``/``Block`` model; the two call sites just supply where new
+  footnote ids come from — allocating one and recording its definition
+  text needs the editor's own ``footnote_definitions`` state, which this
+  module knows nothing about).
+- Raw Markdown at build time, via
+  :func:`convert_double_paren_notes_in_markdown_text` (rewrites straight to
+  Pandoc's inline footnote syntax, ``^[note text]``), so content that was
+  hand-written or imported straight to Markdown — never touched the
+  WYSIWYG editor — still gets the shorthand recognized when the site is
+  generated.
 """
 
 from __future__ import annotations
@@ -18,11 +31,11 @@ from dataclasses import replace
 
 from bloggen.markdown.rich_text_model import Block, InlineRun
 
-# A space, then "((", then note text with no nested parentheses, then "))",
-# then a space: mirrors how Hypothèses' own editor recognizes the
-# shorthand, and the flanking spaces keep it from firing on incidental
-# parenthesized asides such as "(voir (a) et (b))".
-DOUBLE_PAREN_NOTE_RE = re.compile(r" \(\(([^()]+)\)\) ")
+# "((", then note text with no nested parentheses, then "))". No
+# surrounding-space requirement: the double-paren pair itself is already a
+# strong enough signal not to fire on ordinary single-parenthesis asides
+# like "(voir (a) et (b))" (that content is not enclosed in "((" "))").
+DOUBLE_PAREN_NOTE_RE = re.compile(r"\(\(([^()]+)\)\)")
 
 RegisterNote = Callable[[str], str]
 
@@ -67,16 +80,67 @@ def _split_run(run: InlineRun, register_note: RegisterNote) -> list[InlineRun]:
         note_text = match.group(1).strip()
         if not note_text:
             continue
-        prefix = text[pos : match.start()] + " "  # re-glue the leading space
-        pieces.append(replace(run, text=prefix))
+        prefix = text[pos : match.start()]
+        if prefix:
+            pieces.append(replace(run, text=prefix))
         note_id = register_note(note_text)
         pieces.append(InlineRun(footnote_ref=note_id))
-        # The match also consumed the trailing space; fold it into whatever
-        # text comes next instead of the marker itself, matching how a
-        # footnote call is written by hand (no space glued to its brackets).
-        pos = match.end() - 1
+        pos = match.end()
 
     remainder = text[pos:]
     if remainder or not pieces:
         pieces.append(replace(run, text=remainder))
     return pieces
+
+
+_CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+_INLINE_CODE_SPLIT_RE = re.compile(r"(`[^`\n]*`)")
+
+
+def convert_double_paren_notes_in_markdown_text(text: str) -> str:
+    """Convert "((note text))" directly in raw Markdown into Pandoc's
+    inline footnote syntax ("^[note text]") — applied once at build time,
+    right before the Markdown -> TEI conversion (see
+    :func:`bloggen.markdown.normalizer.normalize_markdown_text`), so it
+    works even for Markdown that never went through the WYSIWYG editor.
+    Skips fenced code blocks and inline code spans, so literal double
+    parentheses in code samples are left alone.
+    """
+    if "((" not in text:
+        return text
+
+    in_fence = False
+    fence_marker = ""
+    converted_lines: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        fence_match = _CODE_FENCE_RE.match(stripped)
+        if fence_match:
+            if not in_fence:
+                in_fence = True
+                fence_marker = fence_match.group(1)[0] * 3
+            elif stripped.startswith(fence_marker):
+                in_fence = False
+            converted_lines.append(line)
+            continue
+        if in_fence:
+            converted_lines.append(line)
+            continue
+        converted_lines.append(_convert_markdown_line(line))
+    return "\n".join(converted_lines)
+
+
+def _convert_markdown_line(line: str) -> str:
+    parts = _INLINE_CODE_SPLIT_RE.split(line)
+    for index, part in enumerate(parts):
+        if part.startswith("`"):
+            continue
+        parts[index] = DOUBLE_PAREN_NOTE_RE.sub(_markdown_replacement, part)
+    return "".join(parts)
+
+
+def _markdown_replacement(match: re.Match[str]) -> str:
+    note_text = match.group(1).strip()
+    if not note_text:
+        return match.group(0)
+    return f"^[{note_text}]"

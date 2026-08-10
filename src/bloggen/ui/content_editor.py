@@ -73,8 +73,8 @@ _ALIGN_TAGS = ("align_left", "align_center", "align_right", "align_justify")
 _TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE_PUNCTUATION
 # Same shorthand as bloggen.markdown.note_shortcuts.DOUBLE_PAREN_NOTE_RE, but
 # anchored to the end of the string: used to detect the pattern right as its
-# closing " " is typed, one line-prefix at a time.
-_DOUBLE_PAREN_NOTE_TYPED_RE = re.compile(r" \(\(([^()]+)\)\) $")
+# closing "))" is typed, one line-prefix at a time.
+_DOUBLE_PAREN_NOTE_TYPED_RE = re.compile(r"\(\(([^()]+)\)\)$")
 
 
 class ContentMetadataDialog(simpledialog.Dialog):
@@ -673,7 +673,7 @@ class ContentEditorWindow(tk.Toplevel):
         if char and char in _TYPOGRAPHY_TRIGGER_CHARS:
             self._autoformat_last_typed_char(char)
         self._autoformat_century_ordinal()
-        if char == " ":
+        if char == ")":
             self._autoformat_double_paren_note()
         elif char.isdigit():
             self._autoformat_page_number_space()
@@ -759,12 +759,15 @@ class ContentEditorWindow(tk.Toplevel):
         self.text.insert(space_start, NBSP)
 
     def _autoformat_double_paren_note(self) -> None:
-        """Detect "((note text)) " (Hypothèses/WordPress note shorthand)
-        just completed by the space that triggered this call, and replace
-        it in place with a real footnote reference — same conversion as
-        :func:`bloggen.markdown.note_shortcuts.split_double_paren_notes`
-        applied to pasted/imported content, but driven off the live cursor
-        instead of a static block tree.
+        """Detect "((note text))" (Hypothèses/WordPress note shorthand)
+        just completed by the closing "))" that triggered this call, and
+        replace it in place with a real footnote reference — same
+        conversion as :func:`bloggen.markdown.note_shortcuts.
+        split_double_paren_notes` applied to pasted/imported content, but
+        driven off the live cursor instead of a static block tree. Not
+        gated on what follows (space, punctuation, end of line...): the
+        note is often placed right before the sentence's closing
+        punctuation, e.g. "((note)).".
         """
         cursor = self.text.index("insert")
         line = int(cursor.split(".")[0])
@@ -779,14 +782,10 @@ class ContentEditorWindow(tk.Toplevel):
         # Resolve indices up front from the *current* buffer, for the same
         # reason as _autoformat_last_typed_char: they must not be
         # re-evaluated after the delete/insert below has changed line length.
-        replace_start = match.start() + 1  # skip the leading space, kept as-is
-        replace_end = match.end() - 1  # exclude the trailing space, kept as-is
-        chars_after_start = len(text_before) - replace_start
-        chars_after_end = len(text_before) - replace_end
+        chars_after_start = len(text_before) - match.start()
         start_index = self.text.index(f"{cursor}-{chars_after_start}c")
-        end_index = self.text.index(f"{cursor}-{chars_after_end}c")
 
-        self.text.delete(start_index, end_index)
+        self.text.delete(start_index, cursor)
         note_id = self._register_new_footnote(note_text)
         self._insert_footnote_marker(start_index, note_id)
         self._refresh_notes_panel()
