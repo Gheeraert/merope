@@ -13,7 +13,7 @@ class NotesPanel(ttk.Frame):
     def __init__(self, master: tk.Misc) -> None:
         super().__init__(master)
         self.mode_var = tk.StringVar(value="margin_excerpt_plus_footnote")
-        self.enable_margin_var = tk.BooleanVar(value=True)
+        self.enable_margin_var = tk.BooleanVar(value=False)  # not implemented, see body()
         self.enable_footnotes_var = tk.BooleanVar(value=True)
         self.excerpt_words_var = tk.IntVar(value=8)
         self.excerpt_chars_var = tk.IntVar(value=80)
@@ -42,13 +42,19 @@ class NotesPanel(ttk.Frame):
         )
 
         margin_cb = ttk.Checkbutton(
-            self, text="Activer notes marginales", variable=self.enable_margin_var
+            self,
+            text="Activer notes marginales (non disponible pour le moment)",
+            variable=self.enable_margin_var,
+            state="disabled",
         )
         margin_cb.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=4)
         add_tooltip(
             margin_cb,
-            "Si activé, un court aperçu de chaque note s'affiche dans la marge à côté "
-            "du texte, en plus de l'appel de note.",
+            "Non implémenté pour le moment : un aperçu flottant dans la marge ne tenait "
+            "pas de façon fiable à côté du texte selon la largeur de l'écran (il "
+            "chevauchait soit la barre latérale, soit le texte). Les notes s'affichent "
+            "donc uniquement en texte complet en bas d'article, avec un lien d'appel "
+            "cliquable dans les deux sens.",
         )
 
         footnotes_cb = ttk.Checkbutton(

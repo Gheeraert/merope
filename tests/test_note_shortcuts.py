@@ -245,3 +245,33 @@ def test_markdown_no_double_parens_is_a_no_op():
 def test_markdown_empty_note_text_is_left_alone():
     text = "Texte avec (( )) vide."
     assert convert_double_paren_notes_in_markdown_text(text) == text
+
+
+def test_markdown_note_containing_a_markdown_link_converts():
+    # Regression: a Markdown link's "(url)" contains a literal single
+    # paren pair, which an earlier, stricter version of the regex
+    # (disallowing any paren inside the note) refused to match through.
+    text = "Une phrase avec une note((voir [ce lien](https://example.org/page) pour plus)). Suite."
+    result = convert_double_paren_notes_in_markdown_text(text)
+    assert result == (
+        "Une phrase avec une note^[voir [ce lien](https://example.org/page) pour plus]. Suite."
+    )
+
+
+def test_split_double_paren_notes_note_with_link_run_has_no_stray_parens():
+    # Same regression as above, but through the editor's run-based path:
+    # confirms the literal "((" / "))" characters never survive in the
+    # visible (non-footnote) text once a link is involved.
+    register, definitions = _registry()
+    runs = [
+        InlineRun(text="Une note avec ((un "),
+        InlineRun(text="lien (voir ceci)", link_href="https://example.org"),
+        InlineRun(text=" dedans)) ici."),
+    ]
+
+    result = split_double_paren_notes(runs, register)
+
+    plain_text = "".join(r.text for r in result if r.footnote_ref is None)
+    assert "((" not in plain_text
+    assert "))" not in plain_text
+    assert definitions == {"1": "un lien (voir ceci) dedans"}

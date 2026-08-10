@@ -61,7 +61,7 @@ Demande un dossier (vide de préférence) puis y crée une arborescence complèt
 | Champ | Ce qu'on y met | Exemple |
 |---|---|---|
 | Activer la bannière | Case à cocher : sans elle, les autres champs de cet onglet sont ignorés et rien ne s'affiche. | — |
-| Image | Chemin du fichier image, relatif au dossier assets. | `assets/images/banniere.jpg` |
+| Image | Chemin du fichier image, relatif au dossier assets. Le bouton **Parcourir...** propose, après avoir choisi une image, de la redimensionner directement aux dimensions d'affichage de la bannière (1260 px de large × la « Hauteur (px) » ci-dessous) — recommandé si l'image d'origine est beaucoup plus grande ou n'a pas les mêmes proportions, ce qui peut sinon donner une bannière qui paraît uniformément noire ou grise faute de bien remplir la hauteur configurée. L'image d'origine n'est jamais modifiée (une copie redimensionnée est créée), et l'image choisie (redimensionnée ou non) est copiée dans `assets/banner/` du projet. | `assets/images/banniere.jpg` |
 | Lien | Page ouverte quand on clique sur la bannière. | `/index.html` |
 | Alt | Texte alternatif de l'image (accessibilité, lu par les lecteurs d'écran). | `Vue aérienne du campus au printemps` |
 | Hauteur (px) | Hauteur d'affichage en pixels ; l'image est recadrée pour la remplir. | `220` |
@@ -191,16 +191,18 @@ Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer p
 | Utiliser légendes comme légendes lightbox | Si coché, la légende Markdown sous l'image est réutilisée dans la visionneuse plein écran. | — |
 
 ## 11. Notes
-*Réglage de l'affichage des notes de bas de page : appel de note dans le texte, aperçu en marge, texte complet.*
+*Réglage de l'affichage des notes de bas de page : appel de note dans le texte, texte complet en fin d'article.*
+
+**Notes en marge : non disponibles pour le moment.** Un aperçu flottant dans la marge à côté du texte ne tenait pas de façon fiable selon la largeur de l'écran (il finissait par chevaucher soit la barre latérale, soit le texte de l'article) ; la case « Activer notes marginales » est donc désactivée dans l'interface, et le réglage est ignoré au moment de la génération même s'il est resté activé dans un fichier de configuration existant. Les notes s'affichent uniquement en texte complet en bas d'article, avec un appel de note cliquable qui fait défiler la page en douceur jusqu'à la note (et un lien retour ↩ pour revenir au texte).
 
 | Champ | Ce qu'on y met | Exemple |
 |---|---|---|
-| Mode | Mode d'affichage global ; `margin_excerpt_plus_footnote` = aperçu en marge + texte complet en fin d'article. | `margin_excerpt_plus_footnote` |
-| Activer notes marginales | Si coché, un court aperçu de chaque note apparaît dans la marge, à côté du texte. | — |
+| Mode | Mode d'affichage global ; `margin_excerpt_plus_footnote` = aperçu en marge + texte complet en fin d'article (l'aperçu en marge n'est actuellement pas rendu, voir ci-dessus). | `margin_excerpt_plus_footnote` |
+| Activer notes marginales | Non disponible pour le moment (voir ci-dessus). | — |
 | Activer notes complètes | Si coché, le texte complet de chaque note est listé (voir « Emplacement notes finales »). | — |
-| Amorce (mots) | Longueur max. de l'aperçu en marge, en nombre de mots — utilisée si « Préférer le comptage en mots » est coché. | `8` |
-| Amorce (caractères) | Longueur max. de l'aperçu en marge, en caractères — utilisée sinon. | `80` |
-| Préférer le comptage en mots | Choisit laquelle des deux limites ci-dessus s'applique. | — |
+| Amorce (mots) | Longueur max. de l'aperçu en marge, en nombre de mots — utilisée si « Préférer le comptage en mots » est coché. Sans effet tant que les notes en marge ne sont pas disponibles. | `8` |
+| Amorce (caractères) | Longueur max. de l'aperçu en marge, en caractères — utilisée sinon. Sans effet tant que les notes en marge ne sont pas disponibles. | `80` |
+| Préférer le comptage en mots | Choisit laquelle des deux limites ci-dessus s'applique. Sans effet tant que les notes en marge ne sont pas disponibles. | — |
 | Emplacement notes finales | Où placer la liste des notes complètes ; `end_of_article` les regroupe en fin de billet/page. | `end_of_article` |
 
 ## 12. Footer
@@ -281,7 +283,7 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 
 - `src/bloggen/ui/main_window.py` — fenêtre principale et onglets simples (Site, Chemins, Contenus, Accueil, Blog, Rendu, Footer, Génération).
 - `src/bloggen/ui/site_preview.py` — serveur HTTP local (en thread, pas de sous-processus) pour l'aperçu du site généré depuis le rapport de génération.
-- `src/bloggen/ui/banner_panel.py` — onglet Bannière.
+- `src/bloggen/ui/banner_panel.py` — onglet Bannière, redimensionnement/copie de l'image à l'import.
 - `src/bloggen/ui/media_panel.py` — onglet Médias.
 - `src/bloggen/ui/notes_panel.py` — onglet Notes.
 - `src/bloggen/ui/menu_editor.py` — onglets Menu supérieur / Menu latéral.

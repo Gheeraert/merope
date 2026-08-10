@@ -8,7 +8,7 @@
 - TEI pivot
 - XSLT HTML
 - images + lightbox
-- notes marginales + notes finales
+- notes finales (bas d'article), avec ancre de défilement doux entre l'appel de note et la note — notes *marginales* désactivées pour le moment (voir V1.1)
 - CLI headless (`bloggen build --config ...`)
 - RSS (`feed.xml`), sitemap (`sitemap.xml`, avec `lastmod`), `robots.txt` et méta SEO (Open Graph, Twitter Card, JSON-LD Article/WebSite) — sitemap/RSS si `site.base_url` renseigné
 - surcharge de thème (CSS/JS) et de gabarits HTML par projet
@@ -27,10 +27,11 @@
 - barre de mise en forme de l'éditeur à icônes (type TinyMCE/Word) plutôt qu'à boutons texte
 - conversion en un clic d'une page en billet (ou l'inverse) depuis l'éditeur, sans réécrire le contenu à la main
 - aperçu local du site généré (serveur HTTP intégré, sans sous-processus ni installation) proposé directement depuis le rapport de génération
+- redimensionnement/copie de l'image de bannière proposé au moment de l'import
 
 ## V1.1
 - amélioration responsive
-- raffinement du rendu des notes marginales
+- notes marginales (désactivées en V1 : ne tenaient pas de façon fiable à côté du texte selon la largeur de l'écran, voir `render/margin_notes.py`)
 - meilleure gestion des images issues de Google Docs
 
 ## V2

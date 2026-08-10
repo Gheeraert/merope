@@ -78,7 +78,7 @@ def test_end_to_end_minimal_project_with_image_note_archive_and_home(monkeypatch
     assert "lightbox-link" in post_html
     assert "data-lightbox-group" in post_html
     assert "endnotes" in post_html
-    assert "margin-notes" in post_html
+    assert "margin-notes" not in post_html  # not implemented for now, see render/margin_notes.py
     assert "article-content" in post_html
     assert '<p class="article-meta"><time datetime="2026-04-23">2026-04-23</time></p>' in post_html
     assert 'href="../../index.html"' in post_html

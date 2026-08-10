@@ -102,7 +102,7 @@ class MainWindow(tk.Tk):
         )
         self.notebook.add(self.site_tab, text="Site")
 
-        self.banner_panel = BannerPanel(self.notebook)
+        self.banner_panel = BannerPanel(self.notebook, resolve_assets_root=self._resolve_assets_root)
         self.notebook.add(self.banner_panel, text="Bannière")
 
         self.paths_tab, self.paths_vars = _create_form_tab(
@@ -692,6 +692,15 @@ class MainWindow(tk.Tk):
         posts_dir = (project_root / paths.posts_dir).resolve()
         archive_path = self.blog_vars["archive_path"].get().strip() or "billets"
         return list_content_targets(pages_dir, posts_dir, archive_path=archive_path)
+
+    def _resolve_assets_root(self) -> tuple[Path, str]:
+        """(project_root, assets_dir) for the banner picker's "copy into the
+        project" step — resolved lazily (see ``BannerPanel``), same pattern
+        as ``_list_menu_link_targets``.
+        """
+        paths = PathsConfig(**_read_vars(self.paths_vars))
+        project_root = resolve_project_root(ProjectConfig(paths=paths), self.current_config_path)
+        return project_root, paths.assets_dir
 
     def open_content_editor(self) -> None:
         paths = PathsConfig(**_read_vars(self.paths_vars))

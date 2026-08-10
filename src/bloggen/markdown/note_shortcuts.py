@@ -31,11 +31,15 @@ from dataclasses import replace
 
 from bloggen.markdown.rich_text_model import Block, InlineRun
 
-# "((", then note text with no nested parentheses, then "))". No
+# "((", then the shortest possible span up to the next "))". No
 # surrounding-space requirement: the double-paren pair itself is already a
 # strong enough signal not to fire on ordinary single-parenthesis asides
 # like "(voir (a) et (b))" (that content is not enclosed in "((" "))").
-DOUBLE_PAREN_NOTE_RE = re.compile(r"\(\(([^()]+)\)\)")
+# Unlike an earlier version, single parentheses ARE allowed inside the note
+# — a note ending in "((voir [ce lien](https://exemple.org) ici))" has a
+# literal "(" ")" around the URL as soon as it's a Markdown link, and that
+# must not stop the match from reaching the real, later "))".
+DOUBLE_PAREN_NOTE_RE = re.compile(r"\(\((.+?)\)\)")
 
 RegisterNote = Callable[[str], str]
 

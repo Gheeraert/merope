@@ -137,7 +137,9 @@ class MediaHandlingConfig:
 @dataclass(slots=True)
 class NotesRenderingConfig:
     mode: str = "margin_excerpt_plus_footnote"
-    enable_margin_notes: bool = True
+    # Not implemented for now regardless of this flag — see
+    # render/margin_notes.py, which unconditionally ignores it.
+    enable_margin_notes: bool = False
     enable_footnotes: bool = True
     margin_excerpt_words: int = 8
     margin_excerpt_chars: int = 80

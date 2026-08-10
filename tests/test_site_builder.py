@@ -118,7 +118,7 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert "lightbox-link" in post_html
     assert "data-lightbox-group" in post_html
     assert "endnotes" in post_html
-    assert "margin-notes" in post_html
+    assert "margin-notes" not in post_html  # not implemented for now, see render/margin_notes.py
     assert '<p class="article-meta"><time datetime="2026-04-23">2026-04-23</time></p>' in post_html
     assert "top-nav" in post_html
     assert "side-nav" in post_html

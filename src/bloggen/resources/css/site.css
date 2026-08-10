@@ -29,6 +29,26 @@ body {
   padding: 0;
 }
 
+html {
+  /* Soft/animated scroll for the note-call <-> endnote anchor jumps
+     (#note-N / #note-call-N, see app.js and tei_to_html.xsl) instead of an
+     instant snap. */
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+.note-call,
+.endnotes-list li {
+  /* Keeps the jumped-to anchor from landing flush against the viewport's
+     top edge, hidden under nothing here but still uncomfortably tight. */
+  scroll-margin-top: 1.5rem;
+}
+
 body {
   font-family: var(--font-body);
   color: var(--ink);
@@ -60,7 +80,12 @@ button:focus-visible {
 .site-banner {
   position: relative;
   overflow: hidden;
-  background: #000;
+  /* Neutral gray rather than black: shows through on a transparent banner
+     image, a still-loading one, or one whose aspect ratio doesn't quite
+     fill the configured height — a solid black fallback there reads as a
+     broken banner rather than a background. Matches Twenty Fourteen's own
+     post-thumbnail fallback tone. */
+  background: #b2b2b2;
   max-width: var(--page-max-width);
   margin: 0 auto;
 }

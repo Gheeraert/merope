@@ -74,7 +74,7 @@ _TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE
 # Same shorthand as bloggen.markdown.note_shortcuts.DOUBLE_PAREN_NOTE_RE, but
 # anchored to the end of the string: used to detect the pattern right as its
 # closing "))" is typed, one line-prefix at a time.
-_DOUBLE_PAREN_NOTE_TYPED_RE = re.compile(r"\(\(([^()]+)\)\)$")
+_DOUBLE_PAREN_NOTE_TYPED_RE = re.compile(r"\(\((.+?)\)\)$")
 
 
 class ContentMetadataDialog(simpledialog.Dialog):

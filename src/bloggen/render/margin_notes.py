@@ -23,6 +23,16 @@ def apply_notes_rendering(
     excerpt_chars: int,
     prefer_words: bool,
 ) -> NotesRenderingResult:
+    # NOT IMPLEMENTED (for now): floating the notes out into a true page
+    # margin never reliably fits next to the article at realistic viewport
+    # widths without colliding with either the sidebar or the article text
+    # itself, so in practice the "margin" notes just ended up rendered at
+    # the bottom like ordinary footnotes. Disabled unconditionally here,
+    # regardless of notes_rendering.enable_margin_notes, until the layout
+    # problem is actually solved — the rest of this module (and the config
+    # field/UI checkbox) is left in place to revisit later.
+    enable_margin_notes = False
+
     root = html.fragment_fromstring(html_fragment, create_parent="div")
 
     endnotes_nodes = root.xpath(

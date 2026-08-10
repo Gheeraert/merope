@@ -15,7 +15,7 @@ def _fragment_with_note() -> str:
     )
 
 
-def test_apply_notes_rendering_keeps_endnotes_and_adds_margin_excerpt():
+def test_apply_notes_rendering_keeps_endnotes():
     result = apply_notes_rendering(
         _fragment_with_note(),
         enable_margin_notes=True,
@@ -26,11 +26,8 @@ def test_apply_notes_rendering_keeps_endnotes_and_adds_margin_excerpt():
     )
 
     assert result.footnotes_count == 1
-    assert result.margin_notes_count == 1
     assert 'class="endnotes"' in result.html_fragment
-    assert 'class="margin-notes"' in result.html_fragment
-    assert 'id="margin-note-1"' in result.html_fragment
-    assert "Une note assez longue…" in result.html_fragment
+    assert "Une note assez longue pour test" in result.html_fragment
 
 
 def test_apply_notes_rendering_can_remove_endnotes():
@@ -44,6 +41,20 @@ def test_apply_notes_rendering_can_remove_endnotes():
     )
 
     assert result.footnotes_count == 0
-    assert result.margin_notes_count == 1
     assert 'class="endnotes"' not in result.html_fragment
-    assert "Une note assez l…" in result.html_fragment
+
+
+def test_margin_notes_are_not_implemented_regardless_of_the_flag():
+    # See render/margin_notes.py: margin notes are unconditionally disabled
+    # for now, even when the caller asks for enable_margin_notes=True.
+    result = apply_notes_rendering(
+        _fragment_with_note(),
+        enable_margin_notes=True,
+        enable_footnotes=True,
+        excerpt_words=4,
+        excerpt_chars=30,
+        prefer_words=True,
+    )
+
+    assert result.margin_notes_count == 0
+    assert 'class="margin-notes"' not in result.html_fragment
