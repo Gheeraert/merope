@@ -6,6 +6,7 @@ from bloggen.markdown.typography import (
     apply_french_typography,
     convert_curly_quotes_to_guillemets,
     convert_straight_quotes_stateful,
+    fix_guillemet_spacing,
     fix_page_number_spacing,
     is_valid_century_ordinal,
     split_century_ordinals,
@@ -173,3 +174,45 @@ def test_fix_page_number_spacing_multiple_occurrences():
 def test_apply_french_typography_also_fixes_page_number_spacing():
     result = apply_french_typography("Voir p. 12.")
     assert result == f"Voir p.{NBSP}12."
+
+
+def test_fix_guillemet_spacing_converts_regular_space_after_opening():
+    text = f"{OPENING_GUILLEMET} bonjour{NBSP}{CLOSING_GUILLEMET}"
+    assert fix_guillemet_spacing(text) == f"{OPENING_GUILLEMET}{NBSP}bonjour{NBSP}{CLOSING_GUILLEMET}"
+
+
+def test_fix_guillemet_spacing_converts_regular_space_before_closing():
+    text = f"{OPENING_GUILLEMET}{NBSP}bonjour {CLOSING_GUILLEMET}"
+    assert fix_guillemet_spacing(text) == f"{OPENING_GUILLEMET}{NBSP}bonjour{NBSP}{CLOSING_GUILLEMET}"
+
+
+def test_fix_guillemet_spacing_converts_both_sides_at_once():
+    text = f"Il a dit {OPENING_GUILLEMET} bonjour {CLOSING_GUILLEMET} hier."
+    assert fix_guillemet_spacing(text) == (
+        f"Il a dit {OPENING_GUILLEMET}{NBSP}bonjour{NBSP}{CLOSING_GUILLEMET} hier."
+    )
+
+
+def test_fix_guillemet_spacing_leaves_existing_nbsp_untouched():
+    text = f"{OPENING_GUILLEMET}{NBSP}bonjour{NBSP}{CLOSING_GUILLEMET}"
+    assert fix_guillemet_spacing(text) == text
+
+
+def test_fix_guillemet_spacing_does_not_insert_a_space_when_glued():
+    text = f"{OPENING_GUILLEMET}bonjour{CLOSING_GUILLEMET}"
+    assert fix_guillemet_spacing(text) == text
+
+
+def test_fix_guillemet_spacing_is_idempotent():
+    once = fix_guillemet_spacing(f"{OPENING_GUILLEMET} bonjour {CLOSING_GUILLEMET}")
+    twice = fix_guillemet_spacing(once)
+    assert once == twice
+
+
+def test_apply_french_typography_fixes_pre_existing_guillemets_too():
+    text = f"Il a dit {OPENING_GUILLEMET} bonjour {CLOSING_GUILLEMET} hier."
+    result = apply_french_typography(text)
+    assert result == f"Il a dit {OPENING_GUILLEMET}{NBSP}bonjour{NBSP}{CLOSING_GUILLEMET} hier."
+    # The chevrons themselves must not be duplicated/re-paired.
+    assert result.count(OPENING_GUILLEMET) == 1
+    assert result.count(CLOSING_GUILLEMET) == 1

@@ -47,6 +47,19 @@ def test_page_number_gets_non_breaking_space_on_paste():
     assert _export("<p>Cf. pp. 12-15.</p>") == f"Cf. pp.{NBSP}12-15.\n"
 
 
+def test_pre_existing_guillemets_keep_chevrons_but_get_nbsp_on_paste():
+    html = f"<p>Il a dit {OPENING_GUILLEMET} bonjour {CLOSING_GUILLEMET} hier.</p>"
+    result = _export(html)
+    assert result == f"Il a dit {OPENING_GUILLEMET}{NBSP}bonjour{NBSP}{CLOSING_GUILLEMET} hier.\n"
+    assert result.count(OPENING_GUILLEMET) == 1
+    assert result.count(CLOSING_GUILLEMET) == 1
+
+
+def test_pre_existing_guillemets_with_nbsp_already_are_unchanged_on_paste():
+    html = f"<p>Il a dit {OPENING_GUILLEMET}{NBSP}bonjour{NBSP}{CLOSING_GUILLEMET} hier.</p>"
+    assert _export(html) == f"Il a dit {OPENING_GUILLEMET}{NBSP}bonjour{NBSP}{CLOSING_GUILLEMET} hier.\n"
+
+
 def test_link():
     assert _export('<p>Voir <a href="https://example.org">ce lien</a>.</p>') == (
         "Voir [ce lien](https://example.org).\n"

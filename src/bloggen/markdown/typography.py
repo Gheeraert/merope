@@ -22,13 +22,15 @@ CLOSING_GUILLEMET = "»"  # »
 
 def apply_french_typography(text: str) -> str:
     """Convert straight/curly double quotes to alternating guillemets (with a
-    non-breaking space glued to the inside), ensure a single non-breaking
-    space before ``; : ! ?``, and glue "p."/"pp." to a following page
-    number with a non-breaking space. Idempotent: running it twice does not
-    add extra spaces or re-toggle quote parity incorrectly.
+    non-breaking space glued to the inside) and fix the spacing of any
+    guillemets already present as such, ensure a single non-breaking space
+    before ``; : ! ?``, and glue "p."/"pp." to a following page number with
+    a non-breaking space. Idempotent: running it twice does not add extra
+    spaces or re-toggle quote parity incorrectly.
     """
     text = convert_curly_quotes_to_guillemets(text)
     text = _convert_straight_quotes(text)
+    text = fix_guillemet_spacing(text)
     text = fix_double_punctuation_spacing(text)
     return fix_page_number_spacing(text)
 
@@ -68,6 +70,21 @@ def convert_straight_quotes_stateful(text: str, *, opening_next: bool = True) ->
 def _convert_straight_quotes(text: str) -> str:
     converted, _ = convert_straight_quotes_stateful(text, opening_next=True)
     return converted
+
+
+def fix_guillemet_spacing(text: str) -> str:
+    """If chevrons (« / ») are already present as such in imported text —
+    e.g. typed directly in Word/Google Docs rather than as ``"``/curly
+    quotes — they are left exactly where they are (never re-paired,
+    duplicated, or otherwise reinterpreted; that parity tracking is
+    :func:`convert_straight_quotes_stateful`'s job, for ``"``/curly quotes
+    only). This only makes sure a *regular* space glued to their inside is
+    a non-breaking one instead, matching what freshly-converted guillemets
+    already get. Idempotent: only a literal regular space is matched, so a
+    space already non-breaking (or no space at all) is left untouched.
+    """
+    text = text.replace(f"{OPENING_GUILLEMET} ", f"{OPENING_GUILLEMET}{NBSP}")
+    return text.replace(f" {CLOSING_GUILLEMET}", f"{NBSP}{CLOSING_GUILLEMET}")
 
 
 def fix_double_punctuation_spacing(text: str) -> str:
