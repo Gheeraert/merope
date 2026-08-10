@@ -283,6 +283,14 @@ def _build_single_item(
 
     report.generated_tei.append(tei_path)
 
+    # Keep a permanent, "usable" copy of the generated TEI (full document,
+    # own teiHeader — not just the fragment rendered into the page) next to
+    # its Markdown source, so it can be versioned/archived alongside it.
+    # Independent of the "Conserver TEI" (generate_tei_files) setting, which
+    # only controls the separate build/tei staging directory.
+    content_tei_path = item.source_path.with_suffix(".xml")
+    shutil.copyfile(tei_path, content_tei_path)
+
     fragment = render_tei_file_to_html_fragment(
         tei_path,
         xslt_path=_resolve_xslt_path(config, project_root),

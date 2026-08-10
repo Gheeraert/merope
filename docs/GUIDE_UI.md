@@ -81,7 +81,7 @@ Demande un dossier (vide de préférence) puis y crée une arborescence complèt
 | Dossier templates | Sous-dossier du thème avec les fichiers `.html` de gabarit. | `theme/templates` |
 | Dossier XSLT | Sous-dossier du thème avec les feuilles de transformation TEI → HTML. | `theme/xslt` |
 | Dossier sortie | Où le site final est généré ; peut être vidé automatiquement à chaque génération (voir onglet Génération). | `site` |
-| Dossier TEI | Dossier intermédiaire où les fichiers TEI générés sont conservés (pratique pour inspecter/déboguer). | `build/tei` |
+| Dossier TEI | Dossier intermédiaire (nommé par slug) où les fichiers TEI générés sont conservés si « Conserver TEI » est coché (pratique pour inspecter/déboguer). Indépendamment de ce réglage, une copie de chaque TEI généré est **toujours** enregistrée à côté de sa source Markdown, dans `content/pages`/`content/posts`, sous le même nom de fichier (ex. `mon-billet.md` → `mon-billet.xml`) — c'est cette copie-là qu'on garde/versionne pour conserver le TEI d'un billet. | `build/tei` |
 
 ## 4. Contenus
 *Comment MEROPE doit lire vos fichiers Markdown avant de les transformer en pages.*

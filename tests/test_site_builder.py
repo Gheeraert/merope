@@ -93,6 +93,17 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert (project / "site/content-media/post/premier-billet/media/inline.jpg").exists()
     assert (project / "site/search-index.json").exists()
 
+    # A permanent, usable TEI copy (full document, own teiHeader) is kept
+    # next to each Markdown source, named after that source file itself
+    # ("premier.md" here, not its "premier-billet" slug) rather than the
+    # slug-keyed staging copy under build/tei/.
+    content_page_tei = project / "content/pages/accueil.xml"
+    content_post_tei = project / "content/posts/premier.xml"
+    assert content_page_tei.exists()
+    assert content_post_tei.exists()
+    assert "teiHeader" in content_page_tei.read_text(encoding="utf-8")
+    assert "teiHeader" in content_post_tei.read_text(encoding="utf-8")
+
     import json
 
     index_entries = json.loads((project / "site/search-index.json").read_text(encoding="utf-8"))
