@@ -40,14 +40,16 @@ class MenuLinkDialog(simpledialog.Dialog):
         )
         self.picker_var = tk.StringVar(value=matching_label or self._PICKER_PLACEHOLDER)
 
-        ttk.Label(master, text="Label").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        label_caption = ttk.Label(master, text="Label")
+        label_caption.grid(row=0, column=0, sticky="w", padx=4, pady=4)
         label_entry = ttk.Entry(master, textvariable=self.label_var, width=44)
         label_entry.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
-        add_tooltip(
-            label_entry,
+        label_tip = (
             "Texte affiché pour ce lien dans le menu. Obligatoire.\n"
-            "Exemple : Accueil",
+            "Exemple : Accueil"
         )
+        add_tooltip(label_caption, label_tip)
+        add_tooltip(label_entry, label_tip)
 
         ttk.Label(master, text="Entrée de menu pointant vers :").grid(
             row=1, column=0, sticky="w", padx=4, pady=4
@@ -89,19 +91,21 @@ class MenuLinkDialog(simpledialog.Dialog):
             "pointer. Remplit automatiquement le champ Destination ci-dessous.",
         )
 
-        ttk.Label(master, text="Destination").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        destination_caption = ttk.Label(master, text="Destination")
+        destination_caption.grid(row=3, column=0, sticky="w", padx=4, pady=4)
         target_entry = ttk.Entry(master, textvariable=self.target_var, width=44)
         target_entry.grid(row=3, column=1, sticky="ew", padx=4, pady=4)
-        add_tooltip(
-            target_entry,
+        destination_tip = (
             "Chemin ou URL vers laquelle ce lien pointe réellement. Obligatoire. "
             "Rempli automatiquement par le sélecteur ci-dessus pour un lien interne, "
             "mais reste modifiable.\n"
             "- Interne : chemin commençant par / vers une page du site généré.\n"
             "  Exemple : /billets/index.html\n"
             "- Externe : adresse web complète.\n"
-            "  Exemple : https://example.org",
+            "  Exemple : https://example.org"
         )
+        add_tooltip(destination_caption, destination_tip)
+        add_tooltip(target_entry, destination_tip)
 
         enabled_cb = ttk.Checkbutton(master, text="Activé", variable=self.enabled_var)
         enabled_cb.grid(row=4, column=0, sticky="w", padx=4, pady=4)

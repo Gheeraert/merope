@@ -342,7 +342,7 @@ class SideMenuEditor(ttk.Frame):
                 "1) créez d'abord une ou plusieurs « sections » (colonne de gauche, "
                 "ex. « Rhétorique ») avec le bouton « + Section » ; "
                 "2) sélectionnez une section pour lui ajouter, colonne du milieu, des "
-                "sous-entrées cliquables directes (« + Sous-entrée ») et/ou des "
+                "sous-entrées cliquables directes (« + Billet ») et/ou des "
                 "sous-sections (« + Sous-section », ex. « Bossuet et la rhétorique "
                 "chrétienne »), qui regroupent elles-mêmes des liens ; "
                 "3) sélectionnez une sous-section pour lui ajouter des billets/pages, "
@@ -439,10 +439,10 @@ class SideMenuEditor(ttk.Frame):
                 "Sélectionnez ou créez d'abord une section.",
             ),
             (
-                "+ Sous-entrée",
+                "+ Billet",
                 self._add_child,
-                "Ajoute un lien direct (sans sous-section) dans la section sélectionnée "
-                "à gauche. Sélectionnez ou créez d'abord une section.",
+                "Ajoute un lien (billet, page...) dans la sous-section sélectionnée au "
+                "milieu. Sélectionnez ou créez d'abord une sous-section.",
             ),
             ("Modifier", self._edit_middle, "Édite la sous-entrée ou la sous-section sélectionnée."),
             ("Supprimer", self._delete_middle, "Supprime la sous-entrée ou la sous-section sélectionnée."),
