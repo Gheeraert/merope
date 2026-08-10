@@ -26,12 +26,12 @@
 - copie TEI complète (avec teiHeader) conservée à côté de chaque source Markdown, indépendamment du réglage « Conserver TEI »
 - barre de mise en forme de l'éditeur à icônes (type TinyMCE/Word) plutôt qu'à boutons texte
 - conversion en un clic d'une page en billet (ou l'inverse) depuis l'éditeur, sans réécrire le contenu à la main
+- aperçu local du site généré (serveur HTTP intégré, sans sous-processus ni installation) proposé directement depuis le rapport de génération
 
 ## V1.1
 - amélioration responsive
 - raffinement du rendu des notes marginales
 - meilleure gestion des images issues de Google Docs
-- petite prévisualisation locale intégrée
 
 ## V2
 - enrichissements TEI supplémentaires

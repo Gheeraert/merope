@@ -31,6 +31,7 @@ from bloggen.ui.content_editor import ContentEditorWindow
 from bloggen.ui.media_panel import MediaPanel
 from bloggen.ui.menu_editor import SideMenuEditor, TopMenuEditor
 from bloggen.ui.notes_panel import NotesPanel
+from bloggen.ui.site_preview import SitePreviewServer
 from bloggen.ui.tooltip import add_tooltip
 
 
@@ -40,6 +41,7 @@ class MainWindow(tk.Tk):
         self.title("MEROPE - Blog Static Generator")
         self.geometry("1100x760")
         self.current_config_path: Path | None = None
+        self._site_preview_server = SitePreviewServer()
         self._build_ui()
         self.new_config()
 
@@ -661,12 +663,23 @@ class MainWindow(tk.Tk):
             return
 
         details = format_build_report(report)
-        if report.success and report.warnings:
-            messagebox.showwarning("Génération terminée (avec avertissements)", details)
-        elif report.success:
-            messagebox.showinfo("Génération terminée", details)
-        else:
+        if not report.success:
             messagebox.showerror("Génération échouée", details)
+            return
+
+        title = "Génération terminée (avec avertissements)" if report.warnings else "Génération terminée"
+        prompt = f"{details}\n\nOuvrir le site dans le navigateur ?"
+        if messagebox.askyesno(title, prompt):
+            self._open_site_in_browser(report.output_dir)
+
+    def _open_site_in_browser(self, output_dir: Path) -> None:
+        try:
+            self._site_preview_server.open_in_browser(output_dir)
+        except OSError as exc:
+            messagebox.showerror(
+                "Aperçu du site",
+                f"Impossible de démarrer le serveur local pour l'aperçu :\n{exc}",
+            )
 
     def _list_menu_link_targets(self) -> list[tuple[str, str]]:
         """Fresh (label, url) pairs for the menu-entry dialog's internal-link

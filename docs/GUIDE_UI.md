@@ -28,7 +28,7 @@ Sauf mention contraire, les chemins de fichiers/dossiers demandés sont **relati
 - **Quitter**.
 
 **Actions**
-- **Générer le site** : construit les pages HTML à partir de la configuration actuelle et du contenu présent dans les dossiers configurés. Un rapport s'affiche à la fin (succès, avertissements, ou erreurs à corriger).
+- **Générer le site** : construit les pages HTML à partir de la configuration actuelle et du contenu présent dans les dossiers configurés. Un rapport s'affiche à la fin (succès, avertissements, ou erreurs à corriger) ; en cas de succès, une question **Ouvrir le site dans le navigateur ?** (Oui/Non) l'accompagne. Répondre Oui démarre un petit serveur local (équivalent à `python -m http.server`, mais géré directement par MEROPE — rien à installer ni à lancer à la main) sur le dossier de sortie et ouvre l'adresse dans le navigateur par défaut ; répondre Non ferme simplement le rapport. Le serveur reste actif tant que l'application est ouverte (une nouvelle génération vers le même dossier réutilise le même serveur ; vers un dossier différent, il redémarre dessus).
 - **Ouvrir dossier de sortie** : pas encore disponible dans cette version (affiche un message d'information).
 
 ## Barre d'outils
@@ -280,6 +280,7 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 ## Fichiers sources correspondants
 
 - `src/bloggen/ui/main_window.py` — fenêtre principale et onglets simples (Site, Chemins, Contenus, Accueil, Blog, Rendu, Footer, Génération).
+- `src/bloggen/ui/site_preview.py` — serveur HTTP local (en thread, pas de sous-processus) pour l'aperçu du site généré depuis le rapport de génération.
 - `src/bloggen/ui/banner_panel.py` — onglet Bannière.
 - `src/bloggen/ui/media_panel.py` — onglet Médias.
 - `src/bloggen/ui/notes_panel.py` — onglet Notes.
