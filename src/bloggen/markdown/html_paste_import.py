@@ -34,6 +34,7 @@ from bloggen.markdown.typography import (
     convert_curly_quotes_to_guillemets,
     convert_straight_quotes_stateful,
     fix_double_punctuation_spacing,
+    fix_page_number_spacing,
     split_century_ordinals,
 )
 
@@ -399,7 +400,8 @@ def _normalize_block(block: Block, opening_next: bool) -> bool:
             continue
         text = convert_curly_quotes_to_guillemets(run.text)
         text, opening_next = convert_straight_quotes_stateful(text, opening_next=opening_next)
-        run.text = fix_double_punctuation_spacing(text)
+        text = fix_double_punctuation_spacing(text)
+        run.text = fix_page_number_spacing(text)
     block.runs = split_century_ordinals(block.runs)
     for child in block.children:
         opening_next = _normalize_block(child, opening_next)

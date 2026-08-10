@@ -42,6 +42,11 @@ def test_century_ordinal_auto_conversion_on_paste():
     assert _export("<p>Le Ier siecle.</p>") == "Le I^er^ siecle.\n"
 
 
+def test_page_number_gets_non_breaking_space_on_paste():
+    assert _export("<p>Voir p. 12.</p>") == f"Voir p.{NBSP}12.\n"
+    assert _export("<p>Cf. pp. 12-15.</p>") == f"Cf. pp.{NBSP}12-15.\n"
+
+
 def test_link():
     assert _export('<p>Voir <a href="https://example.org">ce lien</a>.</p>') == (
         "Voir [ce lien](https://example.org).\n"

@@ -54,6 +54,7 @@ from bloggen.markdown.typography import (
     DOUBLE_PUNCTUATION,
     NBSP,
     OPENING_GUILLEMET,
+    PAGE_ABBREVIATION_TYPED_RE,
     apply_french_typography,
     is_valid_century_ordinal,
 )
@@ -614,6 +615,8 @@ class ContentEditorWindow(tk.Toplevel):
         self._autoformat_century_ordinal()
         if char == " ":
             self._autoformat_double_paren_note()
+        elif char.isdigit():
+            self._autoformat_page_number_space()
 
     def _autoformat_last_typed_char(self, char: str) -> None:
         # Index expressions with arithmetic (e.g. "1.8-1c") are re-evaluated
@@ -674,6 +677,26 @@ class ContentEditorWindow(tk.Toplevel):
             if "superscript" in self.text.tag_names(suffix_start):
                 continue
             self.text.tag_add("superscript", suffix_start, suffix_end)
+
+    def _autoformat_page_number_space(self) -> None:
+        """Detect a page number's first digit just typed right after
+        "p. "/"pp. " (e.g. "p. 12") and turn that regular space into a
+        non-breaking one in place, the same convention as the NBSP already
+        enforced before ``; : ! ?`` — see :func:`bloggen.markdown.
+        typography.fix_page_number_spacing`, applied the same way to
+        pasted/imported content.
+        """
+        cursor = self.text.index("insert")
+        line = int(cursor.split(".")[0])
+        text_before = self.text.get(f"{line}.0", cursor)
+        if PAGE_ABBREVIATION_TYPED_RE.search(text_before) is None:
+            return
+        # The digit just typed is the last character; the space to convert
+        # is the one right before it.
+        space_start = self.text.index(f"{cursor}-2c")
+        space_end = self.text.index(f"{cursor}-1c")
+        self.text.delete(space_start, space_end)
+        self.text.insert(space_start, NBSP)
 
     def _autoformat_double_paren_note(self) -> None:
         """Detect "((note text)) " (Hypothèses/WordPress note shorthand)

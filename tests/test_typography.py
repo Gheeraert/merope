@@ -6,6 +6,7 @@ from bloggen.markdown.typography import (
     apply_french_typography,
     convert_curly_quotes_to_guillemets,
     convert_straight_quotes_stateful,
+    fix_page_number_spacing,
     is_valid_century_ordinal,
     split_century_ordinals,
 )
@@ -139,3 +140,36 @@ def test_split_century_ordinals_is_idempotent():
     once = split_century_ordinals([InlineRun(text="Au XXIe siecle.")])
     twice = split_century_ordinals(once)
     assert [(r.text, r.superscript) for r in once] == [(r.text, r.superscript) for r in twice]
+
+
+def test_fix_page_number_spacing_single_page():
+    assert fix_page_number_spacing("Voir p. 12.") == f"Voir p.{NBSP}12."
+
+
+def test_fix_page_number_spacing_plural_abbreviation():
+    assert fix_page_number_spacing("Cf. pp. 12-15.") == f"Cf. pp.{NBSP}12-15."
+
+
+def test_fix_page_number_spacing_already_nbsp_is_unchanged():
+    text = f"Voir p.{NBSP}12."
+    assert fix_page_number_spacing(text) == text
+
+
+def test_fix_page_number_spacing_ignores_non_digit_followers():
+    text = "Il y a p. ex. autre chose."
+    assert fix_page_number_spacing(text) == text
+
+
+def test_fix_page_number_spacing_ignores_p_glued_inside_a_word():
+    text = "app. 12 ne doit pas changer."
+    assert fix_page_number_spacing(text) == text
+
+
+def test_fix_page_number_spacing_multiple_occurrences():
+    text = "Voir p. 12 et p. 34."
+    assert fix_page_number_spacing(text) == f"Voir p.{NBSP}12 et p.{NBSP}34."
+
+
+def test_apply_french_typography_also_fixes_page_number_spacing():
+    result = apply_french_typography("Voir p. 12.")
+    assert result == f"Voir p.{NBSP}12."

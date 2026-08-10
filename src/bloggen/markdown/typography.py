@@ -22,13 +22,15 @@ CLOSING_GUILLEMET = "»"  # »
 
 def apply_french_typography(text: str) -> str:
     """Convert straight/curly double quotes to alternating guillemets (with a
-    non-breaking space glued to the inside), and ensure a single
-    non-breaking space before ``; : ! ?``. Idempotent: running it twice
-    does not add extra spaces or re-toggle quote parity incorrectly.
+    non-breaking space glued to the inside), ensure a single non-breaking
+    space before ``; : ! ?``, and glue "p."/"pp." to a following page
+    number with a non-breaking space. Idempotent: running it twice does not
+    add extra spaces or re-toggle quote parity incorrectly.
     """
     text = convert_curly_quotes_to_guillemets(text)
     text = _convert_straight_quotes(text)
-    return fix_double_punctuation_spacing(text)
+    text = fix_double_punctuation_spacing(text)
+    return fix_page_number_spacing(text)
 
 
 def convert_curly_quotes_to_guillemets(text: str) -> str:
@@ -85,6 +87,30 @@ def fix_double_punctuation_spacing(text: str) -> str:
                 result.append(NBSP)
         result.append(char)
     return "".join(result)
+
+
+_LETTER_CLASS = "A-Za-zÀ-ÖØ-öø-ÿ"
+# "p."/"pp." (page reference abbreviations) immediately followed by a
+# regular space then a digit: matches "p. 12" or "pp. 12-15", but not
+# "p." used as some other abbreviation's ending or glued inside a longer
+# word (e.g. "app."). The abbreviation itself is captured (with its dot)
+# so the substitution only touches the space.
+PAGE_ABBREVIATION_RE = re.compile(rf"(?<![{_LETTER_CLASS}])(pp?\.) (?=\d)")
+# Same shape, anchored to the end of the string: used to detect the
+# pattern right as the page number's first digit is typed, one
+# line-prefix at a time (mirrors typography's own use in the editor for
+# quotes/double punctuation, and note_shortcuts' typed-shorthand regex).
+PAGE_ABBREVIATION_TYPED_RE = re.compile(rf"(?<![{_LETTER_CLASS}])pp?\. \d$")
+
+
+def fix_page_number_spacing(text: str) -> str:
+    """Ensure a non-breaking space follows "p."/"pp." right before a page
+    number (e.g. "p. 12"), the same convention as the non-breaking space
+    already enforced before ``; : ! ?`` and inside guillemets. Idempotent:
+    once the space is non-breaking, the regex (which only matches a
+    regular space) no longer applies.
+    """
+    return PAGE_ABBREVIATION_RE.sub(rf"\1{NBSP}", text)
 
 
 CENTURY_RE = re.compile(r"\b([IVXLCDM]+)(er|e)\s+([Ss]i[eè]cle)\b")
