@@ -11,6 +11,7 @@ populate the widget on load.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from tkinter import font as tkfont, messagebox, filedialog, simpledialog, ttk
@@ -26,6 +27,11 @@ from bloggen.content.writer import (
 )
 from bloggen.markdown.front_matter import parse_front_matter
 from bloggen.markdown.html_paste_import import html_to_blocks
+from bloggen.markdown.note_shortcuts import (
+    DOUBLE_PAREN_NOTE_RE,
+    convert_double_paren_notes_in_blocks,
+    split_double_paren_notes,
+)
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks, parse_table_lines
 from bloggen.markdown.rich_text_model import (
@@ -63,6 +69,10 @@ _CHAR_TAGS = ("bold", "italic", "strike", "superscript")
 # PARAGRAPH/BLOCKQUOTE on export (see bloggen.markdown.paragraph_alignment).
 _ALIGN_TAGS = ("align_left", "align_center", "align_right", "align_justify")
 _TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE_PUNCTUATION
+# Same shorthand as bloggen.markdown.note_shortcuts.DOUBLE_PAREN_NOTE_RE, but
+# anchored to the end of the string: used to detect the pattern right as its
+# closing " " is typed, one line-prefix at a time.
+_DOUBLE_PAREN_NOTE_TYPED_RE = re.compile(r" \(\(([^()]+)\)\) $")
 
 
 class ContentMetadataDialog(simpledialog.Dialog):
@@ -602,6 +612,8 @@ class ContentEditorWindow(tk.Toplevel):
         if char and char in _TYPOGRAPHY_TRIGGER_CHARS:
             self._autoformat_last_typed_char(char)
         self._autoformat_century_ordinal()
+        if char == " ":
+            self._autoformat_double_paren_note()
 
     def _autoformat_last_typed_char(self, char: str) -> None:
         # Index expressions with arithmetic (e.g. "1.8-1c") are re-evaluated
@@ -663,6 +675,39 @@ class ContentEditorWindow(tk.Toplevel):
                 continue
             self.text.tag_add("superscript", suffix_start, suffix_end)
 
+    def _autoformat_double_paren_note(self) -> None:
+        """Detect "((note text)) " (Hypothèses/WordPress note shorthand)
+        just completed by the space that triggered this call, and replace
+        it in place with a real footnote reference — same conversion as
+        :func:`bloggen.markdown.note_shortcuts.split_double_paren_notes`
+        applied to pasted/imported content, but driven off the live cursor
+        instead of a static block tree.
+        """
+        cursor = self.text.index("insert")
+        line = int(cursor.split(".")[0])
+        text_before = self.text.get(f"{line}.0", cursor)
+        match = _DOUBLE_PAREN_NOTE_TYPED_RE.search(text_before)
+        if match is None:
+            return
+        note_text = match.group(1).strip()
+        if not note_text:
+            return
+
+        # Resolve indices up front from the *current* buffer, for the same
+        # reason as _autoformat_last_typed_char: they must not be
+        # re-evaluated after the delete/insert below has changed line length.
+        replace_start = match.start() + 1  # skip the leading space, kept as-is
+        replace_end = match.end() - 1  # exclude the trailing space, kept as-is
+        chars_after_start = len(text_before) - replace_start
+        chars_after_end = len(text_before) - replace_end
+        start_index = self.text.index(f"{cursor}-{chars_after_start}c")
+        end_index = self.text.index(f"{cursor}-{chars_after_end}c")
+
+        self.text.delete(start_index, end_index)
+        note_id = self._register_new_footnote(note_text)
+        self._insert_footnote_marker(start_index, note_id)
+        self._refresh_notes_panel()
+
     def _apply_typography_to_selection(self) -> None:
         selected = self._selection_range()
         if selected is None:
@@ -684,19 +729,40 @@ class ContentEditorWindow(tk.Toplevel):
         and insert it with formatting instead of Tk's default plain-text
         paste. Falls through to that default (return ``None``) whenever
         rich paste isn't applicable, so a normal ``Ctrl+V`` never breaks.
+
+        Either way, any "((note text))" shorthand found in the pasted
+        content (the Hypothèses/WordPress convention — see
+        :mod:`bloggen.markdown.note_shortcuts`) is converted to a real
+        footnote reference before insertion.
         """
         if self._current_line_is_raw():
             return None
         html = read_html_clipboard()
-        if not html:
-            return None
+        if html:
+            try:
+                blocks = html_to_blocks(html, images_dir=self.images_dir)
+            except Exception:
+                return None
+            if not blocks:
+                return None
+            convert_double_paren_notes_in_blocks(blocks, self._register_new_footnote)
+            self._insert_pasted_blocks_at_cursor(blocks)
+            self._refresh_notes_panel()
+            return "break"
+
+        # No HTML on the clipboard (e.g. copied from a plain-text editor):
+        # only take over the default plain-text paste when the shorthand is
+        # actually present, so the ordinary Ctrl+V path is left untouched
+        # otherwise.
         try:
-            blocks = html_to_blocks(html, images_dir=self.images_dir)
-        except Exception:
+            plain = self.clipboard_get()
+        except tk.TclError:
             return None
-        if not blocks:
+        if not DOUBLE_PAREN_NOTE_RE.search(plain):
             return None
-        self._insert_pasted_blocks_at_cursor(blocks)
+        runs = split_double_paren_notes([InlineRun(text=plain)], self._register_new_footnote)
+        self._insert_runs_at_cursor(runs)
+        self._refresh_notes_panel()
         return "break"
 
     def _insert_pasted_blocks_at_cursor(self, blocks: list[Block]) -> None:
@@ -753,7 +819,10 @@ class ContentEditorWindow(tk.Toplevel):
                 )
                 continue
             if run.footnote_ref is not None:
-                continue  # not produced by the HTML paste importer
+                index = self.text.index("insert")
+                end = self._insert_footnote_marker(index, run.footnote_ref)
+                self.text.mark_set("insert", end)
+                continue
 
             start = self.text.index("insert")
             self.text.insert("insert", run.text)
@@ -1052,21 +1121,39 @@ class ContentEditorWindow(tk.Toplevel):
         note_text = simpledialog.askstring("Note de bas de page", "Texte de la note :", parent=self)
         if not note_text:
             return
+        note_id = self._register_new_footnote(note_text)
+        self._insert_footnote_marker(self.text.index("insert"), note_id)
+        self._refresh_notes_panel()
+
+    def _register_new_footnote(self, note_text: str) -> str:
+        """Allocate the next free footnote id and record its definition.
+        Shared by the "Note..." dialog, the ((...)) typing shorthand, and
+        ((...)) found in pasted/imported content — each needs a fresh,
+        non-colliding id, and calling this repeatedly (e.g. for several
+        notes found in one paste) keeps allocating past ids already handed
+        out earlier in the same batch.
+        """
         next_id = 1
         while str(next_id) in self.footnote_definitions:
             next_id += 1
         note_id = str(next_id)
         self.footnote_definitions[note_id] = note_text
+        return note_id
 
+    def _insert_footnote_marker(self, index: str, note_id: str) -> str:
+        """Insert a clickable "[id]" footnote marker at ``index`` (a
+        concrete Tk index — not "insert"/"end" — so this works from both
+        the append-only load path and cursor-relative insertion). Returns
+        the index right after the inserted marker.
+        """
         tag = self._new_tag("fnref")
         self.footnote_ref_data[tag] = note_id
-        insert_at = self.text.index("insert")
-        self.text.insert(insert_at, f"[{note_id}]")
-        end_at = self.text.index("insert")
-        self.text.tag_add(tag, insert_at, end_at)
-        self.text.tag_add("footnote_style", insert_at, end_at)
+        self.text.insert(index, f"[{note_id}]")
+        end = self.text.index(f"{index}+{len(note_id) + 2}c")
+        self.text.tag_add(tag, index, end)
+        self.text.tag_add("footnote_style", index, end)
         self.text.tag_bind(tag, "<Button-1>", lambda _e, nid=note_id: self._focus_footnote_row(nid))
-        self._refresh_notes_panel()
+        return end
 
     # -- extraction (Text widget -> Block model) ---------------------------
 
@@ -1299,14 +1386,7 @@ class ContentEditorWindow(tk.Toplevel):
                 )
                 continue
             if run.footnote_ref is not None:
-                tag = self._new_tag("fnref")
-                self.footnote_ref_data[tag] = run.footnote_ref
-                start = self.text.index("end-1c")
-                self.text.insert("end", f"[{run.footnote_ref}]")
-                self.text.tag_add(tag, start, self.text.index("end-1c"))
-                self.text.tag_add("footnote_style", start, self.text.index("end-1c"))
-                note_id = run.footnote_ref
-                self.text.tag_bind(tag, "<Button-1>", lambda _e, nid=note_id: self._focus_footnote_row(nid))
+                self._insert_footnote_marker(self.text.index("end-1c"), run.footnote_ref)
                 continue
 
             start = self.text.index("end-1c")

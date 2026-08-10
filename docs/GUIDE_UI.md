@@ -256,6 +256,8 @@ Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer p
 
 **Notes de bas de page** : un panneau dédié sous la zone de texte liste toutes les notes du document ([1], [2]...), avec un champ modifiable pour chacune — le texte de la note se corrige directement là, sans dialogue séparé. Cliquer sur un appel de note `[N]` dans le texte donne le focus à la note correspondante dans le panneau. **Supprimer** retire une note (les appels de note existants dans le texte ne sont pas retirés automatiquement).
 
+**Raccourci `((...))`** : comme sur les carnets Hypothèses, un texte entouré de doubles parenthèses et encadré d'espaces (` ((comme ceci)) `) est automatiquement transformé en note de bas de page, sans passer par le bouton **Note...**. À la frappe, la conversion se déclenche dès que l'espace suivant la double parenthèse fermante est tapé. Au collage (`Ctrl+V`, avec ou sans mise en forme), tous les `((...))` présents dans le texte collé sont convertis de la même façon. Les parenthèses simples, ou des doubles parenthèses non encadrées d'espaces (ex. `mot((note))`), ne sont pas concernées.
+
 **Images** : **Image...** ouvre un sélecteur de fichier et copie l'image choisie dans le dossier images du projet ; elle s'affiche ensuite en aperçu réel (pas un simple texte de remplacement), avec sa propre mini barre d'outils :
 - **Poignées de redimensionnement** (petits carrés bleus aux 4 coins) : cliquer-glisser change la taille d'affichage, proportionnellement. Redimensionnement non destructif — le fichier original n'est jamais modifié, seule la taille d'affichage choisie est enregistrée.
 - **⇐ / ≡ / ⇒** : alignement gauche / centré / droite. Affecte la mise en page du site publié (l'image flotte à gauche ou à droite du texte, ou reste centrée) ; dans l'éditeur, seule l'étiquette texte de l'alignement change (Tkinter ne peut pas simuler visuellement un flottement).
@@ -287,6 +289,7 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 - `src/bloggen/ui/image_widget.py` — aperçu d'image réel, poignées de redimensionnement, alignement, recadrage.
 - `src/bloggen/markdown/rich_text_model.py`, `rich_text_export.py`, `rich_text_import.py` — modèle pivot et conversions Markdown <-> saisie visuelle.
 - `src/bloggen/markdown/typography.py` — conversion des guillemets et espaces insécables.
+- `src/bloggen/markdown/note_shortcuts.py` — conversion du raccourci `((note)) ` en note de bas de page, à la frappe comme au collage.
 - `src/bloggen/markdown/image_attributes.py` — suffixe `{width=... height=... align=...}` sur les images Markdown.
 - `src/bloggen/ui/clipboard_html.py` — lecture du presse-papiers au format HTML (Word/Google Docs/navigateurs).
 - `src/bloggen/markdown/html_paste_import.py` — conversion du HTML collé vers le modèle de blocs.
