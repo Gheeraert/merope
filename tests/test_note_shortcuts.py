@@ -112,6 +112,62 @@ def test_bold_run_formatting_is_preserved_around_the_note():
     assert all(r.bold for r in text_runs)
 
 
+def test_note_split_across_runs_by_a_link_converts():
+    # Regression: pasting rich text where the note contains a link (or any
+    # inline formatting) splits "((" and "))" into separate runs — a link
+    # run sits between the plain-text run holding "((intro " and the one
+    # holding " outro))". This used to never match (per-run matching only).
+    register, definitions = _registry()
+    runs = [
+        InlineRun(text="Une note avec ((un "),
+        InlineRun(text="lien", link_href="https://example.org"),
+        InlineRun(text=" dedans)) ici."),
+    ]
+
+    result = split_double_paren_notes(runs, register)
+
+    footnote_runs = [r for r in result if r.footnote_ref is not None]
+    assert len(footnote_runs) == 1
+    assert definitions == {"1": "un lien dedans"}
+    plain_text = "".join(r.text for r in result if r.footnote_ref is None)
+    assert plain_text == "Une note avec  ici."
+
+
+def test_note_split_across_runs_preserves_surrounding_text_and_formatting():
+    register, definitions = _registry()
+    runs = [
+        InlineRun(text="avant "),
+        InlineRun(text="((", bold=True),
+        InlineRun(text="une note"),
+        InlineRun(text="))", bold=True),
+        InlineRun(text=" apres"),
+    ]
+
+    result = split_double_paren_notes(runs, register)
+
+    assert definitions == {"1": "une note"}
+    assert [r.footnote_ref for r in result].count("1") == 1
+    text_runs = [r for r in result if r.footnote_ref is None]
+    assert "".join(r.text for r in text_runs) == "avant  apres"
+
+
+def test_note_spanning_runs_stops_at_an_image_boundary():
+    # An image (or an already-resolved footnote) is a hard boundary: a
+    # note can't be judged to span across one, since there's no plain text
+    # representation to fold an image into.
+    register, definitions = _registry()
+    runs = [
+        InlineRun(text="texte ((debut"),
+        InlineRun(image_src="img.png", image_alt="alt"),
+        InlineRun(text="fin)) suite"),
+    ]
+
+    result = split_double_paren_notes(runs, register)
+
+    assert not definitions
+    assert result == runs
+
+
 def test_image_and_existing_footnote_runs_are_untouched():
     register, _definitions = _registry()
     runs = [

@@ -288,6 +288,15 @@ class ContentEditorWindow(tk.Toplevel):
                 "Importe un fichier Markdown existant (venant d'ailleurs que ce projet) "
                 "dans l'éditeur, pour compléter ses métadonnées et l'enregistrer ici.",
             ),
+            (
+                "Convertir en page/billet",
+                self._convert_selected_kind,
+                "Transforme le fichier sélectionné de page en billet (ou l'inverse) : le "
+                "déplace vers le bon dossier, ajuste son nom de fichier (les billets sont "
+                "préfixés par leur date) et met à jour son type dans le front matter. "
+                "L'URL du contenu change en conséquence — les liens existants vers "
+                "l'ancienne adresse ne sont pas mis à jour automatiquement.",
+            ),
             ("Supprimer", self._delete_selected, "Supprime définitivement le fichier sélectionné."),
             ("Actualiser", self._refresh_file_list, "Recharge la liste depuis le disque."),
         ]
@@ -1001,6 +1010,72 @@ class ContentEditorWindow(tk.Toplevel):
         if self.current_path == path:
             self._new_document(self.current_kind or "page")
         self._refresh_file_list()
+
+    def _convert_selected_kind(self) -> None:
+        entry = self._selected_entry()
+        if entry is None:
+            messagebox.showinfo("Convertir", "Sélectionnez d'abord une page ou un billet dans la liste.")
+            return
+        kind, path = entry
+        new_kind = "post" if kind == "page" else "page"
+        new_label, source_label = ("billet", "page") if new_kind == "post" else ("page", "billet")
+
+        try:
+            metadata, body = read_content_file(path)
+        except OSError as exc:
+            messagebox.showerror("Convertir", f"Impossible de lire le fichier :\n{exc}")
+            return
+
+        date_value = metadata.get("date", "").strip()
+        if new_kind == "post":
+            entered = simpledialog.askstring(
+                "Convertir en billet",
+                "Date de publication (AAAA-MM-JJ) :",
+                initialvalue=date_value or date.today().isoformat(),
+                parent=self,
+            )
+            if entered is None:
+                return
+            date_value = entered.strip()
+            if not is_valid_iso_date(date_value):
+                messagebox.showerror("Convertir", "La date doit être au format AAAA-MM-JJ.")
+                return
+
+        if not messagebox.askyesno(
+            "Convertir",
+            f"Transformer cette {source_label} en {new_label} ?\n\n"
+            "Le fichier est déplacé vers le bon dossier et son URL change en conséquence "
+            "(dossier des pages ou archive des billets). Les liens existants vers "
+            "l'ancienne adresse ne sont pas mis à jour automatiquement.",
+            parent=self,
+        ):
+            return
+
+        metadata = dict(metadata)
+        metadata["type"] = new_kind
+        if new_kind == "post":
+            metadata["date"] = date_value
+        else:
+            metadata.pop("date", None)
+
+        target_dir = self.posts_dir if new_kind == "post" else self.pages_dir
+        filename = default_filename(new_kind, metadata.get("slug", "").strip(), date=metadata.get("date"))
+
+        try:
+            written = write_content_file(target_dir, filename, metadata, body)
+            if written != path:
+                path.unlink(missing_ok=True)
+        except OSError as exc:
+            messagebox.showerror("Convertir", f"Impossible d'écrire le fichier :\n{exc}")
+            return
+
+        if self.current_path == path:
+            self.current_path = written
+            self.current_kind = new_kind
+            self.metadata = metadata
+
+        self._refresh_file_list()
+        messagebox.showinfo("Convertir", f"Converti en {new_label} : {written}")
 
     def _new_document(self, kind: str) -> None:
         self._destroy_embedded_images()

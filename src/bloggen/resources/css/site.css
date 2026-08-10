@@ -193,7 +193,7 @@ button:focus-visible {
   width: min(var(--page-max-width), 100% - 2.4rem);
   margin: 2rem auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
   gap: 1.7rem;
   align-items: start;
 }
@@ -209,7 +209,7 @@ button:focus-visible {
   padding: 1.2rem;
   font-family: var(--font-ui);
   font-size: 0.92rem;
-  order: 2;
+  order: 1;
 }
 
 .side-menu-section + .side-menu-section {
@@ -301,7 +301,7 @@ button:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 2rem clamp(1.2rem, 3vw, 2.8rem);
-  order: 1;
+  order: 2;
 }
 
 .main-content > * {
@@ -719,17 +719,24 @@ button:focus-visible {
   top: 0.4rem;
 }
 
-@media (min-width: 1180px) {
+/* Floating the margin notes out into the page's own right-hand gutter only
+   has room once the boxed page-layout (capped at --page-max-width) no
+   longer fills the viewport: below this, the sidebar + article already
+   consume the full width and there simply isn't a safe gutter, so the
+   notes stay in normal flow (see .margin-notes above) rather than risk
+   overlapping the sidebar or the article text. */
+@media (min-width: 1640px) {
   .tei-fragment {
     position: relative;
   }
 
   .tei-fragment .margin-notes {
     position: absolute;
-    right: calc(-1 * min(22vw, 250px));
+    left: 100%;
+    margin-left: 2rem;
     top: 1rem;
-    width: min(22vw, 240px);
-    margin: 0;
+    width: 200px;
+    margin-top: 0;
   }
 }
 

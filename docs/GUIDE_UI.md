@@ -237,6 +237,7 @@ Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer p
 - **Nouvelle page** / **Nouveau billet** : repart d'un document vierge du type choisi.
 - **Ouvrir** (ou double-clic) : recharge le fichier sélectionné en saisie visuelle.
 - **Importer...** : charge un fichier Markdown existant (venant d'ailleurs que ce projet) dans l'éditeur pour compléter ses métadonnées et l'enregistrer ici.
+- **Convertir en page/billet** : transforme le fichier sélectionné de page en billet, ou l'inverse, sans avoir à recopier son contenu à la main — il suffit de le sélectionner puis de cliquer sur ce bouton (pas besoin de l'ouvrir d'abord). Le fichier est déplacé vers le bon dossier (`pages_dir`/`posts_dir`), renommé selon la convention du nouveau type (les billets sont préfixés par leur date, ex. `2026-05-01-mon-billet.md`) et son champ `type` est mis à jour dans le front matter. En passant de page à billet, une date de publication est demandée (AAAA-MM-JJ) ; en passant de billet à page, le champ `date` est retiré. Une confirmation est demandée, car **l'URL du contenu change** (une page vit à `/slug/`, un billet à `/billets/slug/` par exemple) — les liens déjà posés ailleurs (menus, autres billets...) vers l'ancienne adresse ne sont pas mis à jour automatiquement.
 - **Supprimer** : supprime définitivement le fichier sélectionné (confirmation demandée).
 - **Actualiser** : recharge la liste depuis le disque.
 

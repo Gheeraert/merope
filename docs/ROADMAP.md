@@ -25,6 +25,7 @@
 - espace insécable automatique après « p. »/« pp. » devant un numéro de page, et normalisée dans les guillemets chevrons déjà présents au collage
 - copie TEI complète (avec teiHeader) conservée à côté de chaque source Markdown, indépendamment du réglage « Conserver TEI »
 - barre de mise en forme de l'éditeur à icônes (type TinyMCE/Word) plutôt qu'à boutons texte
+- conversion en un clic d'une page en billet (ou l'inverse) depuis l'éditeur, sans réécrire le contenu à la main
 
 ## V1.1
 - amélioration responsive

@@ -84,6 +84,18 @@ def test_double_paren_note_glued_to_punctuation_converts_on_paste():
     assert definitions == {"1": "une note explicative"}
 
 
+def test_double_paren_note_containing_a_link_converts_on_paste():
+    # Regression: a note containing a link (or any inline formatting) got
+    # parsed as three separate runs (plain / link / plain), so "((" and
+    # "))" never landed in the same run and the note was left untouched.
+    markdown, definitions = _export_with_notes(
+        '<p>Un texte avec une note ((voir <a href="https://example.org">ce lien</a> '
+        "pour plus de details)) et la suite.</p>"
+    )
+    assert markdown == "Un texte avec une note [^1] et la suite.\n"
+    assert definitions == {"1": "voir ce lien pour plus de details"}
+
+
 def test_pre_existing_guillemets_keep_chevrons_but_get_nbsp_on_paste():
     html = f"<p>Il a dit {OPENING_GUILLEMET} bonjour {CLOSING_GUILLEMET} hier.</p>"
     result = _export(html)
