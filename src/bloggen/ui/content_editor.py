@@ -58,6 +58,7 @@ from bloggen.markdown.typography import (
     apply_french_typography,
     is_valid_century_ordinal,
 )
+from bloggen.ui import toolbar_icons
 from bloggen.ui.clipboard_html import read_html_clipboard
 from bloggen.ui.image_widget import ImageWidget, copy_into_images_dir
 from bloggen.ui.tooltip import add_tooltip
@@ -241,6 +242,12 @@ class ContentEditorWindow(tk.Toplevel):
         self._footnote_vars: dict[str, tk.StringVar] = {}
         self._footnote_rows: dict[str, ttk.Frame] = {}
         self._quote_parity_opening = True
+        # Tk garbage-collects a PhotoImage/Font once its last Python
+        # reference disappears, even though the button still displays it —
+        # toolbar icons and their bold/italic/strikethrough label fonts are
+        # kept alive here for the editor window's lifetime.
+        self._toolbar_icon_refs: list[tk.PhotoImage] = []
+        self._toolbar_fonts: list[tkfont.Font] = []
 
         self._build_ui()
         self._refresh_file_list()
@@ -295,18 +302,48 @@ class ContentEditorWindow(tk.Toplevel):
         toolbar_row2 = ttk.Frame(master)
         toolbar_row2.pack(fill="x", pady=(0, 4))
 
+        toolbar_icons.configure_colors(
+            self._resolve_color("SystemButtonFace", "#f0f0f0"),
+            self._resolve_color("SystemButtonText", "#1e1e1e"),
+        )
+
+        # Bold/italic/strikethrough keep their existing single-letter labels
+        # (French initials: G-ras, I-talique, S-barré) but rendered in the
+        # style they apply, same convention as Word's B/I/U buttons — no
+        # icon reads as clearly as the real thing.
+        default_font = tkfont.nametofont("TkDefaultFont")
+        bold_font = tkfont.Font(
+            family=default_font.cget("family"), size=default_font.cget("size"), weight="bold"
+        )
+        italic_font = tkfont.Font(
+            family=default_font.cget("family"), size=default_font.cget("size"), slant="italic"
+        )
+        strike_font = tkfont.Font(
+            family=default_font.cget("family"), size=default_font.cget("size"), overstrike=1
+        )
+        self._toolbar_fonts.extend([bold_font, italic_font, strike_font])
+        # ttk widgets take their font from a named style, not a direct
+        # "font" option (unlike classic tk.Button) — one throwaway style
+        # per button is the simplest way to give each its own font.
+        style = ttk.Style(self)
+        style.configure("ToolbarBold.TButton", font=bold_font)
+        style.configure("ToolbarItalic.TButton", font=italic_font)
+        style.configure("ToolbarStrike.TButton", font=strike_font)
+
         char_buttons = [
-            ("G", lambda: self._toggle_char_tag("bold"), "Gras (Ctrl+B)."),
-            ("I", lambda: self._toggle_char_tag("italic"), "Italique (Ctrl+I)."),
-            ("S", lambda: self._toggle_char_tag("strike"), "Barré (Ctrl+Maj+S)."),
+            ("G", "ToolbarBold.TButton", lambda: self._toggle_char_tag("bold"), "Gras (Ctrl+B)."),
+            ("I", "ToolbarItalic.TButton", lambda: self._toggle_char_tag("italic"), "Italique (Ctrl+I)."),
+            ("S", "ToolbarStrike.TButton", lambda: self._toggle_char_tag("strike"), "Barré (Ctrl+Maj+S)."),
             (
-                "X²",
+                "x²",
+                None,
                 lambda: self._toggle_char_tag("superscript"),
                 "Exposant (ex. 2e, XXe, notes de calcul). Raccourci : Ctrl+Maj+= (Ctrl++).",
             ),
         ]
-        for label, command, tip in char_buttons:
-            b = ttk.Button(toolbar_row1, text=label, width=3, command=command)
+        for label, button_style, command, tip in char_buttons:
+            kwargs = {"style": button_style} if button_style is not None else {}
+            b = ttk.Button(toolbar_row1, text=label, width=3, command=command, **kwargs)
             b.pack(side="left", padx=1)
             add_tooltip(b, tip)
 
@@ -322,78 +359,101 @@ class ContentEditorWindow(tk.Toplevel):
         ttk.Separator(toolbar_row1, orient="vertical").pack(side="left", fill="y", padx=4)
 
         block_buttons = [
-            ("Citation", lambda: self._toggle_line_tag("blockquote"), "Transforme la ligne en citation."),
-            ("Liste à puces", lambda: self._toggle_line_tag("bullet_item"), "Transforme la ligne en élément de liste à puces."),
-            ("Liste numérotée", lambda: self._toggle_line_tag("ordered_item"), "Transforme la ligne en élément de liste numérotée."),
+            (
+                toolbar_icons.icon_blockquote(),
+                lambda: self._toggle_line_tag("blockquote"),
+                "Citation : transforme la ligne en citation.",
+            ),
+            (
+                toolbar_icons.icon_bullet_list(),
+                lambda: self._toggle_line_tag("bullet_item"),
+                "Liste à puces : transforme la ligne en élément de liste à puces.",
+            ),
+            (
+                toolbar_icons.icon_ordered_list(),
+                lambda: self._toggle_line_tag("ordered_item"),
+                "Liste numérotée : transforme la ligne en élément de liste numérotée.",
+            ),
         ]
-        for label, command, tip in block_buttons:
-            b = ttk.Button(toolbar_row1, text=label, command=command)
+        for icon, command, tip in block_buttons:
+            self._toolbar_icon_refs.append(icon)
+            b = ttk.Button(toolbar_row1, image=icon, command=command)
             b.pack(side="left", padx=1)
             add_tooltip(b, tip)
 
         ttk.Separator(toolbar_row1, orient="vertical").pack(side="left", fill="y", padx=4)
 
         align_buttons = [
-            ("Gauche", "left", "Aligne le paragraphe à gauche (par défaut)."),
-            ("Centré", "center", "Centre le paragraphe."),
-            ("Droite", "right", "Aligne le paragraphe à droite."),
+            (toolbar_icons.icon_align_left(), "left", "Aligne le paragraphe à gauche (par défaut)."),
+            (toolbar_icons.icon_align_center(), "center", "Centre le paragraphe."),
+            (toolbar_icons.icon_align_right(), "right", "Aligne le paragraphe à droite."),
             (
-                "Justifié",
+                toolbar_icons.icon_align_justify(),
                 "justify",
-                "Justifie le paragraphe (texte étiré pour toucher les deux marges). "
+                "Justifié : texte étiré pour toucher les deux marges. "
                 "Rendu réel uniquement sur le site généré : l'aperçu dans cet éditeur "
                 "affiche un alignement à gauche par simplification. "
                 "Raccourci : Alt+J (bascule entre gauche et justifié, comme sous WordPress).",
             ),
         ]
-        for label, alignment, tip in align_buttons:
-            b = ttk.Button(toolbar_row1, text=label, command=lambda a=alignment: self._set_alignment(a))
+        for icon, alignment, tip in align_buttons:
+            self._toolbar_icon_refs.append(icon)
+            b = ttk.Button(toolbar_row1, image=icon, command=lambda a=alignment: self._set_alignment(a))
             b.pack(side="left", padx=1)
             add_tooltip(b, tip)
 
         insert_buttons = [
             (
-                "Espace insécable",
+                "␣",
+                None,
                 self._insert_nbsp,
-                "Insère une espace insécable au curseur (empêche la coupure entre deux "
-                "mots, ex. avant « : » ou dans « 10 km »). Déjà posée automatiquement "
-                "par la typographie française avant ; : ! ? et dans les guillemets. "
-                "Raccourci : Alt+Espace.",
+                "Espace insécable : insère une espace insécable au curseur (empêche la "
+                "coupure entre deux mots, ex. avant « : » ou dans « 10 km »). Déjà posée "
+                "automatiquement par la typographie française avant ; : ! ? et dans les "
+                "guillemets. Raccourci : Alt+Espace.",
             ),
-            ("Lien...", self._insert_link, "Transforme la sélection en lien hypertexte."),
-            ("Image...", self._insert_image, "Insère une image depuis un fichier existant."),
-            ("Tableau...", self._insert_table, "Insère un tableau simple."),
-            ("Note...", self._insert_footnote, "Insère une note de bas de page."),
+            (None, toolbar_icons.icon_link(), self._insert_link, "Lien : transforme la sélection en lien hypertexte."),
+            (None, toolbar_icons.icon_image(), self._insert_image, "Image : insère une image depuis un fichier existant."),
+            (None, toolbar_icons.icon_table(), self._insert_table, "Tableau : insère un tableau simple."),
+            ("†", None, self._insert_footnote, "Note : insère une note de bas de page."),
         ]
-        for label, command, tip in insert_buttons:
-            b = ttk.Button(toolbar_row2, text=label, command=command)
+        for label, icon, command, tip in insert_buttons:
+            if icon is not None:
+                self._toolbar_icon_refs.append(icon)
+                b = ttk.Button(toolbar_row2, image=icon, command=command)
+            else:
+                b = ttk.Button(toolbar_row2, text=label, width=3, command=command)
             b.pack(side="left", padx=1)
             add_tooltip(b, tip)
 
         ttk.Separator(toolbar_row2, orient="vertical").pack(side="left", fill="y", padx=4)
 
         typo_button = ttk.Button(
-            toolbar_row2, text="Corriger la typographie", command=self._apply_typography_to_selection
+            toolbar_row2, text="Aa", width=3, command=self._apply_typography_to_selection
         )
         typo_button.pack(side="left", padx=1)
         add_tooltip(
             typo_button,
-            "Applique aux guillemets et à la ponctuation double ( ; : ! ? ) de la "
-            "sélection les mêmes règles typographiques que la saisie en direct "
-            "(guillemets français, espaces insécables). Utile après un collage. "
-            "Attention : remplace le texte sélectionné, la mise en forme (gras/"
+            "Corriger la typographie : applique aux guillemets et à la ponctuation "
+            "double ( ; : ! ? ) de la sélection les mêmes règles typographiques que la "
+            "saisie en direct (guillemets français, espaces insécables). Utile après un "
+            "collage. Attention : remplace le texte sélectionné, la mise en forme (gras/"
             "italique) de la sélection n'est pas conservée.",
         )
 
         ttk.Separator(toolbar_row2, orient="vertical").pack(side="left", fill="y", padx=4)
 
-        meta_button = ttk.Button(toolbar_row2, text="Métadonnées...", command=self._edit_metadata)
+        meta_button = ttk.Button(toolbar_row2, text="⚙", width=3, command=self._edit_metadata)
         meta_button.pack(side="left", padx=1)
-        add_tooltip(meta_button, "Titre, slug, date, auteur, description...")
+        add_tooltip(meta_button, "Métadonnées : titre, slug, date, auteur, description...")
 
-        save_button = ttk.Button(toolbar_row2, text="Enregistrer", command=self._save)
+        save_icon = toolbar_icons.icon_save()
+        self._toolbar_icon_refs.append(save_icon)
+        save_button = ttk.Button(
+            toolbar_row2, text="Enregistrer", image=save_icon, compound="left", command=self._save
+        )
         save_button.pack(side="right", padx=1)
-        add_tooltip(save_button, "Écrit ce contenu dans son fichier Markdown.")
+        add_tooltip(save_button, "Enregistrer : écrit ce contenu dans son fichier Markdown.")
 
         vertical_paned = ttk.PanedWindow(master, orient="vertical")
         vertical_paned.pack(fill="both", expand=True)
@@ -1033,6 +1093,19 @@ class ContentEditorWindow(tk.Toplevel):
     def _new_tag(self, prefix: str) -> str:
         self._tag_counter += 1
         return f"{prefix}_{self._tag_counter}"
+
+    def _resolve_color(self, color_name: str, fallback: str) -> str:
+        """Resolve a Tk color (including a symbolic one like
+        "SystemButtonFace") to "#rrggbb". Widget options accept symbolic
+        names directly, but ``PhotoImage.put()`` (used to draw toolbar
+        icons) does not, so this is how those icons match the real active
+        theme instead of a hard-coded guess.
+        """
+        try:
+            r, g, b = self.winfo_rgb(color_name)
+        except tk.TclError:
+            return fallback
+        return f"#{r >> 8:02x}{g >> 8:02x}{b >> 8:02x}"
 
     def _insert_nbsp(self) -> None:
         self.text.insert("insert", NBSP)
