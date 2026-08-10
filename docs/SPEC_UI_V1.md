@@ -57,7 +57,8 @@ Liste ordonnée avec :
 - descendre
 
 ### Onglet `Menu latéral`
-Sections + sous-entrées, un seul niveau de profondeur.
+Trois niveaux (sections, sous-sections, billets), numérotation automatique
+optionnelle (I., II.../A., B...) — voir `docs/GUIDE_UI.md` § 8 pour le détail.
 
 ### Onglet `Médias`
 - stratégie de récupération

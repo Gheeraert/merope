@@ -29,6 +29,7 @@ C’est un outil de préparation, de configuration et de génération de site st
 - Python 3.11+
 - Tkinter
 - lxml
+- Pillow
 - Pandoc installé dans le système
 - pytest
 

@@ -9,7 +9,7 @@
 | `*italique*` | `hi rend="italic"` | `em` | |
 | `**gras**` | `hi rend="bold"` | `strong` | |
 | `[texte](url)` | `ref target="url"` | `a href` | |
-| note Markdown | `note` | appel + note finale | |
+| note Markdown (`[^1]`/`^[...]`) ou raccourci `((note))` | `note` | appel + note finale | `((note))` est converti en note avant Pandoc |
 | liste à puces | `list` + `item` | `ul` / `li` | |
 | liste numérotée | `list type="ordered"` | `ol` / `li` | |
 | bloc cité | `quote` | `blockquote` | |

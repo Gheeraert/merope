@@ -16,7 +16,8 @@
   "media_handling": {},
   "notes_rendering": {},
   "footer": {},
-  "build": {}
+  "build": {},
+  "search": {}
 }
 ```
 
@@ -112,6 +113,12 @@ Options techniques :
 - comportement sur erreurs
 - commande Pandoc
 - `generate_sitemap` : génère `sitemap.xml` si `site.base_url` est renseigné
+
+### `search`
+Recherche statique côté client (index JSON généré au build, filtrage en
+sous-chaîne dans le navigateur, sans serveur) :
+- activation
+- longueur de l'extrait de recherche
 
 ## Exemple minimal
 
