@@ -32,15 +32,22 @@ def build_top_menu_html(items: list[MenuLink], *, current_path: str = "") -> str
     return "".join(parts)
 
 
-def build_side_menu_html(sections: list[SideMenuSection], *, current_path: str = "") -> str:
+def build_side_menu_html(sections: list[SideMenuSection], *, current_path: str = "", title: str = "") -> str:
     enabled_sections = [section for section in sections if section.enabled]
     if not enabled_sections:
         return ""
 
     parts = ['<aside class="side-menu side-nav" aria-label="Navigation latérale">']
+    title = title.strip()
+    if title:
+        parts.append(f'<p class="side-menu-title">{escape(title)}</p>')
     numbered_index = 0
     for section in enabled_sections:
-        parts.append('<section class="side-menu-section">')
+        enabled_children = [child for child in section.children if child.enabled]
+        enabled_subsections = [sub for sub in section.subsections if sub.enabled]
+        has_submenu = bool(enabled_children or enabled_subsections)
+        section_class = "side-menu-section has-submenu" if has_submenu else "side-menu-section"
+        parts.append(f'<section class="{section_class}">')
 
         section_label = section.label
         if section.numbered:
@@ -50,9 +57,7 @@ def build_side_menu_html(sections: list[SideMenuSection], *, current_path: str =
             _render_menu_heading("h3", "side-menu-section-link", section.target, section_label, current_path)
         )
 
-        enabled_children = [child for child in section.children if child.enabled]
-        enabled_subsections = [sub for sub in section.subsections if sub.enabled]
-        if enabled_children or enabled_subsections:
+        if has_submenu:
             parts.append("<ul>")
             for child in enabled_children:
                 parts.append(_render_menu_link_li(child, current_path))
@@ -73,11 +78,12 @@ def _render_subsection_li(
     if numbered:
         label = f"{to_letters(letter_index)}. {label}"
 
+    enabled_children = [child for child in subsection.children if child.enabled]
+    li_class = "side-menu-subsection has-submenu" if enabled_children else "side-menu-subsection"
     parts = [
-        '<li class="side-menu-subsection">',
+        f'<li class="{li_class}">',
         _render_menu_heading("h4", "side-menu-subsection-link", subsection.target, label, current_path),
     ]
-    enabled_children = [child for child in subsection.children if child.enabled]
     if enabled_children:
         parts.append("<ul>")
         for child in enabled_children:

@@ -739,6 +739,7 @@ class MainWindow(tk.Tk):
         _set_vars(self.blog_vars, config.blog)
         self.top_menu_editor.set_items(config.menus.top)
         self.side_menu_editor.set_sections(config.menus.side)
+        self.side_menu_editor.set_title(config.menus.side_title)
         _set_vars(self.render_vars, config.render)
         self.media_panel.set_data(config.media_handling)
         self.notes_panel.set_data(config.notes_rendering)
@@ -763,6 +764,7 @@ class MainWindow(tk.Tk):
         menus = MenusConfig(
             top=self.top_menu_editor.get_items(),
             side=self.side_menu_editor.get_sections(),
+            side_title=self.side_menu_editor.get_title(),
         )
 
         render = RenderConfig(**_read_vars(self.render_vars))

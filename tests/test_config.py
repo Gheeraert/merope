@@ -69,3 +69,16 @@ def test_side_menu_subsection_round_trip():
     assert len(section.subsections) == 1
     assert section.subsections[0].label == "Bossuet et la rhétorique chrétienne"
     assert section.subsections[0].children[0].target == "/billets/a/index.html"
+
+
+def test_side_menu_title_round_trip():
+    config = build_default_config()
+    config.menus.side_title = "Menu"
+
+    loaded = parse_config(json.loads(serialize_config(config)))
+    assert loaded.menus.side_title == "Menu"
+
+
+def test_side_menu_title_defaults_to_empty_string():
+    config = build_default_config()
+    assert config.menus.side_title == ""

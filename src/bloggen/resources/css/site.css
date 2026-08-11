@@ -112,15 +112,25 @@ button:focus-visible {
   border-radius: var(--radius);
 }
 
-.top-menu {
+.masthead {
   background: var(--header-bg);
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 1.5rem;
+}
+
+.top-menu {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .top-menu ul {
   list-style: none;
-  margin: 0 auto;
-  padding: 0.9rem 1.5rem;
-  max-width: var(--page-max-width);
+  margin: 0;
+  padding: 0.9rem 0;
   display: flex;
   gap: 1.6rem;
   flex-wrap: wrap;
@@ -149,35 +159,40 @@ button:focus-visible {
 
 .site-search {
   position: relative;
-  max-width: var(--page-max-width);
-  margin: 0 auto;
-  padding: 0.9rem 1.5rem 0;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 1.5rem;
   font-family: var(--font-ui);
 }
 
 .site-search-input {
-  width: min(320px, 100%);
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border);
+  width: min(240px, 100%);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid transparent;
   border-radius: var(--radius);
-  background: var(--paper);
-  color: var(--ink);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--header-text);
   font-family: var(--font-ui);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+}
+
+.site-search-input::placeholder {
+  color: var(--header-text-muted);
 }
 
 .site-search-input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .site-search-results {
   position: absolute;
   z-index: 20;
   top: 100%;
-  left: 1.5rem;
-  width: min(420px, calc(100% - 3rem));
-  margin: 0.25rem 0 0;
+  right: 0;
+  width: min(420px, calc(100vw - 3rem));
+  margin: 0.4rem 0 0;
   padding: 0.4rem;
   list-style: none;
   background: var(--paper);
@@ -216,20 +231,26 @@ button:focus-visible {
 
 .page-layout {
   width: min(var(--page-max-width), 100% - 2.4rem);
-  margin: 2rem auto;
+  margin: 0 auto 2rem;
   display: grid;
   grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
-  gap: 1.7rem;
-  align-items: start;
+  gap: 0;
+  /* stretch (not start): the side menu's black background should reach as
+     far down as the main content does, not stop short at its own (often
+     shorter) list of links. */
+  align-items: stretch;
 }
 
 .page-layout.no-side-menu {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* Light-on-black, matching .top-menu/.masthead: the side menu is meant to
+   read as a continuation of that same bar down the left edge, flush
+   against it above (.page-layout's own top margin is 0) and against the
+   main content to its right (.page-layout's own gap is 0). */
 .side-menu {
-  background: var(--paper);
-  border: 1px solid var(--border);
+  background: var(--header-bg);
   border-radius: var(--radius);
   padding: 1.2rem;
   font-family: var(--font-ui);
@@ -237,10 +258,32 @@ button:focus-visible {
   order: 1;
 }
 
+/* Discreet but distinct from a .side-menu-section h3: smaller, muted, and
+   set off by a rule below it, so it reads as a label for the whole menu
+   ("Menu") rather than as one more navigable entry. */
+.side-menu-title {
+  margin: 0 0 1rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--header-text-muted);
+}
+
 .side-menu-section + .side-menu-section {
   margin-top: 1.1rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* Flyout anchor: the submenu (the section's own <ul>) is positioned
+   relative to this box and revealed on hover/focus instead of sitting
+   permanently expanded in the flow — keeps a long billet list from
+   dumping itself in the sidebar all at once. */
+.side-menu-section {
+  position: relative;
 }
 
 .side-menu h3 {
@@ -249,21 +292,30 @@ button:focus-visible {
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--ink);
+  color: var(--header-text);
+}
+
+/* Chevron hint shown only when the section actually has a submenu to
+   reveal; a plain heading (no target, no children) gets none. */
+.side-menu-section.has-submenu > h3::after {
+  content: "\203A";
+  display: inline-block;
+  margin-left: 0.35em;
+  color: var(--header-text-muted);
 }
 
 .side-menu-section-link {
-  color: inherit;
+  color: var(--header-text-muted);
   text-decoration: none;
 }
 
 .side-menu-section-link:hover {
-  color: var(--accent);
+  color: var(--header-text);
   text-decoration: none;
 }
 
 .side-menu-section-link.is-active {
-  color: var(--accent);
+  color: var(--header-text);
 }
 
 .side-menu ul {
@@ -271,25 +323,60 @@ button:focus-visible {
   padding-left: 1.1rem;
 }
 
+/* Flyout panel: the section's own <ul> (its billets and subsections),
+   hidden until the section is hovered/focused and then revealed as a
+   floating column, rather than permanently expanded inline. Opens from
+   the middle of the sidebar's own width (left: 50%, not 100%) so it reads
+   as part of the dark side-menu zone rather than a panel stranded out
+   over the white main content - and since it overlaps the section box
+   itself rather than starting past its edge, there's no dead zone for the
+   pointer to cross between the heading and the panel. */
+.side-menu-section.has-submenu > ul {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 30;
+  min-width: 200px;
+  max-width: 280px;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  background: var(--header-bg);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-4px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+}
+
+.side-menu-section.has-submenu:hover > ul,
+.side-menu-section.has-submenu:focus-within > ul {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s;
+}
+
 .side-menu .menu-item {
   margin: 0.3rem 0;
 }
 
 .side-menu .menu-item a {
-  color: var(--ink);
+  color: var(--header-text-muted);
 }
 
 .side-menu .menu-item a:hover {
-  color: var(--accent);
+  color: var(--header-text);
   text-decoration: none;
 }
 
 .side-menu .menu-item.is-active > a {
-  color: var(--accent);
+  color: var(--header-text);
   font-weight: 700;
 }
 
 .side-menu-subsection {
+  position: relative;
   list-style: none;
   margin: 0.5rem 0 0.2rem;
 }
@@ -300,25 +387,59 @@ button:focus-visible {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: var(--muted);
+  color: var(--header-text-muted);
+}
+
+/* Same chevron treatment as the top-level section heading, one level in. */
+.side-menu-subsection.has-submenu > h4::after {
+  content: "\203A";
+  display: inline-block;
+  margin-left: 0.35em;
+  color: var(--header-text-muted);
 }
 
 .side-menu-subsection-link {
-  color: inherit;
+  color: var(--header-text-muted);
   text-decoration: none;
 }
 
 .side-menu-subsection-link:hover {
-  color: var(--accent);
+  color: var(--header-text);
   text-decoration: none;
 }
 
 .side-menu-subsection-link.is-active {
-  color: var(--accent);
+  color: var(--header-text);
 }
 
-.side-menu-subsection ul {
-  padding-left: 1rem;
+/* Second-level flyout: a subsection's own billets open in their own panel,
+   nested the same way and offset from the middle of the parent panel
+   rather than its far edge, for the same reason as the section flyout
+   above. */
+.side-menu-subsection.has-submenu > ul {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 31;
+  min-width: 180px;
+  max-width: 260px;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  background: var(--header-bg);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-4px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+}
+
+.side-menu-subsection.has-submenu:hover > ul,
+.side-menu-subsection.has-submenu:focus-within > ul {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s;
 }
 
 .main-content {
@@ -768,6 +889,8 @@ button:focus-visible {
 @media (max-width: 980px) {
   .page-layout {
     grid-template-columns: 1fr;
+    gap: 1.2rem;
+    margin-top: 1.2rem;
   }
 
   .side-menu {
@@ -791,6 +914,23 @@ button:focus-visible {
     margin-top: 0.15rem;
   }
 
+  .side-menu-section.has-submenu > ul,
+  .side-menu-subsection.has-submenu > ul {
+    /* No pointer to hover with on a touch layout (and the sidebar is
+       already full-width here), so fall back to the plain expanded list
+       instead of a flyout no one could open. */
+    position: static;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    z-index: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
   .lightbox-panel {
     width: min(96vw, 860px);
     grid-template-columns: 1fr;
@@ -806,6 +946,21 @@ button:focus-visible {
   .top-menu ul {
     gap: 0.9rem;
     font-size: 0.75rem;
+  }
+
+  .masthead {
+    padding: 0 1rem;
+  }
+
+  .site-search {
+    flex: 1 1 100%;
+    margin-left: 0;
+    padding-left: 0;
+    padding-bottom: 0.75rem;
+  }
+
+  .site-search-input {
+    width: 100%;
   }
 
   .main-content {

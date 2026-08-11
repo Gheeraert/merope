@@ -328,6 +328,7 @@ class SideMenuEditor(ttk.Frame):
     ) -> None:
         super().__init__(master)
         self.sections: list[SideMenuSection] = []
+        self.title_var = tk.StringVar(value="")
         # Parallel to child_list's rows: ("child", index-in-section.children)
         # or ("subsection", index-in-section.subsections).
         self._middle_rows: list[tuple[str, int]] = []
@@ -335,6 +336,17 @@ class SideMenuEditor(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        ttk.Label(self, text="Titre du menu").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+        title_entry = ttk.Entry(self, textvariable=self.title_var, width=40)
+        title_entry.grid(row=0, column=1, columnspan=3, sticky="w", padx=8, pady=(8, 4))
+        add_tooltip(
+            title_entry,
+            "Titre facultatif affiché en tête du menu latéral sur le site généré, dans "
+            "une mise en forme discrète qui le distingue des sections en dessous "
+            "(ex. « Menu », « Sommaire »). Laissez vide pour ne rien afficher.\n"
+            "Exemple : Menu",
+        )
+
         ttk.Label(
             self,
             text=(
@@ -356,24 +368,24 @@ class SideMenuEditor(ttk.Frame):
             wraplength=900,
             justify="left",
             foreground="#444444",
-        ).grid(row=0, column=0, columnspan=6, sticky="w", padx=8, pady=(4, 8))
+        ).grid(row=1, column=0, columnspan=6, sticky="w", padx=8, pady=(4, 8))
 
         ttk.Label(self, text="1. Sections", font=("TkDefaultFont", 9, "bold")).grid(
-            row=1, column=0, sticky="w", padx=8
+            row=2, column=0, sticky="w", padx=8
         )
         ttk.Label(
             self,
             text="2. Sous-entrées / sous-sections de la section sélectionnée",
             font=("TkDefaultFont", 9, "bold"),
-        ).grid(row=1, column=2, sticky="w", padx=8)
+        ).grid(row=2, column=2, sticky="w", padx=8)
         ttk.Label(
             self,
             text="3. Billets de la sous-section sélectionnée",
             font=("TkDefaultFont", 9, "bold"),
-        ).grid(row=1, column=4, sticky="w", padx=8)
+        ).grid(row=2, column=4, sticky="w", padx=8)
 
         self.section_list = tk.Listbox(self, height=14, exportselection=False)
-        self.section_list.grid(row=2, column=0, rowspan=8, sticky="nsew", padx=8, pady=(2, 8))
+        self.section_list.grid(row=3, column=0, rowspan=8, sticky="nsew", padx=8, pady=(2, 8))
         self.section_list.bind("<<ListboxSelect>>", self._on_section_select)
         add_tooltip(
             self.section_list,
@@ -383,7 +395,7 @@ class SideMenuEditor(ttk.Frame):
         )
 
         self.child_list = tk.Listbox(self, height=14, exportselection=False)
-        self.child_list.grid(row=2, column=2, rowspan=8, sticky="nsew", padx=8, pady=(2, 8))
+        self.child_list.grid(row=3, column=2, rowspan=8, sticky="nsew", padx=8, pady=(2, 8))
         self.child_list.bind("<<ListboxSelect>>", self._on_middle_select)
         add_tooltip(
             self.child_list,
@@ -395,7 +407,7 @@ class SideMenuEditor(ttk.Frame):
         )
 
         self.leaf_list = tk.Listbox(self, height=14, exportselection=False)
-        self.leaf_list.grid(row=2, column=4, rowspan=8, sticky="nsew", padx=8, pady=(2, 8))
+        self.leaf_list.grid(row=3, column=4, rowspan=8, sticky="nsew", padx=8, pady=(2, 8))
         add_tooltip(
             self.leaf_list,
             "Billets/pages de la sous-section sélectionnée au milieu : "
@@ -427,7 +439,7 @@ class SideMenuEditor(ttk.Frame):
         ]
         for idx, (label, callback, help_text) in enumerate(section_buttons):
             button = ttk.Button(self, text=label, command=callback)
-            button.grid(row=idx + 2, column=1, sticky="ew", padx=8, pady=4)
+            button.grid(row=idx + 3, column=1, sticky="ew", padx=8, pady=4)
             add_tooltip(button, help_text)
 
         middle_buttons = [
@@ -456,7 +468,7 @@ class SideMenuEditor(ttk.Frame):
         ]
         for idx, (label, callback, help_text) in enumerate(middle_buttons):
             button = ttk.Button(self, text=label, command=callback)
-            button.grid(row=idx + 2, column=3, sticky="ew", padx=8, pady=4)
+            button.grid(row=idx + 3, column=3, sticky="ew", padx=8, pady=4)
             add_tooltip(button, help_text)
 
         leaf_buttons = [
@@ -478,13 +490,13 @@ class SideMenuEditor(ttk.Frame):
         ]
         for idx, (label, callback, help_text) in enumerate(leaf_buttons):
             button = ttk.Button(self, text=label, command=callback)
-            button.grid(row=idx + 2, column=5, sticky="ew", padx=8, pady=4)
+            button.grid(row=idx + 3, column=5, sticky="ew", padx=8, pady=4)
             add_tooltip(button, help_text)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(2, weight=1)
         self.grid_columnconfigure(4, weight=1)
-        self.grid_rowconfigure(9, weight=1)
+        self.grid_rowconfigure(10, weight=1)
 
     def get_sections(self) -> list[SideMenuSection]:
         return [
@@ -514,6 +526,12 @@ class SideMenuEditor(ttk.Frame):
             for section in sections
         ]
         self._refresh_sections()
+
+    def get_title(self) -> str:
+        return self.title_var.get().strip()
+
+    def set_title(self, title: str) -> None:
+        self.title_var.set(title)
 
     def _refresh_sections(self) -> None:
         self.section_list.delete(0, tk.END)
