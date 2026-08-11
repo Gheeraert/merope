@@ -148,6 +148,10 @@ Actions disponibles (boutons à droite de la liste) :
 ## 8. Menu latéral
 *Menu affiché sur le côté des pages, organisé sur trois niveaux au maximum. Aucun niveau au-delà de la section n'est obligatoire : une section seule, sans rien en dessous, fonctionne déjà comme un lien de menu simple.*
 
+Sur le site généré, seules les sections (et sous-sections) sont affichées d'emblée : leur contenu (sous-sections, billets) n'apparaît qu'au survol, dans un sous-menu déroulant à droite — évite d'afficher tous les billets d'un coup. Une petite flèche (`›`) signale les sections/sous-sections qui ont un sous-menu. Sur mobile (pas de survol possible), le menu reste simplement déplié en entier.
+
+**Titre du menu** : champ facultatif (ex. `Menu`) affiché en tête du menu latéral sur le site généré, dans une mise en forme discrète (petit, majuscules, atténué, séparé du reste par un filet) qui le distingue des sections en dessous sans les concurrencer. Laissez-le vide pour n'afficher aucun titre.
+
 Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer par la colonne de gauche.
 
 1. **Colonne de gauche (« 1. Sections »)** : créez d'abord une ou plusieurs sections avec **+ Section** (ex. `Rhétorique`). Actions : + Section / Modifier / Supprimer / Monter / Descendre / Activer-Désactiver. Une section a un nom, un statut activé/désactivé, et peut optionnellement être elle-même un lien cliquable :

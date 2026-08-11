@@ -109,6 +109,7 @@ class SideMenuSection:
 class MenusConfig:
     top: list[MenuLink] = field(default_factory=list)
     side: list[SideMenuSection] = field(default_factory=list)
+    side_title: str = ""  # optional heading shown above the side menu, e.g. "Menu"
 
 
 @dataclass(slots=True)
@@ -262,7 +263,7 @@ def _menus_from_dict(raw: dict[str, Any]) -> MenusConfig:
                 subsections=subsections,
             )
         )
-    return MenusConfig(top=top_items, side=side_sections)
+    return MenusConfig(top=top_items, side=side_sections, side_title=str(raw.get("side_title", "")))
 
 
 def _side_subsection_from_dict(raw: dict[str, Any]) -> SideMenuSubSection:

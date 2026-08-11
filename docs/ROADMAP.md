@@ -20,7 +20,7 @@
 - sélecteur de page/billet existant pour les liens de menu internes ; les liens externes s'ouvrent intégrés (iframe) en conservant menus et bannière
 - sections de premier niveau du menu latéral pouvant pointer directement vers une page/un billet/un site externe, sans sous-menu obligatoire
 - menu latéral à 3 niveaux (sections, sous-sections, billets) avec numérotation automatique optionnelle (I., II.../A., B...) pour les plans structurés
-- thème du site généré inspiré de Twenty Fourteen (bandeau noir, accent vert, typographie sans-serif)
+- thème du site généré inspiré de Twenty Fourteen (bandeau noir, accent vert, typographie sans-serif) ; recherche intégrée au bandeau, menu latéral en tons clairs sur fond noir accolé au bandeau et au texte sans espace, fond noir étiré jusqu'en bas de la colonne, titre de menu facultatif (ex. « Menu »)
 - raccourci `((note))` (convention Hypothèses) converti en note de bas de page à la frappe, au collage et à la génération, y compris collé à la ponctuation
 - espace insécable automatique après « p. »/« pp. » devant un numéro de page, et normalisée dans les guillemets chevrons déjà présents au collage
 - copie TEI complète (avec teiHeader) conservée à côté de chaque source Markdown, indépendamment du réglage « Conserver TEI »

@@ -37,6 +37,26 @@ def test_render_archive_fragment_relativizes_only_internal_root_links():
     assert 'href="#section"' in html
 
 
+def test_side_menu_title_renders_before_the_first_section_when_set():
+    html = build_side_menu_html(
+        [SideMenuSection(label="Navigation")], current_path="/index.html", title="Menu"
+    )
+    assert '<p class="side-menu-title">Menu</p>' in html
+    assert html.index("side-menu-title") < html.index("<h3>Navigation</h3>")
+
+
+def test_side_menu_title_absent_when_blank():
+    html = build_side_menu_html(
+        [SideMenuSection(label="Navigation")], current_path="/index.html", title="   "
+    )
+    assert "side-menu-title" not in html
+
+
+def test_side_menu_title_absent_when_no_sections_even_if_set():
+    html = build_side_menu_html([], current_path="/index.html", title="Menu")
+    assert html == ""
+
+
 def test_side_menu_section_without_target_renders_plain_heading():
     html = build_side_menu_html(
         [SideMenuSection(label="Navigation")], current_path="/index.html"

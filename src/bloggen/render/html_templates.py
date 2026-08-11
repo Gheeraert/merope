@@ -33,7 +33,9 @@ def render_page_document(
 ) -> str:
     banner_html = _render_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
-    side_menu_html = build_side_menu_html(config.menus.side, current_path=current_path)
+    side_menu_html = build_side_menu_html(
+        config.menus.side, current_path=current_path, title=config.menus.side_title
+    )
     footer_html = _render_footer(config)
     search_html = _render_search_box(config, asset_prefix=asset_prefix)
     css_href = _asset_url("static/css/site.css", asset_prefix=asset_prefix)
@@ -51,6 +53,11 @@ def render_page_document(
 
     side_class = "has-side-menu" if side_menu_html else "no-side-menu"
     lightbox_enabled_attr = "1" if config.render.enable_lightbox else "0"
+    # Search sits at the end of the top menu's own black bar rather than as
+    # a separate strip below it — one shared row, only built when at least
+    # one of the two is actually present.
+    masthead_parts = [part for part in (top_menu_html, search_html) if part]
+    masthead_html = f'<div class="masthead">{"".join(masthead_parts)}</div>' if masthead_parts else ""
 
     scripts = [f'    <script src="{escape(app_js_src)}"></script>']
     if config.render.enable_lightbox:
@@ -94,8 +101,7 @@ def render_page_document(
         "  </head>\n"
         f"  <body data-lightbox-enabled=\"{lightbox_enabled_attr}\">\n"
         f"    {banner_html}\n"
-        f"    {top_menu_html}\n"
-        f"    {search_html}\n"
+        f"    {masthead_html}\n"
         f"    <div class=\"page-layout {side_class}\">\n"
         f"      {side_menu_html}\n"
         "      <main class=\"main-content article-content\">\n"
