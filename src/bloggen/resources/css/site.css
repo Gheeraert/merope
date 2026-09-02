@@ -343,16 +343,16 @@ button:focus-visible {
 
 /* Flyout panel: the section's own <ul> (its billets and subsections),
    hidden until the section is hovered/focused and then revealed as a
-   floating column, rather than permanently expanded inline. Opens from
-   the middle of the sidebar's own width (left: 50%, not 100%) so it reads
-   as part of the dark side-menu zone rather than a panel stranded out
-   over the white main content - and since it overlaps the section box
-   itself rather than starting past its edge, there's no dead zone for the
-   pointer to cross between the heading and the panel. */
+   floating column, rather than permanently expanded inline. Opens right at
+   the sidebar's own edge (left: 100%), where the dark menu zone ends and
+   the white article zone begins, rather than stranded mid-sidebar - and
+   since it overlaps the section box itself rather than starting past its
+   edge, there's no dead zone for the pointer to cross between the heading
+   and the panel. */
 .side-menu-section.has-submenu > ul {
   position: absolute;
   top: 0;
-  left: 50%;
+  left: 100%;
   z-index: 30;
   min-width: 200px;
   max-width: 280px;
@@ -373,6 +373,14 @@ button:focus-visible {
   visibility: visible;
   transform: translateX(0);
   transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s;
+}
+
+/* Separator rule between each entry of this flyout, so the list of billets
+   reads as distinct items rather than a single dense block. */
+.side-menu-section.has-submenu > ul > li + li {
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .side-menu .menu-item {
@@ -530,7 +538,6 @@ button:focus-visible {
 .tei-fragment h3 {
   font-size: 1.37rem; /* +2pt vs. la taille précédente (1.2rem) */
   font-weight: 400;
-  font-variant: small-caps;
 }
 
 .tei-fragment p {
