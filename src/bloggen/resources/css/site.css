@@ -519,11 +519,12 @@ button:focus-visible {
 }
 
 .tei-fragment h2 {
-  font-size: 1.17rem; /* +2pt vs. le corps de texte (1rem = 12pt) */
+  font-size: calc(1.37rem + 2pt); /* aligné sur la taille actuelle de h3, +2pt */
   font-family: var(--font-body);
   font-weight: 400;
   font-variant: small-caps;
   text-transform: none;
+  margin-bottom: 1em;
 }
 
 .tei-fragment h3 {
