@@ -59,7 +59,17 @@
   </xsl:template>
 
   <xsl:template match="tei:div/tei:head">
-    <xsl:variable name="level" select="count(ancestor::tei:div)"/>
+    <xsl:variable name="typeAttr" select="parent::tei:div/@type"/>
+    <xsl:variable name="level">
+      <xsl:choose>
+        <xsl:when test="starts-with($typeAttr, 'level')">
+          <xsl:value-of select="substring-after($typeAttr, 'level')"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="count(ancestor::tei:div)"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
     <xsl:choose>
       <xsl:when test="$level = 1"><h1><xsl:apply-templates/></h1></xsl:when>
       <xsl:when test="$level = 2"><h2><xsl:apply-templates/></h2></xsl:when>

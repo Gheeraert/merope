@@ -12,6 +12,7 @@ _T = TypeVar("_T")
 from bloggen.tei.header_builder import TEI_NAMESPACE, ensure_minimal_tei_header, ensure_text_body
 
 _ALIGN_MARKER_RE = re.compile(r"^\{\{align=(left|center|right|justify)\}\}")
+_HEADING_LINE_RE = re.compile(r"^(#{1,6})\s+\S")
 
 
 def postprocess_tei_xml(tei_xml: str, *, title: str | None = None) -> str:
@@ -190,6 +191,77 @@ def apply_paragraph_alignment_in_tei_file(tei_path: Path) -> bool:
     source = Path(tei_path)
     original = source.read_text(encoding="utf-8")
     rewritten = apply_paragraph_alignment_in_tei_xml(original)
+    if rewritten == original:
+        return False
+
+    source.write_text(rewritten, encoding="utf-8")
+    return True
+
+
+def extract_heading_levels(markdown_text: str) -> list[int]:
+    """Return the literal ATX heading levels (1-6), in document order.
+
+    Pandoc's TEI writer shifts every heading level so that the shallowest
+    heading in the whole document becomes ``level1`` (see its ``@type``
+    attribute), which silently changes the level typed in the content
+    editor whenever that heading isn't the document's shallowest. The
+    literal levels are captured here straight from the source Markdown so
+    they can be reapplied to the generated TEI afterwards (see
+    :func:`apply_heading_levels_in_tei_file`), guaranteeing the level typed
+    in the editor is always the level rendered, without exception.
+    """
+    levels: list[int] = []
+    in_code_fence = False
+    for line in markdown_text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        match = _HEADING_LINE_RE.match(line)
+        if match:
+            levels.append(len(match.group(1)))
+    return levels
+
+
+def apply_heading_levels_in_tei_xml(tei_xml: str, levels: list[int]) -> str:
+    if not levels:
+        return tei_xml
+
+    try:
+        root = ET.fromstring(tei_xml)
+    except ET.ParseError as exc:
+        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+
+    remaining = list(levels)
+    changed = False
+    for element in root.iter():
+        if _local_name(element.tag) != "div":
+            continue
+        if not any(_local_name(child.tag) == "head" for child in element):
+            continue
+        if not remaining:
+            break
+        level = remaining.pop(0)
+        element.set("type", f"level{level}")
+        changed = True
+
+    if not changed:
+        return tei_xml
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    return ET.tostring(root, encoding="unicode") + "\n"
+
+
+def apply_heading_levels_in_tei_file(tei_path: Path, levels: list[int]) -> bool:
+    if not levels:
+        return False
+
+    source = Path(tei_path)
+    original = source.read_text(encoding="utf-8")
+    rewritten = apply_heading_levels_in_tei_xml(original, levels)
     if rewritten == original:
         return False
 

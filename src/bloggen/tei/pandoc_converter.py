@@ -10,8 +10,10 @@ from bloggen.markdown.front_matter import read_markdown_with_front_matter
 from bloggen.markdown.image_attributes import strip_image_attributes
 from bloggen.markdown.normalizer import normalize_markdown_text
 from bloggen.tei.postprocess import (
+    apply_heading_levels_in_tei_file,
     apply_image_attributes_in_tei_file,
     apply_paragraph_alignment_in_tei_file,
+    extract_heading_levels,
     postprocess_tei_file,
 )
 from bloggen.tei.validator import TeiValidationResult, validate_tei_file
@@ -136,6 +138,9 @@ def convert_markdown_file_to_tei(
 
         title = parsed.metadata.get("title")
         postprocess_tei_file(destination, destination, title=title)
+        heading_levels = extract_heading_levels(normalized_body)
+        if heading_levels:
+            apply_heading_levels_in_tei_file(destination, heading_levels)
         if image_attributes:
             apply_image_attributes_in_tei_file(destination, image_attributes)
         if "{{align=" in normalized_body:

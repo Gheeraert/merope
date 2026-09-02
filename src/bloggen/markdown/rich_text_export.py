@@ -95,7 +95,45 @@ def _table_row_line(cells: list[str]) -> str:
 
 
 def _runs_to_md(runs: list[InlineRun]) -> str:
-    return "".join(_run_to_md(run) for run in runs)
+    return "".join(_run_to_md(run) for run in _merge_adjacent_runs(runs))
+
+
+def _merge_adjacent_runs(runs: list[InlineRun]) -> list[InlineRun]:
+    """Coalesce consecutive plain-text runs that share the same formatting.
+
+    The editor widget can split what the user perceives as a single
+    formatted span into several adjacent runs with identical formatting
+    (e.g. around an input-method/language change mid-word). Serializing
+    each such run with its own ``**``/``*`` pair produces markers stacked
+    back to back (``** ****mot**``) that Markdown treats as literal
+    asterisks rather than emphasis, since a delimiter run can't be
+    "flanked" from inside an adjacent identical run. Merging first avoids
+    emitting a marker pair per fragment.
+    """
+    merged: list[InlineRun] = []
+    for run in runs:
+        is_plain_text = run.image_src is None and run.footnote_ref is None
+        if is_plain_text and merged:
+            previous = merged[-1]
+            previous_is_plain_text = previous.image_src is None and previous.footnote_ref is None
+            if previous_is_plain_text and (
+                previous.bold,
+                previous.italic,
+                previous.strikethrough,
+                previous.superscript,
+                previous.link_href,
+            ) == (run.bold, run.italic, run.strikethrough, run.superscript, run.link_href):
+                merged[-1] = InlineRun(
+                    text=previous.text + run.text,
+                    bold=previous.bold,
+                    italic=previous.italic,
+                    strikethrough=previous.strikethrough,
+                    superscript=previous.superscript,
+                    link_href=previous.link_href,
+                )
+                continue
+        merged.append(run)
+    return merged
 
 
 def _run_to_md(run: InlineRun) -> str:
@@ -112,17 +150,33 @@ def _run_to_md(run: InlineRun) -> str:
     if run.footnote_ref is not None:
         return f"[^{run.footnote_ref}]"
 
-    text = _escape_text(run.text)
-    if run.strikethrough:
-        text = f"~~{text}~~"
-    if run.superscript:
-        text = f"^{text}^"
-    if run.bold and run.italic:
-        text = f"***{text}***"
-    elif run.bold:
-        text = f"**{text}**"
-    elif run.italic:
-        text = f"*{text}*"
+    leading = ""
+    trailing = ""
+    core = run.text
+    has_marked_formatting = run.bold or run.italic or run.strikethrough or run.superscript
+    if has_marked_formatting and core:
+        stripped = core.strip()
+        if stripped:
+            lead_len = len(core) - len(core.lstrip())
+            leading, core, trailing = core[:lead_len], stripped, core[lead_len + len(stripped):]
+        else:
+            # Whitespace-only run: markers can't legally wrap it, so leave
+            # the whitespace bare rather than emit stray ``**``/``*``.
+            leading, core = core, ""
+
+    text = _escape_text(core)
+    if core:
+        if run.strikethrough:
+            text = f"~~{text}~~"
+        if run.superscript:
+            text = f"^{text}^"
+        if run.bold and run.italic:
+            text = f"***{text}***"
+        elif run.bold:
+            text = f"**{text}**"
+        elif run.italic:
+            text = f"*{text}*"
+    text = f"{leading}{text}{trailing}"
     if run.link_href:
         text = f"[{text}]({run.link_href})"
     return text
