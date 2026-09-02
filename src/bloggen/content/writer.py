@@ -13,6 +13,10 @@ from pathlib import Path
 from bloggen.content.slugify import ensure_unique_slug, slugify
 from bloggen.markdown.front_matter import format_front_matter, parse_front_matter
 
+# Sibling folder (next to a page/post's .md file) where the content editor
+# archives previous versions on save; never itself real content.
+_VERSIONS_DIRNAME = ".versions"
+
 
 def scan_existing_slugs(pages_dir: Path, posts_dir: Path) -> set[str]:
     """Collect slugs already in use across pages and posts.
@@ -27,6 +31,8 @@ def scan_existing_slugs(pages_dir: Path, posts_dir: Path) -> set[str]:
         if not directory.exists():
             continue
         for path in directory.rglob("*.md"):
+            if _VERSIONS_DIRNAME in path.parts:
+                continue
             try:
                 text = path.read_text(encoding="utf-8")
                 result = parse_front_matter(text)
@@ -62,6 +68,8 @@ def list_content_targets(
         if not directory.exists():
             continue
         for path in sorted(directory.rglob("*.md")):
+            if _VERSIONS_DIRNAME in path.parts:
+                continue
             try:
                 text = path.read_text(encoding="utf-8")
                 result = parse_front_matter(text)

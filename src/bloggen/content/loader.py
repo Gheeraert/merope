@@ -12,6 +12,10 @@ from bloggen.content.slugify import ensure_unique_slug
 from bloggen.markdown.front_matter import FrontMatterParseError, parse_front_matter
 from bloggen.markdown.normalizer import normalize_markdown_text
 
+# Sibling folder (next to a page/post's .md file) where the content editor
+# archives previous versions on save; must never be treated as real content.
+_VERSIONS_DIRNAME = ".versions"
+
 
 @dataclass(slots=True)
 class ContentItem:
@@ -87,6 +91,8 @@ def _load_items_from_dir(
     warnings: list[str] = []
 
     for path in sorted(directory.rglob("*.md")):
+        if _VERSIONS_DIRNAME in path.parts:
+            continue
         raw_markdown = path.read_text(encoding="utf-8")
         try:
             parsed = parse_front_matter(raw_markdown)

@@ -100,6 +100,9 @@ def render_page_document(
         "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"    <title>{escape(title)} · {escape(config.site.title)}</title>\n"
         f"{seo_html}"
+        "    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
+        "    <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n"
+        "    <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=IM+Fell+English&display=swap\">\n"
         f"    <link rel=\"stylesheet\" href=\"{escape(css_href)}\">\n"
         "  </head>\n"
         f"  <body data-lightbox-enabled=\"{lightbox_enabled_attr}\">\n"
@@ -191,11 +194,19 @@ def _render_banner(config: ProjectConfig, *, asset_prefix: str, current_path: st
         return ""
     alt = escape(config.banner.alt or config.site.title)
     height = max(int(config.banner.height_px), 80)
-    overlay = (
-        f'<div class="banner-title">{escape(config.site.title)}</div>'
-        if config.banner.show_title_overlay
-        else ""
-    )
+    overlay = ""
+    if config.banner.show_title_overlay:
+        subtitle_html = (
+            f'<div class="banner-subtitle">{escape(config.site.subtitle)}</div>'
+            if config.site.subtitle
+            else ""
+        )
+        overlay = (
+            '<div class="banner-title-group">'
+            f'<div class="banner-title">{escape(config.site.title)}</div>'
+            f"{subtitle_html}"
+            "</div>"
+        )
     return (
         f'<header class="site-banner" style="height:{height}px">'
         f'<a href="{link}"><img src="{escape(image)}" alt="{alt}"></a>{overlay}</header>'

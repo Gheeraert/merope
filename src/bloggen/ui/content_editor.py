@@ -46,7 +46,6 @@ from bloggen.markdown.rich_text_model import (
     VERBATIM,
     Block,
     InlineRun,
-    plain_text,
 )
 from bloggen.markdown.typography import (
     CENTURY_RE,
@@ -55,7 +54,11 @@ from bloggen.markdown.typography import (
     NBSP,
     OPENING_GUILLEMET,
     PAGE_ABBREVIATION_TYPED_RE,
-    apply_french_typography,
+    convert_curly_quotes_to_guillemets,
+    convert_straight_quotes_stateful,
+    fix_double_punctuation_spacing,
+    fix_guillemet_spacing,
+    fix_page_number_spacing,
     is_valid_century_ordinal,
 )
 from bloggen.ui import toolbar_icons
@@ -75,6 +78,10 @@ _TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE
 # anchored to the end of the string: used to detect the pattern right as its
 # closing "))" is typed, one line-prefix at a time.
 _DOUBLE_PAREN_NOTE_TYPED_RE = re.compile(r"\(\((.+?)\)\)$")
+# Name of the sibling folder (next to the .md file itself) where each save
+# archives the previous on-disk version before overwriting it.
+_VERSIONS_DIRNAME = ".versions"
+_VERSION_FILENAME_RE_TEMPLATE = r"^{stem}\.v(\d+){suffix}$"
 
 
 class ContentMetadataDialog(simpledialog.Dialog):
@@ -212,6 +219,126 @@ class ContentMetadataDialog(simpledialog.Dialog):
         self.result = metadata
 
 
+class FindReplaceDialog(tk.Toplevel):
+    """Non-modal Ctrl+F / Ctrl+H dialog, kept open across repeated searches
+    (unlike the modal ``simpledialog`` dialogs elsewhere in this module) so
+    "Suivant"/"Remplacer" can be clicked repeatedly without reopening it.
+    """
+
+    def __init__(self, master: "ContentEditorWindow", *, show_replace: bool) -> None:
+        super().__init__(master)
+        self.editor = master
+        self.show_replace = show_replace
+        self.title("Rechercher et remplacer" if show_replace else "Rechercher")
+        self.resizable(False, False)
+        self.transient(master)
+
+        row = 0
+        ttk.Label(self, text="Rechercher :").grid(row=row, column=0, sticky="w", padx=4, pady=4)
+        self.find_var = tk.StringVar()
+        find_entry = ttk.Entry(self, textvariable=self.find_var, width=30)
+        find_entry.grid(row=row, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
+        find_entry.bind("<Return>", lambda _e: self.find_next())
+        row += 1
+
+        self.replace_var = tk.StringVar()
+        if show_replace:
+            ttk.Label(self, text="Remplacer par :").grid(row=row, column=0, sticky="w", padx=4, pady=4)
+            replace_entry = ttk.Entry(self, textvariable=self.replace_var, width=30)
+            replace_entry.grid(row=row, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
+            replace_entry.bind("<Return>", lambda _e: self.replace_current())
+            row += 1
+
+        self.case_sensitive_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(self, text="Respecter la casse", variable=self.case_sensitive_var).grid(
+            row=row, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 4)
+        )
+        row += 1
+
+        ttk.Button(self, text="Suivant", command=self.find_next).grid(
+            row=row, column=0, padx=4, pady=4, sticky="ew"
+        )
+        if show_replace:
+            ttk.Button(self, text="Remplacer", command=self.replace_current).grid(
+                row=row, column=1, padx=4, pady=4, sticky="ew"
+            )
+            ttk.Button(self, text="Tout remplacer", command=self.replace_all).grid(
+                row=row, column=2, padx=4, pady=4, sticky="ew"
+            )
+        row += 1
+
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(self, textvariable=self.status_var, foreground="#777777").grid(
+            row=row, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 4)
+        )
+
+        self.grid_columnconfigure(1, weight=1)
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.bind("<Escape>", lambda _e: self.close())
+        find_entry.focus_set()
+
+    def close(self) -> None:
+        self.editor.text.tag_remove("search_match", "1.0", "end")
+        self.editor._find_dialog = None
+        self.destroy()
+
+    def find_next(self) -> None:
+        text = self.editor.text
+        pattern = self.find_var.get()
+        text.tag_remove("search_match", "1.0", "end")
+        if not pattern:
+            return
+        nocase = not self.case_sensitive_var.get()
+        start = text.index("insert")
+        idx = text.search(pattern, start, stopindex="end", nocase=nocase)
+        if not idx:
+            idx = text.search(pattern, "1.0", stopindex="end", nocase=nocase)
+        if not idx:
+            self.status_var.set("Aucune occurrence trouvée.")
+            return
+        end = f"{idx}+{len(pattern)}c"
+        text.tag_remove("sel", "1.0", "end")
+        text.tag_add("sel", idx, end)
+        text.tag_add("search_match", idx, end)
+        text.mark_set("insert", end)
+        text.see(idx)
+        self.status_var.set("")
+
+    def replace_current(self) -> None:
+        text = self.editor.text
+        match = text.tag_ranges("search_match")
+        if not match:
+            self.find_next()
+            match = text.tag_ranges("search_match")
+            if not match:
+                return
+        start, end = str(match[0]), str(match[1])
+        replacement = self.replace_var.get()
+        self.editor._replace_range_preserving_tags(start, end, replacement)
+        text.mark_set("insert", f"{start}+{len(replacement)}c")
+        self.find_next()
+
+    def replace_all(self) -> None:
+        text = self.editor.text
+        pattern = self.find_var.get()
+        if not pattern:
+            return
+        replacement = self.replace_var.get()
+        nocase = not self.case_sensitive_var.get()
+        count = 0
+        idx = "1.0"
+        while True:
+            idx = text.search(pattern, idx, stopindex="end", nocase=nocase)
+            if not idx:
+                break
+            end = f"{idx}+{len(pattern)}c"
+            self.editor._replace_range_preserving_tags(idx, end, replacement)
+            idx = f"{idx}+{len(replacement)}c"
+            count += 1
+        text.tag_remove("search_match", "1.0", "end")
+        self.status_var.set(f"{count} remplacement(s) effectué(s).")
+
+
 class ContentEditorWindow(tk.Toplevel):
     def __init__(
         self,
@@ -234,13 +361,15 @@ class ContentEditorWindow(tk.Toplevel):
         self.current_path: Path | None = None
         self.current_kind: str | None = None
         self.metadata: dict[str, str] = {}
-        self.footnote_definitions: dict[str, str] = {}
+        self.footnote_definitions: dict[str, list[InlineRun]] = {}
         self.link_data: dict[str, str] = {}
         self.footnote_ref_data: dict[str, str] = {}
         self._tag_counter = 0
         self._file_entries: list[tuple[str, Path]] = []  # (kind, path)
-        self._footnote_vars: dict[str, tk.StringVar] = {}
+        self._note_link_data: dict[str, str] = {}
+        self._footnote_text_widgets: dict[str, tk.Text] = {}
         self._footnote_rows: dict[str, ttk.Frame] = {}
+        self._note_font_refs: list[tkfont.Font] = []
         self._quote_parity_opening = True
         # Tk garbage-collects a PhotoImage/Font once its last Python
         # reference disappears, even though the button still displays it —
@@ -248,6 +377,7 @@ class ContentEditorWindow(tk.Toplevel):
         # kept alive here for the editor window's lifetime.
         self._toolbar_icon_refs: list[tk.PhotoImage] = []
         self._toolbar_fonts: list[tkfont.Font] = []
+        self._find_dialog: FindReplaceDialog | None = None
 
         self._build_ui()
         self._refresh_file_list()
@@ -446,9 +576,19 @@ class ContentEditorWindow(tk.Toplevel):
             "Corriger la typographie : applique aux guillemets et à la ponctuation "
             "double ( ; : ! ? ) de la sélection les mêmes règles typographiques que la "
             "saisie en direct (guillemets français, espaces insécables). Utile après un "
-            "collage. Attention : remplace le texte sélectionné, la mise en forme (gras/"
-            "italique) de la sélection n'est pas conservée.",
+            "collage. La mise en forme (gras, italique, citations...) de la sélection "
+            "est conservée.",
         )
+
+        ttk.Separator(toolbar_row2, orient="vertical").pack(side="left", fill="y", padx=4)
+
+        find_button = ttk.Button(toolbar_row2, text="🔍", width=3, command=self._open_find)
+        find_button.pack(side="left", padx=1)
+        add_tooltip(find_button, "Rechercher (Ctrl+F).")
+
+        replace_button = ttk.Button(toolbar_row2, text="🔍↔", width=4, command=self._open_replace)
+        replace_button.pack(side="left", padx=1)
+        add_tooltip(replace_button, "Rechercher et remplacer (Ctrl+H).")
 
         ttk.Separator(toolbar_row2, orient="vertical").pack(side="left", fill="y", padx=4)
 
@@ -493,6 +633,13 @@ class ContentEditorWindow(tk.Toplevel):
         self.text.bind("<Control-plus>", self._shortcut_superscript)
         self.text.bind("<Alt-space>", self._shortcut_nbsp)
         self.text.bind("<Alt-j>", self._shortcut_toggle_justify)
+        self.text.bind("<Control-f>", self._shortcut_find)
+        self.text.bind("<Control-h>", self._shortcut_replace)
+        self.text.bind("<Control-z>", self._shortcut_undo)
+        self.text.bind("<Control-y>", self._shortcut_redo)
+        self.text.bind("<Control-Shift-Z>", self._shortcut_redo)
+        self.bind("<Control-f>", self._shortcut_find)
+        self.bind("<Control-h>", self._shortcut_replace)
 
         notes_frame = ttk.Frame(vertical_paned)
         vertical_paned.add(notes_frame, weight=1)
@@ -524,6 +671,7 @@ class ContentEditorWindow(tk.Toplevel):
         text.tag_configure("link_style", foreground="#1a73e8", underline=True)
         text.tag_configure("image_style", background="#e8f0fe")
         text.tag_configure("footnote_style", foreground="#1a73e8")
+        text.tag_configure("search_match", background="#ffe08a")
         for tag in ("bold", "italic", "strike", "superscript", "link_style", "image_style", "footnote_style"):
             text.tag_raise(tag)
 
@@ -590,6 +738,51 @@ class ContentEditorWindow(tk.Toplevel):
         self._insert_nbsp()
         return "break"
 
+    def _shortcut_find(self, _event: tk.Event) -> str:
+        self._open_find()
+        return "break"
+
+    def _shortcut_replace(self, _event: tk.Event) -> str:
+        self._open_replace()
+        return "break"
+
+    def _shortcut_undo(self, _event: tk.Event) -> str:
+        try:
+            self.text.edit_undo()
+        except tk.TclError:
+            pass
+        return "break"
+
+    def _shortcut_redo(self, _event: tk.Event) -> str:
+        try:
+            self.text.edit_redo()
+        except tk.TclError:
+            pass
+        return "break"
+
+    def _open_find(self) -> None:
+        self._show_find_dialog(show_replace=False)
+
+    def _open_replace(self) -> None:
+        self._show_find_dialog(show_replace=True)
+
+    def _show_find_dialog(self, *, show_replace: bool) -> None:
+        if self._find_dialog is not None and self._find_dialog.winfo_exists():
+            self._find_dialog.destroy()
+        self._find_dialog = FindReplaceDialog(self, show_replace=show_replace)
+
+    def _replace_range_preserving_tags(self, start: str, end: str, replacement: str) -> None:
+        """Delete ``start``..``end`` and insert ``replacement`` in its place,
+        reapplying whatever Tk tags (bold, headings, links...) were present
+        at ``start`` so a find/replace edit doesn't strip formatting.
+        """
+        tags = [t for t in self.text.tag_names(start) if t not in ("sel", "search_match")]
+        self.text.delete(start, end)
+        self.text.insert(start, replacement)
+        new_end = f"{start}+{len(replacement)}c"
+        for tag in tags:
+            self.text.tag_add(tag, start, new_end)
+
     def _shortcut_toggle_justify(self, _event: tk.Event) -> str:
         """Alt+J: toggle the current paragraph between left and justify,
         the same two-state shortcut convention as WordPress/Gutenberg."""
@@ -622,9 +815,16 @@ class ContentEditorWindow(tk.Toplevel):
         self._refresh_notes_panel()
 
     def _refresh_notes_panel(self) -> None:
+        # Pull whatever is currently displayed in each note's editor back
+        # into footnote_definitions before tearing the rows down below —
+        # otherwise an edit not yet synced (bold/italic/link just toggled,
+        # or text just typed) would be silently discarded the next time a
+        # note is added or removed elsewhere.
+        self._sync_footnote_widgets_to_model()
+
         for child in self.notes_list_frame.winfo_children():
             child.destroy()
-        self._footnote_vars = {}
+        self._footnote_text_widgets = {}
         self._footnote_rows = {}
 
         if not self.footnote_definitions:
@@ -636,24 +836,149 @@ class ContentEditorWindow(tk.Toplevel):
         for note_id in sorted(self.footnote_definitions, key=int):
             row = ttk.Frame(self.notes_list_frame)
             row.pack(fill="x", padx=4, pady=2)
-            ttk.Label(row, text=f"[{note_id}]", width=4).pack(side="left")
+            ttk.Label(row, text=f"[{note_id}]", width=4).pack(side="left", anchor="n")
 
-            var = tk.StringVar(value=self.footnote_definitions[note_id])
-            entry = ttk.Entry(row, textvariable=var, font=self._notes_font)
-            entry.pack(side="left", fill="x", expand=True, padx=4)
-            entry.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
-            add_tooltip(entry, "Texte de la note, modifiable directement ici.")
-            var.trace_add(
-                "write",
-                lambda *_args, nid=note_id, v=var: self.footnote_definitions.__setitem__(nid, v.get()),
+            note_text = tk.Text(
+                row, height=2, wrap="word", undo=True, font=self._notes_font
+            )
+            self._configure_note_tags(note_text)
+            self._populate_note_widget(note_text, self.footnote_definitions[note_id])
+            note_text.pack(side="left", fill="x", expand=True, padx=4)
+            note_text.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
+            note_text.bind(
+                "<KeyRelease>",
+                lambda _e, nid=note_id, w=note_text: self.footnote_definitions.__setitem__(
+                    nid, self._extract_note_runs(w)
+                ),
+            )
+            add_tooltip(
+                note_text,
+                "Texte de la note, modifiable directement ici (gras, italique, lien).",
             )
 
+            buttons_frame = ttk.Frame(row)
+            buttons_frame.pack(side="left", padx=(0, 4))
+            bold_button = ttk.Button(
+                buttons_frame, text="G", width=2,
+                command=lambda w=note_text, nid=note_id: self._toggle_note_tag(w, nid, "bold"),
+            )
+            bold_button.pack(side="top")
+            add_tooltip(bold_button, "Gras : met en gras le texte sélectionné dans la note.")
+            italic_button = ttk.Button(
+                buttons_frame, text="I", width=2,
+                command=lambda w=note_text, nid=note_id: self._toggle_note_tag(w, nid, "italic"),
+            )
+            italic_button.pack(side="top")
+            add_tooltip(italic_button, "Italique : met en italique le texte sélectionné dans la note.")
+            link_button = ttk.Button(
+                buttons_frame, text="Lien", width=4,
+                command=lambda w=note_text, nid=note_id: self._insert_note_link(w, nid),
+            )
+            link_button.pack(side="top")
+            add_tooltip(link_button, "Lien : transforme le texte sélectionné en lien hypertexte (interne ou externe).")
+
             delete_button = ttk.Button(row, text="Supprimer", command=lambda nid=note_id: self._delete_footnote(nid))
-            delete_button.pack(side="left")
+            delete_button.pack(side="left", anchor="n")
             add_tooltip(delete_button, "Supprime cette note (les appels de note existants ne sont pas retirés du texte).")
 
-            self._footnote_vars[note_id] = var
+            self._footnote_text_widgets[note_id] = note_text
             self._footnote_rows[note_id] = row
+
+    def _configure_note_tags(self, widget: tk.Text) -> None:
+        base_font = tkfont.Font(font=widget.cget("font"))
+        bold_font = base_font.copy()
+        bold_font.configure(weight="bold")
+        italic_font = base_font.copy()
+        italic_font.configure(slant="italic")
+        self._note_font_refs.extend([bold_font, italic_font])
+        widget.tag_configure("bold", font=bold_font)
+        widget.tag_configure("italic", font=italic_font)
+        widget.tag_configure("link_style", foreground="#1a73e8", underline=True)
+
+    def _populate_note_widget(self, widget: tk.Text, runs: list[InlineRun]) -> None:
+        widget.delete("1.0", "end")
+        for run in runs:
+            start = widget.index("end-1c")
+            widget.insert("end", run.text)
+            end = widget.index("end-1c")
+            if run.bold:
+                widget.tag_add("bold", start, end)
+            if run.italic:
+                widget.tag_add("italic", start, end)
+            if run.link_href:
+                tag = self._new_tag("note_link")
+                self._note_link_data[tag] = run.link_href
+                widget.tag_add(tag, start, end)
+                widget.tag_add("link_style", start, end)
+
+    def _extract_note_runs(self, widget: tk.Text) -> list[InlineRun]:
+        runs: list[InlineRun] = []
+        active: set[str] = set()
+        buffer = ""
+
+        def flush() -> None:
+            nonlocal buffer
+            if not buffer:
+                return
+            link_tag = next((t for t in active if t in self._note_link_data), None)
+            runs.append(
+                InlineRun(
+                    text=buffer,
+                    bold="bold" in active,
+                    italic="italic" in active,
+                    link_href=self._note_link_data.get(link_tag) if link_tag else None,
+                )
+            )
+            buffer = ""
+
+        for key, value, _index in widget.dump("1.0", "end-1c", tag=True, text=True):
+            if key == "tagon":
+                flush()
+                active.add(value)
+            elif key == "tagoff":
+                flush()
+                active.discard(value)
+            elif key == "text":
+                buffer += value
+        flush()
+        return runs or [InlineRun(text="")]
+
+    def _sync_footnote_widgets_to_model(self) -> None:
+        for note_id, widget in self._footnote_text_widgets.items():
+            if widget.winfo_exists():
+                self.footnote_definitions[note_id] = self._extract_note_runs(widget)
+
+    def _toggle_note_tag(self, widget: tk.Text, note_id: str, tag: str) -> None:
+        ranges = widget.tag_ranges("sel")
+        if not ranges:
+            return
+        start, end = str(ranges[0]), str(ranges[1])
+        count = int(widget.count(start, end, "chars")[0])
+        fully_tagged = all(
+            tag in widget.tag_names(f"{start}+{i}c") for i in range(count)
+        )
+        if fully_tagged:
+            widget.tag_remove(tag, start, end)
+        else:
+            widget.tag_add(tag, start, end)
+        self.footnote_definitions[note_id] = self._extract_note_runs(widget)
+
+    def _insert_note_link(self, widget: tk.Text, note_id: str) -> None:
+        ranges = widget.tag_ranges("sel")
+        if not ranges:
+            messagebox.showinfo("Lien", "Sélectionnez d'abord le texte du lien.")
+            return
+        start, end = str(ranges[0]), str(ranges[1])
+        href = simpledialog.askstring(
+            "Insérer un lien", "URL ou chemin interne (ex. /billets/index.html) :", parent=self
+        )
+        if not href:
+            return
+        tag = self._new_tag("note_link")
+        self._note_link_data[tag] = href
+        widget.tag_add(tag, start, end)
+        widget.tag_add("link_style", start, end)
+        self.footnote_definitions[note_id] = self._extract_note_runs(widget)
 
     def _delete_footnote(self, note_id: str) -> None:
         self.footnote_definitions.pop(note_id, None)
@@ -663,10 +988,9 @@ class ContentEditorWindow(tk.Toplevel):
         row = self._footnote_rows.get(note_id)
         if row is None:
             return
-        for child in row.winfo_children():
-            if isinstance(child, ttk.Entry):
-                child.focus_set()
-                child.selection_range(0, "end")
+        widget = self._footnote_text_widgets.get(note_id)
+        if widget is not None and widget.winfo_exists():
+            widget.focus_set()
 
     # -- typographie française -----------------------------------------------
 
@@ -800,17 +1124,116 @@ class ContentEditorWindow(tk.Toplevel):
         self._refresh_notes_panel()
 
     def _apply_typography_to_selection(self) -> None:
+        """Same rules as :func:`bloggen.markdown.typography.apply_french_typography`,
+        but rewrites the selection run by run (each contiguous stretch of
+        unchanged Tk tags) instead of as one flat string, so that character
+        formatting (bold/italic/strike/links...) and block formatting
+        (blockquote, headings, alignment...) already on the selection survive
+        the edit. Quote-parity tracking still threads across runs, matching
+        :func:`bloggen.markdown.html_paste_import._normalize_typography`,
+        which applies the same rules run by run for pasted content.
+        """
         selected = self._selection_range()
         if selected is None:
             messagebox.showinfo("Typographie", "Sélectionnez d'abord le texte à corriger.")
             return
         start, end = selected
-        original = self.text.get(start, end)
-        fixed = apply_french_typography(original)
-        if fixed == original:
+        runs = self._dump_tagged_runs(start, end)
+        if not runs:
             return
-        self.text.delete(start, end)
-        self.text.insert(start, fixed)
+
+        fixed_runs: list[tuple[frozenset[str], str, str, str]] = []
+        opening_next = True
+        changed = False
+        counters = {
+            "guillemets": 0,
+            "espaces": 0,
+            "ponctuation": 0,
+            "numeros_page": 0,
+        }
+        for tags, text, run_start, run_end in runs:
+            step = convert_curly_quotes_to_guillemets(text)
+            step, opening_next = convert_straight_quotes_stateful(step, opening_next=opening_next)
+            if step != text:
+                counters["guillemets"] += 1
+            after_quotes = step
+
+            step = fix_guillemet_spacing(step)
+            if step != after_quotes:
+                counters["espaces"] += 1
+            after_spacing = step
+
+            step = fix_double_punctuation_spacing(step)
+            if step != after_spacing:
+                counters["ponctuation"] += 1
+            after_punctuation = step
+
+            step = fix_page_number_spacing(step)
+            if step != after_punctuation:
+                counters["numeros_page"] += 1
+
+            fixed = step
+            if fixed != text:
+                changed = True
+            fixed_runs.append((tags, fixed, run_start, run_end))
+
+        if not changed:
+            messagebox.showinfo(
+                "Typographie",
+                "Aucune correction nécessaire : la sélection respecte déjà les règles "
+                "typographiques.",
+            )
+            return
+
+        # Rewrite runs back-to-front: editing a run never changes the
+        # widget indices of anything before it, so the start/end positions
+        # captured above (against the original, unedited content) stay
+        # valid for every run still to come.
+        for tags, fixed, run_start, run_end in reversed(fixed_runs):
+            self.text.delete(run_start, run_end)
+            self.text.insert(run_start, fixed)
+            for tag in tags:
+                if tag == "sel":
+                    continue
+                self.text.tag_add(tag, run_start, f"{run_start}+{len(fixed)}c")
+
+        labels = {
+            "guillemets": "Guillemets convertis en chevrons français",
+            "espaces": "Espaces autour des guillemets corrigées",
+            "ponctuation": "Espaces insécables ajoutées avant ; : ! ?",
+            "numeros_page": "Espaces insécables ajoutées dans les numéros de page",
+        }
+        lines = [f"• {labels[key]}" for key, count in counters.items() if count]
+        messagebox.showinfo(
+            "Typographie",
+            "Corrections appliquées à la sélection :\n" + "\n".join(lines),
+        )
+
+    def _dump_tagged_runs(
+        self, start: str, end: str
+    ) -> list[tuple[frozenset[str], str, str, str]]:
+        """Split ``start``..``end`` into runs of unbroken tag combinations,
+        in document order: each run is ``(tags, text, run_start, run_end)``.
+        """
+        runs: list[tuple[frozenset[str], str, str, str]] = []
+        active: set[str] = set()
+        run_start = start
+        run_text: list[str] = []
+        for key, value, index in self.text.dump(start, end, tag=True, text=True):
+            if key == "text":
+                run_text.append(value)
+                continue
+            if run_text:
+                runs.append((frozenset(active), "".join(run_text), run_start, index))
+            run_text = []
+            run_start = index
+            if key == "tagon":
+                active.add(value)
+            elif key == "tagoff":
+                active.discard(value)
+        if run_text:
+            runs.append((frozenset(active), "".join(run_text), run_start, end))
+        return runs
 
     # -- rich paste (Word / Google Docs) -------------------------------------
 
@@ -942,6 +1365,8 @@ class ContentEditorWindow(tk.Toplevel):
             if not directory.exists():
                 continue
             for path in sorted(directory.rglob("*.md")):
+                if _VERSIONS_DIRNAME in path.parts:
+                    continue
                 try:
                     result = parse_front_matter(path.read_text(encoding="utf-8"))
                 except (OSError, ValueError):
@@ -1083,11 +1508,14 @@ class ContentEditorWindow(tk.Toplevel):
         self.footnote_definitions.clear()
         self.link_data.clear()
         self.footnote_ref_data.clear()
+        self._note_link_data.clear()
+        self._footnote_text_widgets.clear()
         self.metadata = {}
         self.current_kind = kind
         self.current_path = None
         self._quote_parity_opening = True
         self._refresh_notes_panel()
+        self.text.edit_reset()
 
     def _destroy_embedded_images(self) -> None:
         # Text.delete() does not destroy windows embedded via window_create;
@@ -1307,7 +1735,7 @@ class ContentEditorWindow(tk.Toplevel):
         while str(next_id) in self.footnote_definitions:
             next_id += 1
         note_id = str(next_id)
-        self.footnote_definitions[note_id] = note_text
+        self.footnote_definitions[note_id] = [InlineRun(text=note_text)]
         return note_id
 
     def _insert_footnote_marker(self, index: str, note_id: str) -> str:
@@ -1433,12 +1861,13 @@ class ContentEditorWindow(tk.Toplevel):
             line += 1
         flush_group(line_count)
 
+        self._sync_footnote_widgets_to_model()
         for note_id in sorted(self.footnote_definitions, key=int):
             blocks.append(
                 Block(
                     kind=FOOTNOTE_DEFINITION,
                     footnote_id=note_id,
-                    runs=[InlineRun(text=self.footnote_definitions[note_id])],
+                    runs=self.footnote_definitions[note_id],
                 )
             )
         return blocks
@@ -1490,11 +1919,13 @@ class ContentEditorWindow(tk.Toplevel):
         self.footnote_definitions.clear()
         self.link_data.clear()
         self.footnote_ref_data.clear()
+        self._note_link_data.clear()
+        self._footnote_text_widgets.clear()
 
         body_blocks = [b for b in blocks if b.kind != FOOTNOTE_DEFINITION]
         for block in blocks:
             if block.kind == FOOTNOTE_DEFINITION and block.footnote_id:
-                self.footnote_definitions[block.footnote_id] = plain_text(block.runs)
+                self.footnote_definitions[block.footnote_id] = list(block.runs) or [InlineRun(text="")]
 
         for index, block in enumerate(body_blocks):
             if index > 0:
@@ -1503,6 +1934,7 @@ class ContentEditorWindow(tk.Toplevel):
 
         self._quote_parity_opening = True
         self._refresh_notes_panel()
+        self.text.edit_reset()
 
     def _insert_block(self, block: Block) -> None:
         if block.kind == PARAGRAPH:
@@ -1578,6 +2010,28 @@ class ContentEditorWindow(tk.Toplevel):
 
     # -- save ---------------------------------------------------------------
 
+    def _archive_previous_version(self, path: Path) -> None:
+        """Before a save overwrites ``path``, copy its current on-disk
+        content into a sibling ``.versions`` folder under a numbered
+        filename (``slug.v1.md``, ``slug.v2.md``, ...), so past edits stay
+        recoverable. No-op the first time a file is saved (nothing to
+        archive yet).
+        """
+        if not path.exists():
+            return
+        versions_dir = path.parent / _VERSIONS_DIRNAME
+        versions_dir.mkdir(exist_ok=True)
+        pattern = re.compile(
+            _VERSION_FILENAME_RE_TEMPLATE.format(stem=re.escape(path.stem), suffix=re.escape(path.suffix))
+        )
+        next_number = 1
+        for existing in versions_dir.glob(f"{path.stem}.v*{path.suffix}"):
+            match = pattern.match(existing.name)
+            if match:
+                next_number = max(next_number, int(match.group(1)) + 1)
+        version_path = versions_dir / f"{path.stem}.v{next_number}{path.suffix}"
+        version_path.write_bytes(path.read_bytes())
+
     def _save(self) -> None:
         if not self.metadata.get("title") or not self.metadata.get("slug"):
             if self._edit_metadata() is None:
@@ -1597,6 +2051,7 @@ class ContentEditorWindow(tk.Toplevel):
             target_dir = directory
 
         try:
+            self._archive_previous_version(target_dir / filename)
             written = write_content_file(target_dir, filename, self.metadata, body)
         except OSError as exc:
             messagebox.showerror("Enregistrement", f"Impossible d'écrire le fichier :\n{exc}")

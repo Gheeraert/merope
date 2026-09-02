@@ -63,6 +63,20 @@ def test_scan_existing_slugs_tolerates_broken_files(tmp_path: Path):
     assert scan_existing_slugs(pages, posts) == {"ok"}
 
 
+def test_scan_existing_slugs_ignores_versions_folder(tmp_path: Path):
+    pages = tmp_path / "pages"
+    posts = tmp_path / "posts"
+    write_content_file(pages, "accueil.md", {"title": "Accueil", "slug": "accueil", "type": "page"}, "Corps\n")
+    write_content_file(
+        pages / ".versions",
+        "accueil.v1.md",
+        {"title": "Accueil", "slug": "accueil-ancien", "type": "page"},
+        "Ancien corps\n",
+    )
+
+    assert scan_existing_slugs(pages, posts) == {"accueil"}
+
+
 def test_list_content_targets_includes_home_and_archive_by_default(tmp_path: Path):
     pages = tmp_path / "pages"
     posts = tmp_path / "posts"

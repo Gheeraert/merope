@@ -115,8 +115,6 @@ Le contenu de l'article commence ici...
 | Activer accueil | Si décoché, aucune page d'accueil n'est générée. | — |
 | Source accueil | Fichier Markdown utilisé comme contenu de l'accueil. | `content/pages/accueil.md` |
 | Layout accueil | Gabarit HTML utilisé pour l'accueil. | `home` |
-| Afficher billets récents | Si coché, une liste des derniers billets publiés apparaît sur l'accueil. | — |
-| Nombre billets récents | Combien de billets afficher dans cette liste (nombre entier). | `5` |
 
 ## 6. Blog
 *Comportement de la section « blog » : liste chronologique des billets et page d'archive.*

@@ -45,6 +45,25 @@ def test_load_content_accepts_valid_page_yaml():
     assert item.metadata.kind == "page"
 
 
+def test_load_content_ignores_versions_folder():
+    project = _prepare_project("loader_versions")
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    versions_dir = project / "content/pages/.versions"
+    versions_dir.mkdir(parents=True)
+    (versions_dir / "accueil.v1.md").write_text(
+        '---\ntitle: "Accueil ancien"\nslug: "accueil-ancien"\ntype: "page"\n---\n\n# Ancien\n',
+        encoding="utf-8",
+    )
+
+    loaded = load_content(project, _build_runtime_config(project))
+
+    assert len(loaded.pages) == 1
+    assert loaded.pages[0].metadata.slug == "accueil"
+
+
 def test_load_content_accepts_valid_post_yaml_with_date():
     project = _prepare_project("loader_post")
     (project / "content/posts/premier.md").write_text(

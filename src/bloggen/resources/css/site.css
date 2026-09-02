@@ -97,19 +97,29 @@ button:focus-visible {
   display: block;
 }
 
-.banner-title {
+.banner-title-group {
   position: absolute;
   left: 1.5rem;
   bottom: 1rem;
   padding: 0.3rem 0.8rem;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.35);
   color: #fff;
-  font-family: var(--font-ui);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  font-size: 1rem;
+  text-transform: lowercase;
   border-radius: var(--radius);
+}
+
+.banner-title {
+  font-family: "IM Fell English", var(--font-ui);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-size: clamp(1.1rem, 2.5vw, 1.8rem);
+}
+
+.banner-subtitle {
+  font-family: "IM Fell English", var(--font-ui);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  font-size: clamp(0.75rem, 1.5vw, 1rem);
 }
 
 .masthead {
@@ -494,7 +504,7 @@ button:focus-visible {
 }
 
 .tei-fragment h2 {
-  font-size: clamp(1.3rem, 2.1vw, 1.6rem);
+  font-size: clamp(1.15rem, 1.7vw, 1.35rem);
 }
 
 .tei-fragment h3 {
@@ -503,6 +513,7 @@ button:focus-visible {
 
 .tei-fragment p {
   margin: 0.9rem 0;
+  text-align: justify;
 }
 
 .tei-fragment p.align-left {
@@ -527,6 +538,10 @@ button:focus-visible {
   border-left: 3px solid var(--accent);
   color: var(--muted);
   font-style: italic;
+}
+
+.tei-fragment blockquote p {
+  text-align: left;
 }
 
 .tei-fragment ul,

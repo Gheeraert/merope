@@ -65,7 +65,6 @@ Réglages page d’accueil :
 - activation
 - source
 - layout
-- billets récents
 
 ### `blog`
 Réglages billets :

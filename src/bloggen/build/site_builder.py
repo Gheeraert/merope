@@ -390,12 +390,6 @@ def _generate_home_page(
         content = "<article><h1>Accueil</h1><p>Page d'accueil non trouvée.</p></article>"
         report.warnings.append(f"Source home introuvable: {home_source}")
 
-    if config.home.show_recent_posts and posts:
-        recent_count = max(config.home.recent_posts_count, 0)
-        links = [(post.title, post.url, post.date) for post in posts[:recent_count]]
-        recent_html = render_archive_fragment("Billets récents", links, current_path="/index.html")
-        content = f"{content}\n{recent_html}"
-
     index_path = output_root / "index.html"
     custom_template = load_custom_template(project_root, config, config.render.home_template)
     html = render_page_document(

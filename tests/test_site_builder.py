@@ -127,8 +127,6 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert 'href="../index.html"' in post_html
     assert 'href="/index.html"' not in post_html
     assert '<header class="site-banner"' in post_html
-    assert 'href="billets/premier-billet/index.html"' in index_html
-    assert 'href="/billets/premier-billet/index.html"' not in index_html
     assert 'href="premier-billet/index.html"' in archive_html
     assert 'href="/billets/premier-billet/index.html"' not in archive_html
     assert "archive-date" in archive_html

@@ -40,9 +40,7 @@
   "home": {
     "enabled": true,
     "source": "content/pages/accueil.md",
-    "layout": "home",
-    "show_recent_posts": true,
-    "recent_posts_count": 5
+    "layout": "home"
   },
   "blog": {
     "enabled": true,

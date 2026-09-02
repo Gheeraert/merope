@@ -252,11 +252,9 @@ class MainWindow(tk.Tk):
             [
                 ("source", "Source accueil", "content/pages/accueil.md"),
                 ("layout", "Layout accueil", "home"),
-                ("recent_posts_count", "Nombre billets récents", "5"),
             ],
             bool_fields=[
                 ("enabled", "Activer accueil", True),
-                ("show_recent_posts", "Afficher billets récents", True),
             ],
             intro="Configuration de la page d'accueil du site (index.html).",
             help_texts={
@@ -269,15 +267,7 @@ class MainWindow(tk.Tk):
                     "Nom du template HTML utilisé pour la page d'accueil.\n"
                     "Exemple : home (correspond à theme/templates/home.html)"
                 ),
-                "recent_posts_count": (
-                    "Nombre de billets récents à afficher sur l'accueil (nombre entier).\n"
-                    "Exemple : 5"
-                ),
                 "enabled": "Si désactivé, aucune page d'accueil n'est générée.",
-                "show_recent_posts": (
-                    "Si activé, une liste des derniers billets publiés est affichée sur "
-                    "la page d'accueil."
-                ),
             },
             file_fields={"source": [("Markdown", "*.md")]},
         )
@@ -754,7 +744,6 @@ class MainWindow(tk.Tk):
         content = ContentConfig(**_read_vars(self.content_vars))
 
         home_raw = _read_vars(self.home_vars)
-        home_raw["recent_posts_count"] = int(home_raw["recent_posts_count"])
         home = HomeConfig(**home_raw)
 
         blog_raw = _read_vars(self.blog_vars)

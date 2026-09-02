@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 
@@ -56,8 +56,6 @@ class HomeConfig:
     enabled: bool = True
     source: str = "content/pages/accueil.md"
     layout: str = "home"
-    show_recent_posts: bool = True
-    recent_posts_count: int = 5
 
 
 @dataclass(slots=True)
@@ -201,7 +199,7 @@ class ProjectConfig:
         banner = BannerConfig(**_dict_or_empty(raw.get("banner")))
         paths = PathsConfig(**_dict_or_empty(raw.get("paths")))
         content = ContentConfig(**_dict_or_empty(raw.get("content")))
-        home = HomeConfig(**_dict_or_empty(raw.get("home")))
+        home = HomeConfig(**_filtered_fields(HomeConfig, _dict_or_empty(raw.get("home"))))
         blog = BlogConfig(**_dict_or_empty(raw.get("blog")))
         render = RenderConfig(**_dict_or_empty(raw.get("render")))
         media_handling = MediaHandlingConfig(**_dict_or_empty(raw.get("media_handling")))
@@ -232,6 +230,13 @@ def _dict_or_empty(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {}
+
+
+def _filtered_fields(dataclass_type: type, raw: dict[str, Any]) -> dict[str, Any]:
+    """Drop keys with no matching field, so removed/renamed settings in an
+    older site.json don't break loading."""
+    known = {f.name for f in fields(dataclass_type)}
+    return {key: value for key, value in raw.items() if key in known}
 
 
 def _menus_from_dict(raw: dict[str, Any]) -> MenusConfig:

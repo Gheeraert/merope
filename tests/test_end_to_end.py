@@ -83,8 +83,6 @@ def test_end_to_end_minimal_project_with_image_note_archive_and_home(monkeypatch
     assert '<p class="article-meta"><time datetime="2026-04-23">2026-04-23</time></p>' in post_html
     assert 'href="../../index.html"' in post_html
     assert 'href="../index.html"' in post_html
-    assert 'href="billets/premier-billet/index.html"' in index_html
-    assert 'href="/billets/premier-billet/index.html"' not in index_html
     assert 'href="premier-billet/index.html"' in archive_html
     assert 'href="/billets/premier-billet/index.html"' not in archive_html
     assert "archive-date" in archive_html
