@@ -475,6 +475,10 @@ button:focus-visible {
   border-radius: var(--radius);
   padding: 2rem clamp(1.2rem, 3vw, 2.8rem);
   order: 2;
+  /* A pasted URL or other unbroken run of characters has no spaces to
+     wrap on; without this it keeps its own width and spills past the
+     white box's right edge instead of breaking onto the next line. */
+  overflow-wrap: break-word;
 }
 
 /* Left-anchored, not centered: on a wide screen a centered 780px column
@@ -827,6 +831,7 @@ button:focus-visible {
 
 .recent-posts-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.75rem;
 }
 
