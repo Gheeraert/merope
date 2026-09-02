@@ -379,6 +379,21 @@ class ContentEditorWindow(tk.Toplevel):
         self._toolbar_fonts: list[tkfont.Font] = []
         self._find_dialog: FindReplaceDialog | None = None
 
+        # -- unified undo/redo (see _on_text_modified / _perform_undo) -----
+        # Tk's own ``-undo`` mechanism only tracks insert/delete, never
+        # tag_add/tag_remove — so a pure formatting change (bold, heading,
+        # alignment...) is otherwise silently impossible to undo. This
+        # stack sits alongside Tk's, recording either an opaque "text"
+        # marker (delegated to text.edit_undo/edit_redo) or an explicit
+        # ("format", undo_fn, redo_fn) entry pushed by the formatting
+        # toggles below, so Ctrl+Z/Ctrl+Y walk both kinds of change in the
+        # single chronological order the user actually made them.
+        self._undo_stack: list[tuple] = []
+        self._redo_stack: list[tuple] = []
+        self._current_edit_kind: str | None = None
+        self._last_char_count = 0
+        self._suppress_undo_tracking = False
+
         self._build_ui()
         self._refresh_file_list()
 
@@ -495,6 +510,15 @@ class ContentEditorWindow(tk.Toplevel):
             b.pack(side="left", padx=1)
             add_tooltip(b, f"Titre de niveau {level} pour la ligne courante.")
 
+        p_button = ttk.Button(toolbar_row1, text="P", width=3, command=self._set_paragraph_normal)
+        p_button.pack(side="left", padx=1)
+        add_tooltip(
+            p_button,
+            "Paragraphe normal : retire la mise en forme de titre, citation ou liste "
+            "de la ligne courante (ou de la sélection) pour revenir à un paragraphe "
+            "simple.",
+        )
+
         ttk.Separator(toolbar_row1, orient="vertical").pack(side="left", fill="y", padx=4)
 
         block_buttons = [
@@ -610,6 +634,12 @@ class ContentEditorWindow(tk.Toplevel):
         text_frame = ttk.Frame(vertical_paned)
         vertical_paned.add(text_frame, weight=5)
         self.text = tk.Text(text_frame, wrap="word", undo=True, font=("TkDefaultFont", 11))
+        # Clicking a toolbar button moves keyboard focus away from the text
+        # widget, and Tk's default "inactiveselectbackground" is pale/absent
+        # on most themes — the selection is still there, it just visually
+        # looks deselected right when the user applies a format to it. Keep
+        # it exactly as visible whether or not the widget has focus.
+        self.text.configure(inactiveselectbackground=self.text.cget("selectbackground"))
         text_scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=self.text.yview)
         self.text.configure(yscrollcommand=text_scrollbar.set)
         text_scrollbar.pack(side="right", fill="y")
@@ -625,6 +655,7 @@ class ContentEditorWindow(tk.Toplevel):
         self._configure_tags()
         self._init_zoom()
         self.text.bind("<KeyRelease>", self._on_key_release, add="+")
+        self.text.bind("<<Modified>>", self._on_text_modified)
         self.text.bind("<<Paste>>", self._on_paste)
         self.text.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
         self.text.bind("<Control-b>", self._shortcut_bold)
@@ -747,18 +778,107 @@ class ContentEditorWindow(tk.Toplevel):
         return "break"
 
     def _shortcut_undo(self, _event: tk.Event) -> str:
-        try:
-            self.text.edit_undo()
-        except tk.TclError:
-            pass
+        self._perform_undo()
         return "break"
 
     def _shortcut_redo(self, _event: tk.Event) -> str:
-        try:
-            self.text.edit_redo()
-        except tk.TclError:
-            pass
+        self._perform_redo()
         return "break"
+
+    # -- unified undo/redo ---------------------------------------------------
+
+    def _char_count(self) -> int:
+        return int(self.text.count("1.0", "end", "chars")[0])
+
+    def _on_text_modified(self, _event: tk.Event | None = None) -> None:
+        """Track every insert/delete as one coalesced "text" marker on our
+        own undo stack, so it interleaves in the right order with the
+        "format" markers pushed by :meth:`_push_format_undo`. Consecutive
+        edits of the same kind (insert-only, or delete-only) are folded
+        into a single marker, matching how Tk itself groups them into one
+        native undo step (a switch between inserting and deleting — or an
+        explicit ``edit_separator()`` — is what starts a new Tk group).
+        """
+        if not self.text.edit_modified():
+            return
+        self.text.edit_modified(False)
+        new_count = self._char_count()
+        if self._suppress_undo_tracking:
+            self._last_char_count = new_count
+            self._current_edit_kind = None
+            return
+        if new_count > self._last_char_count:
+            kind = "insert"
+        elif new_count < self._last_char_count:
+            kind = "delete"
+        else:
+            kind = self._current_edit_kind or "insert"
+        if kind != self._current_edit_kind:
+            self._undo_stack.append(("text",))
+            self._redo_stack.clear()
+        self._current_edit_kind = kind
+        self._last_char_count = new_count
+
+    def _push_format_undo(self, undo_fn, redo_fn) -> None:
+        """Record a pure formatting change (no character inserted/deleted)
+        so it can be undone/redone alongside ordinary text edits.
+
+        ``tag_add``/``tag_remove`` are invisible to Tk's own undo stack, so
+        without an explicit separator here Tk would happily merge an insert
+        made *before* this formatting change with one made *after* it into
+        a single native undo group (nothing it saw told it they were
+        different actions) — then a single Ctrl+Z on our "text" marker for
+        the second insert would silently also erase the first, unrelated
+        one. The separator keeps Tk's own grouping in sync with ours.
+        """
+        self.text.edit_separator()
+        self._undo_stack.append(("format", undo_fn, redo_fn))
+        self._redo_stack.clear()
+        self._current_edit_kind = None
+
+    def _perform_undo(self) -> None:
+        if not self._undo_stack:
+            return
+        entry = self._undo_stack.pop()
+        if entry[0] == "text":
+            try:
+                self.text.edit_undo()
+            except tk.TclError:
+                pass
+        else:
+            entry[1]()
+        self._redo_stack.append(entry)
+        self._current_edit_kind = None
+        self._last_char_count = self._char_count()
+
+    def _perform_redo(self) -> None:
+        if not self._redo_stack:
+            return
+        entry = self._redo_stack.pop()
+        if entry[0] == "text":
+            try:
+                self.text.edit_redo()
+            except tk.TclError:
+                pass
+        else:
+            entry[2]()
+        self._undo_stack.append(entry)
+        self._current_edit_kind = None
+        self._last_char_count = self._char_count()
+
+    def _mark_range(self, start: str, end: str) -> tuple[str, str]:
+        """Turn a snapshot of a "start"/"end" index pair into a pair of Tk
+        marks, so a formatting undo/redo closure captured now still points
+        at the right text later even if unrelated edits before it have
+        since shifted line/column numbers.
+        """
+        self._tag_counter += 1
+        mark_start, mark_end = f"_undo_start_{self._tag_counter}", f"_undo_end_{self._tag_counter}"
+        self.text.mark_set(mark_start, start)
+        self.text.mark_gravity(mark_start, "left")
+        self.text.mark_set(mark_end, end)
+        self.text.mark_gravity(mark_end, "right")
+        return mark_start, mark_end
 
     def _open_find(self) -> None:
         self._show_find_dialog(show_replace=False)
@@ -841,6 +961,7 @@ class ContentEditorWindow(tk.Toplevel):
             note_text = tk.Text(
                 row, height=2, wrap="word", undo=True, font=self._notes_font
             )
+            note_text.configure(inactiveselectbackground=note_text.cget("selectbackground"))
             self._configure_note_tags(note_text)
             self._populate_note_widget(note_text, self.footnote_definitions[note_id])
             note_text.pack(side="left", fill="x", expand=True, padx=4)
@@ -1516,6 +1637,10 @@ class ContentEditorWindow(tk.Toplevel):
         self._quote_parity_opening = True
         self._refresh_notes_panel()
         self.text.edit_reset()
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._current_edit_kind = None
+        self._last_char_count = self._char_count()
 
     def _destroy_embedded_images(self) -> None:
         # Text.delete() does not destroy windows embedded via window_create;
@@ -1557,10 +1682,19 @@ class ContentEditorWindow(tk.Toplevel):
             return
         start, end = selected
         fully_tagged = all(tag in self.text.tag_names(idx) for idx in self._char_indices(start, end))
+        mark_start, mark_end = self._mark_range(start, end)
         if fully_tagged:
             self.text.tag_remove(tag, start, end)
+            self._push_format_undo(
+                lambda: self.text.tag_add(tag, mark_start, mark_end),
+                lambda: self.text.tag_remove(tag, mark_start, mark_end),
+            )
         else:
             self.text.tag_add(tag, start, end)
+            self._push_format_undo(
+                lambda: self.text.tag_remove(tag, mark_start, mark_end),
+                lambda: self.text.tag_add(tag, mark_start, mark_end),
+            )
 
     def _char_indices(self, start: str, end: str):
         count = int(self.text.count(start, end, "chars")[0])
@@ -1584,13 +1718,62 @@ class ContentEditorWindow(tk.Toplevel):
 
     def _toggle_line_tag(self, tag: str) -> None:
         start_line, end_line = self._selected_lines()
+        changes: list[tuple[str, str, set[str], set[str]]] = []
         for line in range(start_line, end_line + 1):
             line_start, line_end = f"{line}.0", f"{line}.end"
-            already = tag in self.text.tag_names(line_start)
+            before = set(self.text.tag_names(line_start)) & _BLOCK_LINE_TAGS
+            already = tag in before
             for existing in _BLOCK_LINE_TAGS:
                 self.text.tag_remove(existing, line_start, line_end)
+            after: set[str] = set()
             if not already:
                 self.text.tag_add(tag, line_start, line_end)
+                after = {tag}
+            changes.append((line_start, line_end, before, after))
+        self._push_line_tag_undo(_BLOCK_LINE_TAGS, changes)
+
+    def _set_paragraph_normal(self) -> None:
+        """Clear the block-level formatting (heading/citation/liste) of the
+        selected (or current) lines, back to a plain paragraph — the
+        counterpart to the H1-H4/citation/liste buttons, none of which can
+        otherwise be turned back off once applied.
+        """
+        start_line, end_line = self._selected_lines()
+        changes: list[tuple[str, str, set[str], set[str]]] = []
+        for line in range(start_line, end_line + 1):
+            line_start, line_end = f"{line}.0", f"{line}.end"
+            before = set(self.text.tag_names(line_start)) & _BLOCK_LINE_TAGS
+            if not before:
+                continue
+            for existing in _BLOCK_LINE_TAGS:
+                self.text.tag_remove(existing, line_start, line_end)
+            changes.append((line_start, line_end, before, set()))
+        self._push_line_tag_undo(_BLOCK_LINE_TAGS, changes)
+
+    def _push_line_tag_undo(
+        self, tag_universe: set[str] | tuple[str, ...], changes: list[tuple[str, str, set[str], set[str]]]
+    ) -> None:
+        """Record one combined undo/redo entry covering every line touched
+        by a single toolbar action (e.g. a multi-line selection turned into
+        a blockquote), so undoing it is a single Ctrl+Z rather than one per
+        line.
+        """
+        marked = [
+            (self._mark_range(line_start, line_end), before, after)
+            for line_start, line_end, before, after in changes
+            if before != after
+        ]
+        if not marked:
+            return
+
+        def apply(use_before: bool) -> None:
+            for (mark_start, mark_end), before, after in marked:
+                for existing in tag_universe:
+                    self.text.tag_remove(existing, mark_start, mark_end)
+                for t in before if use_before else after:
+                    self.text.tag_add(t, mark_start, mark_end)
+
+        self._push_format_undo(lambda: apply(True), lambda: apply(False))
 
     def _new_tag(self, prefix: str) -> str:
         self._tag_counter += 1
@@ -1621,12 +1804,18 @@ class ContentEditorWindow(tk.Toplevel):
         is simply the absence of any ``_ALIGN_TAGS`` member.
         """
         start_line, end_line = self._selected_lines()
+        changes: list[tuple[str, str, set[str], set[str]]] = []
         for line in range(start_line, end_line + 1):
             line_start, line_end = f"{line}.0", f"{line}.end"
+            before = set(self.text.tag_names(line_start)) & set(_ALIGN_TAGS)
             for existing in _ALIGN_TAGS:
                 self.text.tag_remove(existing, line_start, line_end)
+            after: set[str] = set()
             if alignment != "left":
                 self.text.tag_add(f"align_{alignment}", line_start, line_end)
+                after = {f"align_{alignment}"}
+            changes.append((line_start, line_end, before, after))
+        self._push_line_tag_undo(_ALIGN_TAGS, changes)
 
     def _line_alignment(self, line: int) -> str:
         tags = set(self.text.tag_names(f"{line}.0"))
@@ -1914,6 +2103,7 @@ class ContentEditorWindow(tk.Toplevel):
     # -- population (Block model -> Text widget) ---------------------------
 
     def _populate_from_blocks(self, blocks: list[Block]) -> None:
+        self._suppress_undo_tracking = True
         self._destroy_embedded_images()
         self.text.delete("1.0", "end")
         self.footnote_definitions.clear()
@@ -1935,6 +2125,11 @@ class ContentEditorWindow(tk.Toplevel):
         self._quote_parity_opening = True
         self._refresh_notes_panel()
         self.text.edit_reset()
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._current_edit_kind = None
+        self._last_char_count = self._char_count()
+        self._suppress_undo_tracking = False
 
     def _insert_block(self, block: Block) -> None:
         if block.kind == PARAGRAPH:
