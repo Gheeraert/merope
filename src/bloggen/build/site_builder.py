@@ -23,6 +23,7 @@ from bloggen.render.html_templates import (
     render_archive_fragment,
     render_external_link_fragment,
     render_page_document,
+    render_recent_posts_fragment,
 )
 from bloggen.render.theme import load_custom_template
 from bloggen.render.lightbox import apply_lightbox_markup
@@ -376,14 +377,13 @@ def _generate_home_page(
     output_root: Path,
     report: BuildReport,
 ) -> None:
-    if not config.home.enabled:
-        return
-
     if config.home.mode == "recent_posts":
         title = config.site.title
         count = max(config.home.recent_posts_count, 0)
-        recent_items = [(item.title, item.url, item.date) for item in posts[:count]]
-        content = render_archive_fragment(
+        recent_items = [
+            (item.title, item.url, item.date, item.content_html) for item in posts[:count]
+        ]
+        content = render_recent_posts_fragment(
             config.home.recent_posts_title,
             recent_items,
             current_path="/index.html",
@@ -493,9 +493,8 @@ def _generate_feed_and_sitemap(
 
     if want_sitemap:
         urls: list[tuple[str, str | None]] = []
-        if config.home.enabled:
-            home_lastmod = posts[0].date if posts else None
-            urls.append(("/index.html", home_lastmod))
+        home_lastmod = posts[0].date if posts else None
+        urls.append(("/index.html", home_lastmod))
         if config.blog.enabled and config.blog.generate_archive_page:
             archive_path = config.blog.archive_path.strip("/") or "billets"
             archive_lastmod = posts[0].date if posts else None

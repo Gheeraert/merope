@@ -173,6 +173,46 @@ def render_archive_fragment(
     )
 
 
+def render_recent_posts_fragment(
+    title: str,
+    items: list[tuple[str, str, str | None, str]],
+    *,
+    current_path: str,
+) -> str:
+    """Home page content for the "derniers billets" mode: full post bodies.
+
+    ``items`` are ``(title, url, date, content_html)`` tuples, most recent
+    first — the home page shows the integral content of each recent post
+    (not just a title list), so readers can read without leaving the page.
+    """
+    if items:
+        entries_parts: list[str] = []
+        for label, url, date, content_html in items:
+            resolved = resolve_navigation_href(url, current_path=current_path)
+            date_html = (
+                f'<time class="recent-post-date" datetime="{escape(date)}">{escape(date)}</time>'
+                if date
+                else ""
+            )
+            entries_parts.append(
+                '<section class="recent-post">'
+                f'<h2 class="recent-post-title"><a href="{escape(resolved)}">{escape(label)}</a></h2>'
+                f"{date_html}"
+                f'<div class="recent-post-body">{content_html}</div>'
+                "</section>"
+            )
+        entries = "".join(entries_parts)
+    else:
+        entries = '<p class="recent-posts-empty">Aucun billet publié.</p>'
+
+    return (
+        '<article class="home-recent-posts">'
+        f"<h1>{escape(title)}</h1>"
+        f'<div class="recent-posts-list">{entries}</div>'
+        "</article>"
+    )
+
+
 def _normalize_archive_item(
     item: tuple[str, str] | tuple[str, str, str | None],
 ) -> tuple[str, str, str | None]:

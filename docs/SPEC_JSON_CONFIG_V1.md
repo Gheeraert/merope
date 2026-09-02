@@ -61,8 +61,8 @@ Réglages du contenu source :
 - copie des assets liés
 
 ### `home`
-Réglages page d’accueil :
-- activation
+Réglages page d’accueil (toujours générée) :
+- mode (page fixe ou derniers billets, texte intégral)
 - source
 - layout
 

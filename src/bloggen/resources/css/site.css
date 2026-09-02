@@ -111,14 +111,15 @@ button:focus-visible {
   font-family: "IM Fell English", var(--font-ui);
   font-weight: 700;
   letter-spacing: 0.03em;
-  font-size: clamp(1.1rem, 2.5vw, 1.8rem);
+  font-size: clamp(1.49rem, 2.9vw, 2.19rem);
 }
 
 .banner-subtitle {
   font-family: "IM Fell English", var(--font-ui);
   font-weight: 400;
+  font-style: italic;
   letter-spacing: 0.02em;
-  font-size: clamp(0.75rem, 1.5vw, 1rem);
+  font-size: clamp(1.14rem, 1.9vw, 1.39rem);
 }
 
 .masthead {
@@ -818,6 +819,52 @@ button:focus-visible {
   color: var(--muted);
   list-style: none;
   margin-left: -1.2rem;
+}
+
+.home-recent-posts h1 {
+  margin-top: 0;
+}
+
+.recent-posts-list {
+  display: grid;
+  gap: 1.75rem;
+}
+
+.recent-post {
+  padding-bottom: 1.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.recent-post:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.recent-post-title {
+  margin: 0 0 0.2rem;
+}
+
+.recent-post-title a {
+  color: inherit;
+}
+
+.recent-post-date {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  margin-bottom: 0.6rem;
+}
+
+.recent-post-body {
+  margin-top: 0.5rem;
+}
+
+.recent-posts-empty {
+  color: var(--muted);
 }
 
 .site-footer {

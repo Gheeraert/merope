@@ -471,13 +471,7 @@ class MainWindow(tk.Tk):
             foreground="#444444",
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 10))
 
-        enabled_var = tk.BooleanVar(value=True)
-        self.home_vars["enabled"] = enabled_var
-        enabled_check = ttk.Checkbutton(frame, text="Activer accueil", variable=enabled_var)
-        enabled_check.grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=4)
-        add_tooltip(enabled_check, "Si désactivé, aucune page d'accueil n'est générée.")
-
-        ttk.Label(frame, text="Mode").grid(row=2, column=0, sticky="w", padx=8, pady=4)
+        ttk.Label(frame, text="Type de page d'accueil").grid(row=1, column=0, sticky="w", padx=8, pady=4)
         self.home_mode_var = tk.StringVar(value=_HOME_MODE_LABELS[_HOME_MODE_PAGE])
         mode_combo = ttk.Combobox(
             frame,
@@ -486,13 +480,13 @@ class MainWindow(tk.Tk):
             state="readonly",
             width=_FIELD_WIDTH - 3,
         )
-        mode_combo.grid(row=2, column=1, sticky="w", padx=8, pady=4)
+        mode_combo.grid(row=1, column=1, sticky="w", padx=8, pady=4)
         mode_combo.bind("<<ComboboxSelected>>", lambda _e: self._on_home_mode_changed())
         add_tooltip(
             mode_combo,
             "Page fixe : le contenu d'accueil vient d'un fichier Markdown que vous rédigez.\n"
-            "Derniers billets publiés : la page d'accueil liste automatiquement les billets "
-            "les plus récents, en commençant par le dernier publié.",
+            "Derniers billets publiés : la page d'accueil affiche automatiquement le texte "
+            "intégral des billets les plus récents, en commençant par le dernier publié.",
         )
 
         self.home_page_frame = ttk.Frame(frame)
@@ -538,19 +532,22 @@ class MainWindow(tk.Tk):
         count_label.grid(row=0, column=0, sticky="w", padx=8, pady=4)
         count_entry = ttk.Entry(self.home_recent_frame, textvariable=count_var, width=_FIELD_WIDTH)
         count_entry.grid(row=0, column=1, sticky="w", padx=8, pady=4)
-        count_help = "Nombre de billets récents affichés sur la page d'accueil, du plus récent au plus ancien.\nExemple : 5"
+        count_help = (
+            "Nombre de billets récents affichés en texte intégral sur la page d'accueil, "
+            "du plus récent au plus ancien.\nExemple : 5"
+        )
         add_tooltip(count_label, count_help)
         add_tooltip(count_entry, count_help)
 
         recent_title_var = tk.StringVar(value="Derniers billets")
         self.home_vars["recent_posts_title"] = recent_title_var
-        recent_title_label = ttk.Label(self.home_recent_frame, text="Titre de la liste")
+        recent_title_label = ttk.Label(self.home_recent_frame, text="Titre de la page")
         recent_title_label.grid(row=1, column=0, sticky="w", padx=8, pady=4)
         recent_title_entry = ttk.Entry(
             self.home_recent_frame, textvariable=recent_title_var, width=_FIELD_WIDTH
         )
         recent_title_entry.grid(row=1, column=1, sticky="w", padx=8, pady=4)
-        recent_title_help = "Titre affiché au-dessus de la liste des derniers billets.\nExemple : Derniers billets"
+        recent_title_help = "Titre affiché en haut de la page d'accueil.\nExemple : Derniers billets"
         add_tooltip(recent_title_label, recent_title_help)
         add_tooltip(recent_title_entry, recent_title_help)
 

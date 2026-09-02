@@ -110,18 +110,17 @@ Le contenu de l'article commence ici...
 ## 5. Accueil
 *Configuration de la page d'accueil du site (`index.html`).*
 
-Le champ **Mode** choisit comment la page d'accueil est construite :
+La page d'accueil est toujours générée. Le champ **Type de page d'accueil** choisit comment elle est construite :
 - **Page fixe (Markdown)** : le contenu vient d'un fichier Markdown que vous rédigez (comportement historique).
-- **Derniers billets publiés** : la page d'accueil liste automatiquement les billets les plus récents, du dernier publié au plus ancien — pas de fichier Markdown à entretenir.
+- **Derniers billets publiés** : la page d'accueil affiche automatiquement le texte intégral des billets les plus récents, du dernier publié au plus ancien — pas de fichier Markdown à entretenir.
 
 | Champ | Ce qu'on y met | Exemple | Mode concerné |
 |---|---|---|---|
-| Activer accueil | Si décoché, aucune page d'accueil n'est générée. | — | les deux |
-| Mode | Page fixe ou Derniers billets publiés. | — | les deux |
+| Type de page d'accueil | Page fixe ou Derniers billets publiés. | — | les deux |
 | Source accueil | Fichier Markdown utilisé comme contenu de l'accueil. | `content/pages/accueil.md` | Page fixe |
 | Layout accueil | Gabarit HTML utilisé pour l'accueil. | `home` | Page fixe |
-| Nombre de billets affichés | Combien de billets récents afficher sur l'accueil. | `5` | Derniers billets publiés |
-| Titre de la liste | Titre affiché au-dessus de la liste des billets. | `Derniers billets` | Derniers billets publiés |
+| Nombre de billets affichés | Combien de billets récents afficher, en texte intégral, sur l'accueil. | `5` | Derniers billets publiés |
+| Titre de la page | Titre affiché en haut de la page d'accueil. | `Derniers billets` | Derniers billets publiés |
 
 ## 6. Blog
 *Comportement de la section « blog » : liste chronologique des billets et page d'archive.*
