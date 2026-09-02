@@ -542,17 +542,27 @@ def resolve_project_root(config: ProjectConfig, config_path: Path | None) -> Pat
 
     candidates: list[Path] = []
     if config_path is not None:
+        # A config file on disk anchors the project root: never fall through
+        # to the current working directory, or a stray content/ folder left
+        # over wherever the app happens to be launched from silently steals
+        # every save (see the bug this guards against).
         resolved = config_path.resolve()
         candidates.append(resolved.parent)
         candidates.append(resolved.parent.parent)
-    candidates.append(Path.cwd())
+    else:
+        candidates.append(Path.cwd())
 
     for base in candidates:
         candidate = (base / configured).resolve()
         if (candidate / config.paths.content_dir).exists() or (candidate / config.paths.pages_dir).exists():
             return candidate
 
-    return (candidates[0] / configured).resolve()
+    # Nothing on disk yet to confirm against (a config saved before any
+    # content directory was created): default to the scaffold's own layout,
+    # config_path.parent.parent (project_root/config/site.json), falling
+    # back to config_path.parent when config_path is None.
+    default_base = candidates[-1] if config_path is not None else candidates[0]
+    return (default_base / configured).resolve()
 
 
 def _resolve_xslt_path(config: ProjectConfig, project_root: Path) -> Path | None:

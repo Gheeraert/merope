@@ -1,7 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from bloggen.build.site_builder import build_site, resolve_project_root
-from bloggen.config.io import load_config
+from bloggen.config.io import load_config, save_config
+from bloggen.config.defaults import build_default_config
 from bloggen.config.scaffold import create_new_project
 from bloggen.content.loader import load_content
 
@@ -70,3 +73,28 @@ def test_scaffolded_project_builds_successfully(tmp_path: Path):
     assert (tmp_path / "site" / "index.html").exists()
     assert (tmp_path / "site" / "bienvenue" / "index.html").exists()
     assert (tmp_path / "site" / "billets" / "premier-billet" / "index.html").exists()
+
+
+def test_resolve_project_root_never_falls_back_to_cwd_once_config_path_is_known(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A loaded/saved config always anchors the project root to its own
+    location on disk, even before content/pages exists there yet — it must
+    never wander off to wherever the app process happens to be launched
+    from, even if that directory coincidentally has a content/pages/ of its
+    own (e.g. a stray leftover from an earlier run of the app itself)."""
+    real_project = tmp_path / "real_project"
+    real_project.mkdir()
+    config_path = real_project / "config" / "site.json"
+    config_path.parent.mkdir()
+    config = build_default_config()
+    config.paths.project_root = "."
+    save_config(config, config_path)
+
+    decoy_cwd = tmp_path / "decoy_cwd"
+    (decoy_cwd / "content" / "pages").mkdir(parents=True)
+    monkeypatch.chdir(decoy_cwd)
+
+    project_root = resolve_project_root(config, config_path)
+
+    assert project_root == real_project.resolve()
