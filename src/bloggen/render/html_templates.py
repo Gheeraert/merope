@@ -28,6 +28,7 @@ def render_page_document(
     asset_prefix: str,
     article_date: str | None = None,
     suppress_fragment_meta: bool = False,
+    show_title_heading: bool = False,
     description: str | None = None,
     custom_template: str | None = None,
 ) -> str:
@@ -70,6 +71,8 @@ def render_page_document(
         normalized_content = _strip_fragment_article_meta(normalized_content)
     if article_date:
         normalized_content = _inject_article_date(normalized_content, article_date)
+    if show_title_heading:
+        normalized_content = _inject_article_title(normalized_content, title)
 
     if custom_template:
         return Template(custom_template).safe_substitute(
@@ -378,3 +381,23 @@ def _inject_article_date(content_html: str, article_date: str) -> str:
     if article_open.search(content_html):
         return article_open.sub(rf"\1{meta_html}", content_html, count=1)
     return f"{meta_html}{content_html}"
+
+
+def _inject_article_title(content_html: str, title: str) -> str:
+    """Show the billet/page title (from its metadata) as a heading in the body.
+
+    Rendered as H2 by default. If the content already has its own H1 (a
+    top-level TEI div heading, per the XSLT's div-nesting-to-heading-level
+    mapping), using H2 for the title would rank it below that internal
+    heading — so the title takes H1 instead in that case, leaving the
+    internal heading levels untouched.
+    """
+    title_value = (title or "").strip()
+    if not title_value:
+        return content_html
+    heading_tag = "h1" if re.search(r"<h1[\s>]", content_html, flags=re.IGNORECASE) else "h2"
+    title_html = f'<{heading_tag} class="article-title">{escape(title_value)}</{heading_tag}>'
+    article_open = re.compile(r"(<article\b[^>]*>)", flags=re.IGNORECASE)
+    if article_open.search(content_html):
+        return article_open.sub(rf"\1{title_html}", content_html, count=1)
+    return f"{title_html}{content_html}"

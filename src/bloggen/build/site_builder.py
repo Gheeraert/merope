@@ -346,6 +346,7 @@ def _build_single_item(
         asset_prefix=_relative_path(html_path.parent, output_root),
         article_date=article_date,
         suppress_fragment_meta=(item.kind == "post"),
+        show_title_heading=True,
         description=item.metadata.description,
         custom_template=custom_template,
     )
