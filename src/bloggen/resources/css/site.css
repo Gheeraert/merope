@@ -132,8 +132,9 @@ button:focus-visible {
 }
 
 .top-menu {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  margin-left: auto;
 }
 
 .top-menu ul {
@@ -169,7 +170,6 @@ button:focus-visible {
 .site-search {
   position: relative;
   flex: 0 0 auto;
-  margin-left: auto;
   padding-left: 1.5rem;
   font-family: var(--font-ui);
 }
@@ -987,6 +987,11 @@ button:focus-visible {
 }
 
 @media (max-width: 640px) {
+  .top-menu {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+
   .top-menu ul {
     gap: 0.9rem;
     font-size: 0.75rem;
