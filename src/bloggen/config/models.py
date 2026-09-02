@@ -174,6 +174,22 @@ class SearchConfig:
 
 
 @dataclass(slots=True)
+class FtpConfig:
+    """Publishing settings for the FTP/FTPS transfer of the generated site.
+    The password is stored in clear text in the project's JSON config, at
+    least for now — see the FTP publish dialog in the UI."""
+
+    host: str = ""
+    port: int = 21
+    username: str = ""
+    password: str = ""
+    remote_dir: str = "/"
+    use_tls: bool = False
+    passive_mode: bool = True
+    site_url: str = ""
+
+
+@dataclass(slots=True)
 class ProjectConfig:
     version: str = "1.0"
     site: SiteConfig = field(default_factory=SiteConfig)
@@ -189,6 +205,7 @@ class ProjectConfig:
     footer: FooterConfig = field(default_factory=FooterConfig)
     build: BuildConfig = field(default_factory=BuildConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
+    ftp: FtpConfig = field(default_factory=FtpConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -207,6 +224,7 @@ class ProjectConfig:
         footer = FooterConfig(**_dict_or_empty(raw.get("footer")))
         build = BuildConfig(**_dict_or_empty(raw.get("build")))
         search = SearchConfig(**_dict_or_empty(raw.get("search")))
+        ftp = FtpConfig(**_filtered_fields(FtpConfig, _dict_or_empty(raw.get("ftp"))))
         menus = _menus_from_dict(_dict_or_empty(raw.get("menus")))
         return cls(
             version=str(raw.get("version", "1.0")),
@@ -223,6 +241,7 @@ class ProjectConfig:
             footer=footer,
             build=build,
             search=search,
+            ftp=ftp,
         )
 
 

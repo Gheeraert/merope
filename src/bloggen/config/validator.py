@@ -64,6 +64,8 @@ BOOLEAN_FIELDS: tuple[tuple[str, str], ...] = (
     ("build", "generate_sitemap"),
     ("build", "generate_robots_txt"),
     ("search", "enabled"),
+    ("ftp", "use_tls"),
+    ("ftp", "passive_mode"),
 )
 
 

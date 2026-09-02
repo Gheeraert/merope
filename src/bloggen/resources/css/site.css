@@ -104,7 +104,6 @@ button:focus-visible {
   padding: 0.3rem 0.8rem;
   background: rgba(0, 0, 0, 0.35);
   color: #fff;
-  text-transform: lowercase;
   border-radius: var(--radius);
 }
 
@@ -296,12 +295,21 @@ button:focus-visible {
   position: relative;
 }
 
+/* Muted by default, like every other first-level menu item — only a
+   plain heading (no link target of its own) picks up .side-menu h3's
+   color directly, so without this it would sit permanently "lit up"
+   next to the other top-level items, which only brighten on hover. */
 .side-menu h3 {
   margin: 0 0 0.5rem;
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+  color: var(--header-text-muted);
+}
+
+.side-menu-section:hover > h3,
+.side-menu-section:focus-within > h3 {
   color: var(--header-text);
 }
 
@@ -460,9 +468,16 @@ button:focus-visible {
   order: 2;
 }
 
+/* Left-anchored, not centered: on a wide screen a centered 780px column
+   splits the leftover space evenly, so the reading column drifts away
+   from the side menu and looks adrift in the middle of the page. Keeping
+   it flush left (against the side menu) and pushing all the slack into
+   the right margin instead reads as a normal page margin, not dead
+   space, and it's also what leaves room for the margin-notes gutter
+   further right on very wide screens (see the 1640px rule below). */
 .main-content > * {
   max-width: var(--content-max-width);
-  margin-left: auto;
+  margin-left: 0;
   margin-right: auto;
 }
 
@@ -504,11 +519,17 @@ button:focus-visible {
 }
 
 .tei-fragment h2 {
-  font-size: clamp(1.15rem, 1.7vw, 1.35rem);
+  font-size: 1.17rem; /* +2pt vs. le corps de texte (1rem = 12pt) */
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-variant: small-caps;
+  text-transform: none;
 }
 
 .tei-fragment h3 {
-  font-size: 1.2rem;
+  font-size: 1.37rem; /* +2pt vs. la taille précédente (1.2rem) */
+  font-weight: 400;
+  font-variant: small-caps;
 }
 
 .tei-fragment p {

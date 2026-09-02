@@ -16,6 +16,7 @@ from bloggen.config.models import (
     BuildConfig,
     ContentConfig,
     FooterConfig,
+    FtpConfig,
     HomeConfig,
     MenusConfig,
     PathsConfig,
@@ -28,6 +29,7 @@ from bloggen.config.validator import validate_config_model
 from bloggen.content.writer import list_content_targets
 from bloggen.ui.banner_panel import BannerPanel
 from bloggen.ui.content_editor import ContentEditorWindow
+from bloggen.ui.ftp_publish_dialog import FtpPublishDialog
 from bloggen.ui.media_panel import MediaPanel
 from bloggen.ui.menu_editor import SideMenuEditor, TopMenuEditor
 from bloggen.ui.notes_panel import NotesPanel
@@ -42,6 +44,7 @@ class MainWindow(tk.Tk):
         self.geometry("1100x760")
         self.current_config_path: Path | None = None
         self._site_preview_server = SitePreviewServer()
+        self._ftp_config = FtpConfig()
         self._build_ui()
         self.new_config()
 
@@ -551,12 +554,23 @@ class MainWindow(tk.Tk):
         )
 
         generate_button = ttk.Button(toolbar, text="Générer le site", command=self.generate_site)
-        generate_button.pack(side="left")
+        generate_button.pack(side="left", padx=(0, 6))
         add_tooltip(
             generate_button,
             "Construit le site HTML à partir de la configuration actuelle et du "
             "contenu présent dans les dossiers configurés (équivalent à Actions > "
             "Générer le site).",
+        )
+
+        publish_button = ttk.Button(
+            toolbar, text="Publier (FTP)...", command=self.publish_site_ftp
+        )
+        publish_button.pack(side="left")
+        add_tooltip(
+            publish_button,
+            "Transfère le site déjà généré vers un serveur distant par FTP ou "
+            "FTPS. Le site doit avoir été généré au préalable avec « Générer "
+            "le site ».",
         )
 
     def new_config(self) -> None:
@@ -671,6 +685,41 @@ class MainWindow(tk.Tk):
                 f"Impossible de démarrer le serveur local pour l'aperçu :\n{exc}",
             )
 
+    def publish_site_ftp(self) -> None:
+        try:
+            config = self._collect_from_form()
+            errors = validate_config_model(config)
+            if errors:
+                raise ConfigValidationError(errors)
+        except (ConfigValidationError, OSError, ValueError) as exc:
+            messagebox.showerror("Erreur de configuration", str(exc))
+            return
+
+        project_root = resolve_project_root(config, self.current_config_path)
+        output_dir = (project_root / config.paths.output_dir).resolve()
+        if not output_dir.is_dir() or not any(output_dir.iterdir()):
+            messagebox.showwarning(
+                "Publier le site",
+                "Aucun site généré n'a été trouvé. Utilisez d'abord « Générer le "
+                "site », puis publiez-le.",
+            )
+            return
+
+        def on_ftp_config_changed(ftp_config: FtpConfig) -> None:
+            self._ftp_config = ftp_config
+            if self.current_config_path is not None:
+                try:
+                    save_config(self._collect_from_form(), self.current_config_path)
+                except (ConfigValidationError, OSError, ValueError):
+                    pass
+
+        FtpPublishDialog(
+            self,
+            ftp_config=self._ftp_config,
+            output_dir=output_dir,
+            on_config_changed=on_ftp_config_changed,
+        )
+
     def _list_menu_link_targets(self) -> list[tuple[str, str]]:
         """Fresh (label, url) pairs for the menu-entry dialog's internal-link
         picker, re-scanned on every call since the Paths/Blog tabs can change
@@ -737,6 +786,7 @@ class MainWindow(tk.Tk):
         _set_vars_partial(self.build_vars, config.build)
         self.build_vars["search_enabled"].set(config.search.enabled)
         self.build_vars["search_excerpt_length"].set(str(config.search.excerpt_length))
+        self._ftp_config = config.ftp
 
     def _collect_from_form(self) -> ProjectConfig:
         site = SiteConfig(**_read_vars(self.site_vars))
@@ -781,6 +831,7 @@ class MainWindow(tk.Tk):
             footer=footer,
             build=build,
             search=search,
+            ftp=self._ftp_config,
         )
 
 
