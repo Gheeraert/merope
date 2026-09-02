@@ -54,8 +54,11 @@ class ContentConfig:
 @dataclass(slots=True)
 class HomeConfig:
     enabled: bool = True
+    mode: str = "page"  # "page" (page fixe) ou "recent_posts" (derniers billets)
     source: str = "content/pages/accueil.md"
     layout: str = "home"
+    recent_posts_count: int = 5
+    recent_posts_title: str = "Derniers billets"
 
 
 @dataclass(slots=True)

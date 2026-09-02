@@ -379,16 +379,26 @@ def _generate_home_page(
     if not config.home.enabled:
         return
 
-    home_source = (project_root / config.home.source).resolve()
-    page = next((item for item in pages if item.source.resolve() == home_source), None)
-
-    if page is not None:
-        content = page.content_html
-        title = page.title
-    else:
+    if config.home.mode == "recent_posts":
         title = config.site.title
-        content = "<article><h1>Accueil</h1><p>Page d'accueil non trouvée.</p></article>"
-        report.warnings.append(f"Source home introuvable: {home_source}")
+        count = max(config.home.recent_posts_count, 0)
+        recent_items = [(item.title, item.url, item.date) for item in posts[:count]]
+        content = render_archive_fragment(
+            config.home.recent_posts_title,
+            recent_items,
+            current_path="/index.html",
+        )
+    else:
+        home_source = (project_root / config.home.source).resolve()
+        page = next((item for item in pages if item.source.resolve() == home_source), None)
+
+        if page is not None:
+            content = page.content_html
+            title = page.title
+        else:
+            title = config.site.title
+            content = "<article><h1>Accueil</h1><p>Page d'accueil non trouvée.</p></article>"
+            report.warnings.append(f"Source home introuvable: {home_source}")
 
     index_path = output_root / "index.html"
     custom_template = load_custom_template(project_root, config, config.render.home_template)

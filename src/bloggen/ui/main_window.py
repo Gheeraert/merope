@@ -36,6 +36,14 @@ from bloggen.ui.notes_panel import NotesPanel
 from bloggen.ui.site_preview import SitePreviewServer
 from bloggen.ui.tooltip import add_tooltip
 
+_HOME_MODE_PAGE = "page"
+_HOME_MODE_RECENT = "recent_posts"
+_HOME_MODE_LABELS = {
+    _HOME_MODE_PAGE: "Page fixe (Markdown)",
+    _HOME_MODE_RECENT: "Derniers billets publiés",
+}
+_HOME_MODE_VALUES = {label: value for value, label in _HOME_MODE_LABELS.items()}
+
 
 class MainWindow(tk.Tk):
     def __init__(self) -> None:
@@ -250,30 +258,7 @@ class MainWindow(tk.Tk):
         )
         self.notebook.add(self.content_tab, text="Contenus")
 
-        self.home_tab, self.home_vars = _create_form_tab(
-            self.notebook,
-            [
-                ("source", "Source accueil", "content/pages/accueil.md"),
-                ("layout", "Layout accueil", "home"),
-            ],
-            bool_fields=[
-                ("enabled", "Activer accueil", True),
-            ],
-            intro="Configuration de la page d'accueil du site (index.html).",
-            help_texts={
-                "source": (
-                    "Chemin (relatif à la racine projet) du fichier Markdown utilisé comme "
-                    "contenu de la page d'accueil.\n"
-                    "Exemple : content/pages/accueil.md"
-                ),
-                "layout": (
-                    "Nom du template HTML utilisé pour la page d'accueil.\n"
-                    "Exemple : home (correspond à theme/templates/home.html)"
-                ),
-                "enabled": "Si désactivé, aucune page d'accueil n'est générée.",
-            },
-            file_fields={"source": [("Markdown", "*.md")]},
-        )
+        self._build_home_tab()
         self.notebook.add(self.home_tab, text="Accueil")
 
         self.blog_tab, self.blog_vars = _create_form_tab(
@@ -472,6 +457,113 @@ class MainWindow(tk.Tk):
             },
         )
         self.notebook.add(self.build_tab, text="Génération")
+
+    def _build_home_tab(self) -> None:
+        frame = ttk.Frame(self.notebook)
+        self.home_tab = frame
+        self.home_vars: dict[str, tk.Variable] = {}
+
+        ttk.Label(
+            frame,
+            text="Configuration de la page d'accueil du site (index.html).",
+            wraplength=680,
+            justify="left",
+            foreground="#444444",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 10))
+
+        enabled_var = tk.BooleanVar(value=True)
+        self.home_vars["enabled"] = enabled_var
+        enabled_check = ttk.Checkbutton(frame, text="Activer accueil", variable=enabled_var)
+        enabled_check.grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        add_tooltip(enabled_check, "Si désactivé, aucune page d'accueil n'est générée.")
+
+        ttk.Label(frame, text="Mode").grid(row=2, column=0, sticky="w", padx=8, pady=4)
+        self.home_mode_var = tk.StringVar(value=_HOME_MODE_LABELS[_HOME_MODE_PAGE])
+        mode_combo = ttk.Combobox(
+            frame,
+            textvariable=self.home_mode_var,
+            values=list(_HOME_MODE_LABELS.values()),
+            state="readonly",
+            width=_FIELD_WIDTH - 3,
+        )
+        mode_combo.grid(row=2, column=1, sticky="w", padx=8, pady=4)
+        mode_combo.bind("<<ComboboxSelected>>", lambda _e: self._on_home_mode_changed())
+        add_tooltip(
+            mode_combo,
+            "Page fixe : le contenu d'accueil vient d'un fichier Markdown que vous rédigez.\n"
+            "Derniers billets publiés : la page d'accueil liste automatiquement les billets "
+            "les plus récents, en commençant par le dernier publié.",
+        )
+
+        self.home_page_frame = ttk.Frame(frame)
+        self.home_page_frame.grid(row=3, column=0, columnspan=3, sticky="w")
+        source_var = tk.StringVar(value="content/pages/accueil.md")
+        self.home_vars["source"] = source_var
+        source_label = ttk.Label(self.home_page_frame, text="Source accueil")
+        source_label.grid(row=0, column=0, sticky="w", padx=8, pady=4)
+        source_entry = ttk.Entry(self.home_page_frame, textvariable=source_var, width=_FIELD_WIDTH)
+        source_entry.grid(row=0, column=1, sticky="w", padx=8, pady=4)
+        source_help = (
+            "Chemin (relatif à la racine projet) du fichier Markdown utilisé comme "
+            "contenu de la page d'accueil.\n"
+            "Exemple : content/pages/accueil.md"
+        )
+        add_tooltip(source_label, source_help)
+        add_tooltip(source_entry, source_help)
+        source_browse = ttk.Button(
+            self.home_page_frame,
+            text="Parcourir...",
+            command=lambda v=source_var: _browse_file(v, [("Markdown", "*.md")]),
+        )
+        source_browse.grid(row=0, column=2, sticky="w", padx=(0, 8), pady=4)
+
+        layout_var = tk.StringVar(value="home")
+        self.home_vars["layout"] = layout_var
+        layout_label = ttk.Label(self.home_page_frame, text="Layout accueil")
+        layout_label.grid(row=1, column=0, sticky="w", padx=8, pady=4)
+        layout_entry = ttk.Entry(self.home_page_frame, textvariable=layout_var, width=_FIELD_WIDTH)
+        layout_entry.grid(row=1, column=1, sticky="w", padx=8, pady=4)
+        layout_help = (
+            "Nom du template HTML utilisé pour la page d'accueil.\n"
+            "Exemple : home (correspond à theme/templates/home.html)"
+        )
+        add_tooltip(layout_label, layout_help)
+        add_tooltip(layout_entry, layout_help)
+
+        self.home_recent_frame = ttk.Frame(frame)
+        self.home_recent_frame.grid(row=3, column=0, columnspan=3, sticky="w")
+        count_var = tk.StringVar(value="5")
+        self.home_vars["recent_posts_count"] = count_var
+        count_label = ttk.Label(self.home_recent_frame, text="Nombre de billets affichés")
+        count_label.grid(row=0, column=0, sticky="w", padx=8, pady=4)
+        count_entry = ttk.Entry(self.home_recent_frame, textvariable=count_var, width=_FIELD_WIDTH)
+        count_entry.grid(row=0, column=1, sticky="w", padx=8, pady=4)
+        count_help = "Nombre de billets récents affichés sur la page d'accueil, du plus récent au plus ancien.\nExemple : 5"
+        add_tooltip(count_label, count_help)
+        add_tooltip(count_entry, count_help)
+
+        recent_title_var = tk.StringVar(value="Derniers billets")
+        self.home_vars["recent_posts_title"] = recent_title_var
+        recent_title_label = ttk.Label(self.home_recent_frame, text="Titre de la liste")
+        recent_title_label.grid(row=1, column=0, sticky="w", padx=8, pady=4)
+        recent_title_entry = ttk.Entry(
+            self.home_recent_frame, textvariable=recent_title_var, width=_FIELD_WIDTH
+        )
+        recent_title_entry.grid(row=1, column=1, sticky="w", padx=8, pady=4)
+        recent_title_help = "Titre affiché au-dessus de la liste des derniers billets.\nExemple : Derniers billets"
+        add_tooltip(recent_title_label, recent_title_help)
+        add_tooltip(recent_title_entry, recent_title_help)
+
+        frame.grid_columnconfigure(3, weight=1)
+        self._on_home_mode_changed()
+
+    def _on_home_mode_changed(self) -> None:
+        if self.home_mode_var.get() == _HOME_MODE_LABELS[_HOME_MODE_RECENT]:
+            self.home_page_frame.grid_remove()
+            self.home_recent_frame.grid()
+        else:
+            self.home_recent_frame.grid_remove()
+            self.home_page_frame.grid()
 
     def _build_menu_bar(self) -> None:
         menu = tk.Menu(self)
@@ -775,6 +867,8 @@ class MainWindow(tk.Tk):
         _set_vars(self.paths_vars, config.paths)
         _set_vars(self.content_vars, config.content)
         _set_vars(self.home_vars, config.home)
+        self.home_mode_var.set(_HOME_MODE_LABELS.get(config.home.mode, _HOME_MODE_LABELS[_HOME_MODE_PAGE]))
+        self._on_home_mode_changed()
         _set_vars(self.blog_vars, config.blog)
         self.top_menu_editor.set_items(config.menus.top)
         self.side_menu_editor.set_sections(config.menus.side)
@@ -794,6 +888,8 @@ class MainWindow(tk.Tk):
         content = ContentConfig(**_read_vars(self.content_vars))
 
         home_raw = _read_vars(self.home_vars)
+        home_raw["recent_posts_count"] = int(home_raw["recent_posts_count"])
+        home_raw["mode"] = _HOME_MODE_VALUES.get(self.home_mode_var.get(), _HOME_MODE_PAGE)
         home = HomeConfig(**home_raw)
 
         blog_raw = _read_vars(self.blog_vars)

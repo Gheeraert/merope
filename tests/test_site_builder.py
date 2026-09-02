@@ -136,6 +136,67 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     assert 'href="/' not in archive_html
 
 
+def test_site_builder_home_page_can_list_recent_posts(monkeypatch):
+    project = RUNTIME_ROOT / f"site_builder_home_recent_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier billet"\nslug: "premier-billet"\ntype: "post"\ndate: "2026-01-01"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/second.md").write_text(
+        '---\ntitle: "Second billet"\nslug: "second-billet"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Second\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.home.mode = "recent_posts"
+    config.home.recent_posts_count = 1
+    config.home.recent_posts_title = "Derniers billets"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(TEI_SAMPLE, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    home_html = (project / "site/index.html").read_text(encoding="utf-8")
+    assert "Derniers billets" in home_html
+    assert "Second billet" in home_html
+    assert 'href="billets/second-billet/index.html"' in home_html
+    # only the most recent post (recent_posts_count = 1) is listed
+    assert "Premier billet" not in home_html
+
+
 def test_site_builder_skips_search_index_when_disabled(monkeypatch):
     project = RUNTIME_ROOT / f"site_builder_nosearch_{uuid.uuid4().hex}"
     (project / "content/pages").mkdir(parents=True)
