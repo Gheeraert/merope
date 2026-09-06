@@ -29,3 +29,6 @@ tests/.runtime/
 Thumbs.db
 .idea/
 .vscode/
+
+# Notes d'audit internes, non destinées à être partagées
+AUDIT_CODE.md
