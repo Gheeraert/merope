@@ -577,3 +577,93 @@ def test_site_builder_fails_on_missing_front_matter():
 
     assert report.success is False
     assert any("Front matter YAML manquant" in error for error in report.errors)
+
+
+def test_site_builder_refuses_to_clean_an_output_dir_that_is_the_project_root():
+    project = RUNTIME_ROOT / f"site_builder_dangerous_output_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    marker = project / "content/pages/ne-pas-supprimer.md"
+    marker.write_text("contenu precieux", encoding="utf-8")
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "."  # dangerous: same as the project root itself
+    config.paths.tei_dir = "build/tei"
+    config.build.clean_output_dir = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Dossier de sortie dangereux" in error for error in report.errors)
+    assert marker.exists()  # the project must survive the attempted clean
+
+
+def test_site_builder_refuses_to_clean_an_output_dir_that_is_content_dir():
+    project = RUNTIME_ROOT / f"site_builder_dangerous_output_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    marker = project / "content/pages/ne-pas-supprimer.md"
+    marker.write_text("contenu precieux", encoding="utf-8")
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    # dangerous: output_dir is exactly content_dir (a mistake distinct from
+    # "output_dir == project_root", covered by the previous test).
+    config.paths.output_dir = "content"
+    config.paths.tei_dir = "build/tei"
+    config.build.clean_output_dir = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Dossier de sortie dangereux" in error for error in report.errors)
+    assert marker.exists()
+
+
+def test_site_builder_allows_a_normal_output_dir_nested_under_project_root():
+    """The default/typical layout (output_dir a plain subfolder of the
+    project) must not be flagged by the new guard."""
+    project = RUNTIME_ROOT / f"site_builder_safe_output_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "site").mkdir(parents=True)
+    (project / "site" / "stale.html").write_text("old", encoding="utf-8")
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.build.clean_output_dir = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    # No pages/posts exist here, so the build itself produces no content
+    # pages, but it must get past the cleanup step without error and
+    # actually clean the stale file.
+    assert not any("Dossier de sortie dangereux" in error for error in report.errors)
+    assert not (project / "site" / "stale.html").exists()

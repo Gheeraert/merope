@@ -50,6 +50,44 @@ class GeneratedItem:
     description: str | None
 
 
+def _critical_project_dirs(config: ProjectConfig, project_root: Path) -> dict[str, Path]:
+    """The project's own root plus every source directory a build reads
+    from — none of these may ever be wiped by the output-dir cleanup.
+    """
+    paths = config.paths
+    relative_by_label = {
+        "la racine du projet": Path("."),
+        "le dossier contenu": paths.content_dir,
+        "le dossier des pages": paths.pages_dir,
+        "le dossier des billets": paths.posts_dir,
+        "le dossier assets": paths.assets_dir,
+        "le dossier thème": paths.theme_dir,
+        "le dossier templates": paths.templates_dir,
+        "le dossier XSLT": paths.xslt_dir,
+    }
+    return {label: (project_root / relative).resolve() for label, relative in relative_by_label.items()}
+
+
+def _ensure_output_dir_is_safe_to_clean(output_root: Path, project_root: Path, config: ProjectConfig) -> None:
+    """Refuse to ``shutil.rmtree`` a directory that *is*, or *contains*,
+    the project root or any of its source directories.
+
+    ``paths.output_dir`` is a free-text field editable from the "Chemins"
+    tab; a careless value (``.``, ``..``, or simply the same folder as
+    ``content_dir``) would otherwise silently delete the whole project —
+    or its source content — the next time "Générer le site" runs with
+    "Nettoyer le dossier de sortie" enabled.
+    """
+    for label, path in _critical_project_dirs(config, project_root).items():
+        if output_root == path or output_root in path.parents:
+            raise ValueError(
+                f"Dossier de sortie dangereux : « {config.paths.output_dir} » "
+                f"({output_root}) supprimerait {label} ({path}). "
+                "Corrigez le champ « Dossier sortie » dans l'onglet Chemins avant "
+                "de régénérer le site."
+            )
+
+
 def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> BuildReport:
     project_root = resolve_project_root(config, config_path)
     runtime_config = copy.deepcopy(config)
@@ -60,6 +98,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
 
     try:
         if config.build.clean_output_dir and output_root.exists():
+            _ensure_output_dir_is_safe_to_clean(output_root, project_root, config)
             shutil.rmtree(output_root)
         output_root.mkdir(parents=True, exist_ok=True)
 
@@ -146,6 +185,11 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         return report
 
     except PandocUnavailableError as exc:
+        report.errors.append(str(exc))
+        report.success = False
+        return report
+
+    except ValueError as exc:
         report.errors.append(str(exc))
         report.success = False
         return report
