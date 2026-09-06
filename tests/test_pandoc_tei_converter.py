@@ -95,8 +95,14 @@ def test_end_to_end_markdown_to_tei_with_real_pandoc_if_available():
     root = ET.fromstring(tei_content)
     local_names = [node.tag.split("}", maxsplit=1)[-1] for node in root.iter()]
     assert "figure" in local_names
+    heads = [node for node in root.iter() if node.tag.split("}", maxsplit=1)[-1] == "head"]
+    assert any("Une image" == " ".join((node.text or "").split()) for node in heads)
+    # Pandoc's TEI writer also duplicates the figure's caption as a bare
+    # sibling <p> (see _strip_duplicate_figure_caption_paragraphs) — that
+    # stray paragraph must be stripped, or the caption would render twice
+    # on the generated page.
     paragraphs = [node for node in root.iter() if node.tag.split("}", maxsplit=1)[-1] == "p"]
-    assert any("Une image" == " ".join((node.text or "").split()) for node in paragraphs)
+    assert not any("Une image" == " ".join((node.text or "").split()) for node in paragraphs)
 
     html = render_tei_file_to_html_fragment(output_path, parameters={"article_slug": "real"})
     assert "<em>italique</em>" in html

@@ -97,7 +97,7 @@
   });
 
   overlay.addEventListener("click", function (event) {
-    if (event.target.closest("[data-close='1']")) {
+    if (event.target.closest("[data-close='1']") || event.target === imageNode) {
       closeLightbox();
     }
   });

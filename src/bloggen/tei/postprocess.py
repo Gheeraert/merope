@@ -27,6 +27,7 @@ def postprocess_tei_xml(tei_xml: str, *, title: str | None = None) -> str:
     _ensure_namespace_on_root(root)
     ensure_minimal_tei_header(root, title=title)
     ensure_text_body(root)
+    _strip_duplicate_figure_caption_paragraphs(root)
 
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
@@ -280,6 +281,47 @@ def _find_replacement(current: str, replacements: dict[str, _T]) -> _T | None:
         if candidate in replacements:
             return replacements[candidate]
     return None
+
+
+def _strip_duplicate_figure_caption_paragraphs(root: ET.Element) -> bool:
+    """Drop the redundant ``<p>`` Pandoc's TEI writer emits right after a
+    standalone-image ``<figure>``, duplicating its ``<head>``/``<figDesc>``
+    caption as plain body text (a quirk of its "implicit figure" handling,
+    reproducible with ``pandoc --to=tei`` on an image alone in a paragraph).
+    Left alone, the caption set from the editor's image alt/caption text
+    would render twice on the generated page: once in the figure itself,
+    once as a stray paragraph right below it.
+    """
+    changed = False
+    for parent in root.iter():
+        children = list(parent)
+        to_remove = []
+        for index, child in enumerate(children):
+            if _local_name(child.tag) != "p" or len(child) != 1:
+                continue
+            figure = child[0]
+            if _local_name(figure.tag) != "figure":
+                continue
+            captions = {
+                "".join(sub.itertext()).strip()
+                for sub in figure
+                if _local_name(sub.tag) in ("head", "figDesc")
+            }
+            captions.discard("")
+            if not captions:
+                continue
+            next_index = index + 1
+            if next_index >= len(children):
+                continue
+            sibling = children[next_index]
+            if _local_name(sibling.tag) != "p":
+                continue
+            if "".join(sibling.itertext()).strip() in captions:
+                to_remove.append(sibling)
+        for element in to_remove:
+            parent.remove(element)
+            changed = True
+    return changed
 
 
 def _local_name(tag: str) -> str:
