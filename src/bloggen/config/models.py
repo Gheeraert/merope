@@ -214,18 +214,26 @@ class ProjectConfig:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "ProjectConfig":
-        site = SiteConfig(**_dict_or_empty(raw.get("site")))
-        banner = BannerConfig(**_dict_or_empty(raw.get("banner")))
-        paths = PathsConfig(**_dict_or_empty(raw.get("paths")))
-        content = ContentConfig(**_dict_or_empty(raw.get("content")))
+        # Every section is filtered through _filtered_fields (not just
+        # home/ftp, previously): a stray/renamed key left over from an
+        # older site.json must be dropped, not raise a raw TypeError out of
+        # the dataclass constructor (see _filtered_fields' docstring).
+        site = SiteConfig(**_filtered_fields(SiteConfig, _dict_or_empty(raw.get("site"))))
+        banner = BannerConfig(**_filtered_fields(BannerConfig, _dict_or_empty(raw.get("banner"))))
+        paths = PathsConfig(**_filtered_fields(PathsConfig, _dict_or_empty(raw.get("paths"))))
+        content = ContentConfig(**_filtered_fields(ContentConfig, _dict_or_empty(raw.get("content"))))
         home = HomeConfig(**_filtered_fields(HomeConfig, _dict_or_empty(raw.get("home"))))
-        blog = BlogConfig(**_dict_or_empty(raw.get("blog")))
-        render = RenderConfig(**_dict_or_empty(raw.get("render")))
-        media_handling = MediaHandlingConfig(**_dict_or_empty(raw.get("media_handling")))
-        notes_rendering = NotesRenderingConfig(**_dict_or_empty(raw.get("notes_rendering")))
-        footer = FooterConfig(**_dict_or_empty(raw.get("footer")))
-        build = BuildConfig(**_dict_or_empty(raw.get("build")))
-        search = SearchConfig(**_dict_or_empty(raw.get("search")))
+        blog = BlogConfig(**_filtered_fields(BlogConfig, _dict_or_empty(raw.get("blog"))))
+        render = RenderConfig(**_filtered_fields(RenderConfig, _dict_or_empty(raw.get("render"))))
+        media_handling = MediaHandlingConfig(
+            **_filtered_fields(MediaHandlingConfig, _dict_or_empty(raw.get("media_handling")))
+        )
+        notes_rendering = NotesRenderingConfig(
+            **_filtered_fields(NotesRenderingConfig, _dict_or_empty(raw.get("notes_rendering")))
+        )
+        footer = FooterConfig(**_filtered_fields(FooterConfig, _dict_or_empty(raw.get("footer"))))
+        build = BuildConfig(**_filtered_fields(BuildConfig, _dict_or_empty(raw.get("build"))))
+        search = SearchConfig(**_filtered_fields(SearchConfig, _dict_or_empty(raw.get("search"))))
         ftp = FtpConfig(**_filtered_fields(FtpConfig, _dict_or_empty(raw.get("ftp"))))
         menus = _menus_from_dict(_dict_or_empty(raw.get("menus")))
         return cls(

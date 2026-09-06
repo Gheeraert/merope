@@ -29,6 +29,36 @@ def test_invalid_config_raises_clean_error():
     assert "menus.side" in message
 
 
+def test_from_dict_ignores_unknown_keys_in_every_section():
+    """A stray/renamed key left over from an older site.json (e.g. after a
+    field rename) must be dropped, not raise a raw TypeError out of a
+    dataclass constructor — every section of ProjectConfig.from_dict is
+    expected to filter unknown keys the same way, not just home/ftp.
+    """
+    from bloggen.config.models import ProjectConfig
+
+    base = json.loads(serialize_config(build_default_config()))
+    for section in (
+        "site",
+        "banner",
+        "paths",
+        "content",
+        "home",
+        "blog",
+        "render",
+        "media_handling",
+        "notes_rendering",
+        "footer",
+        "build",
+        "search",
+        "ftp",
+    ):
+        base.setdefault(section, {})["une_cle_obsolete_inconnue"] = "valeur"
+
+    config = ProjectConfig.from_dict(base)
+    assert isinstance(config, ProjectConfig)
+
+
 def test_default_config_generation():
     config = build_default_config()
     assert config.version == "1.0"
