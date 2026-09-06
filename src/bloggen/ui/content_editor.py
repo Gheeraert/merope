@@ -54,20 +54,28 @@ from bloggen.markdown.typography import (
     NBSP,
     OPENING_GUILLEMET,
     PAGE_ABBREVIATION_TYPED_RE,
+    SPACE_BEFORE_PERIOD_TYPED_RE,
     convert_curly_quotes_to_guillemets,
     convert_straight_quotes_stateful,
     fix_double_punctuation_spacing,
     fix_guillemet_spacing,
     fix_page_number_spacing,
+    fix_period_spacing,
     is_valid_century_ordinal,
 )
 from bloggen.ui import toolbar_icons
 from bloggen.ui.clipboard_html import read_html_clipboard
-from bloggen.ui.image_widget import ImageWidget, copy_into_images_dir
+from bloggen.ui.image_widget import (
+    ImageWidget,
+    copy_into_images_dir,
+    grab_clipboard_image,
+    save_clipboard_image,
+)
 from bloggen.ui.tooltip import add_tooltip
 
 _HEADING_TAGS = ("h1", "h2", "h3", "h4")
 _BLOCK_LINE_TAGS = {"h1", "h2", "h3", "h4", "blockquote", "bullet_item", "ordered_item", "table_source", "verbatim"}
+_LIST_LINE_TAGS = {"bullet_item", "ordered_item"}
 _CHAR_TAGS = ("bold", "italic", "strike", "superscript")
 # Alignment is orthogonal to _BLOCK_LINE_TAGS (a paragraph or blockquote line
 # can carry both its block-type tag and one of these). Only meaningful for
@@ -377,6 +385,7 @@ class ContentEditorWindow(tk.Toplevel):
         # kept alive here for the editor window's lifetime.
         self._toolbar_icon_refs: list[tk.PhotoImage] = []
         self._toolbar_fonts: list[tkfont.Font] = []
+        self._char_format_vars: dict[str, tk.BooleanVar] = {}
         self._find_dialog: FindReplaceDialog | None = None
 
         # -- unified undo/redo (see _on_text_modified / _perform_undo) -----
@@ -480,24 +489,36 @@ class ContentEditorWindow(tk.Toplevel):
         # "font" option (unlike classic tk.Button) — one throwaway style
         # per button is the simplest way to give each its own font.
         style = ttk.Style(self)
-        style.configure("ToolbarBold.TButton", font=bold_font)
-        style.configure("ToolbarItalic.TButton", font=italic_font)
-        style.configure("ToolbarStrike.TButton", font=strike_font)
+        style.configure("ToolbarBold.Toolbutton", font=bold_font)
+        style.configure("ToolbarItalic.Toolbutton", font=italic_font)
+        style.configure("ToolbarStrike.Toolbutton", font=strike_font)
 
         char_buttons = [
-            ("G", "ToolbarBold.TButton", lambda: self._toggle_char_tag("bold"), "Gras (Ctrl+B)."),
-            ("I", "ToolbarItalic.TButton", lambda: self._toggle_char_tag("italic"), "Italique (Ctrl+I)."),
-            ("S", "ToolbarStrike.TButton", lambda: self._toggle_char_tag("strike"), "Barré (Ctrl+Maj+S)."),
+            ("G", "bold", "ToolbarBold.Toolbutton", "Gras (Ctrl+B)."),
+            ("I", "italic", "ToolbarItalic.Toolbutton", "Italique (Ctrl+I)."),
+            ("S", "strike", "ToolbarStrike.Toolbutton", "Barré (Ctrl+Maj+S)."),
             (
                 "x²",
-                None,
-                lambda: self._toggle_char_tag("superscript"),
+                "superscript",
+                "Toolbutton",
                 "Exposant (ex. 2e, XXe, notes de calcul). Raccourci : Ctrl+Maj+= (Ctrl++).",
             ),
         ]
-        for label, button_style, command, tip in char_buttons:
-            kwargs = {"style": button_style} if button_style is not None else {}
-            b = ttk.Button(toolbar_row1, text=label, width=3, command=command, **kwargs)
+        # Checkbuttons styled as "Toolbutton" (a themed ttk style that reads
+        # as a flat toggle) rather than plain Buttons, so each one visually
+        # reflects whether the selection/cursor already carries that
+        # formatting — kept in sync by :meth:`_update_toolbar_char_state`.
+        for label, tag, button_style, tip in char_buttons:
+            var = tk.BooleanVar(value=False)
+            self._char_format_vars[tag] = var
+            b = ttk.Checkbutton(
+                toolbar_row1,
+                text=label,
+                width=3,
+                style=button_style,
+                variable=var,
+                command=lambda t=tag: self._activate_char_format(t),
+            )
             b.pack(side="left", padx=1)
             add_tooltip(b, tip)
 
@@ -577,6 +598,23 @@ class ContentEditorWindow(tk.Toplevel):
             ),
             (None, toolbar_icons.icon_link(), self._insert_link, "Lien : transforme la sélection en lien hypertexte."),
             (None, toolbar_icons.icon_image(), self._insert_image, "Image : insère une image depuis un fichier existant."),
+            (
+                "📋",
+                None,
+                self._paste_image_button,
+                "Coller une image : insère l'image actuellement dans le presse-papiers "
+                "(capture d'écran, image copiée depuis un navigateur ou l'Explorateur...), "
+                "centrée et redimensionnée pour un affichage immédiat. "
+                "Raccourci : Ctrl+V (avec le curseur dans le texte).",
+            ),
+            (
+                "📄",
+                None,
+                self._paste_as_plain_text,
+                "Coller en texte brut : insère le texte du presse-papiers sans sa mise en "
+                "forme (gras, liens, tableaux...), utile pour coller depuis Word/un "
+                "navigateur sans en récupérer le style. Raccourci : Ctrl+Maj+V.",
+            ),
             (None, toolbar_icons.icon_table(), self._insert_table, "Tableau : insère un tableau simple."),
             ("†", None, self._insert_footnote, "Note : insère une note de bas de page."),
         ]
@@ -657,6 +695,8 @@ class ContentEditorWindow(tk.Toplevel):
         self.text.bind("<KeyRelease>", self._on_key_release, add="+")
         self.text.bind("<<Modified>>", self._on_text_modified)
         self.text.bind("<<Paste>>", self._on_paste)
+        self.text.bind("<Control-Shift-V>", self._shortcut_paste_plain)
+        self.text.bind("<ButtonRelease-1>", self._update_toolbar_char_state, add="+")
         self.text.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
         self.text.bind("<Control-b>", self._shortcut_bold)
         self.text.bind("<Control-i>", self._shortcut_italic)
@@ -683,8 +723,9 @@ class ContentEditorWindow(tk.Toplevel):
         text.tag_configure("h3", font=("TkDefaultFont", 14, "bold"))
         text.tag_configure("h4", font=("TkDefaultFont", 12, "bold"))
         text.tag_configure("blockquote", lmargin1=24, lmargin2=24, foreground="#555555")
-        text.tag_configure("bullet_item", lmargin1=20, lmargin2=32)
-        text.tag_configure("ordered_item", lmargin1=20, lmargin2=32)
+        text.tag_configure("bullet_item", lmargin1=20, lmargin2=32, spacing1=2, spacing3=2)
+        text.tag_configure("ordered_item", lmargin1=20, lmargin2=32, spacing1=2, spacing3=2)
+        text.tag_configure("list_marker", font=("TkDefaultFont", 11, "bold"), foreground="#444444")
         text.tag_configure("table_source", font=("Courier New", 10), background="#f5f5f5")
         text.tag_configure("verbatim", font=("Courier New", 10), background="#fff3cd")
         text.tag_configure("align_left", justify="left")
@@ -701,6 +742,7 @@ class ContentEditorWindow(tk.Toplevel):
         text.tag_configure("superscript", offset=6, font=("TkDefaultFont", 8))
         text.tag_configure("link_style", foreground="#1a73e8", underline=True)
         text.tag_configure("image_style", background="#e8f0fe")
+        text.tag_configure("image_center", justify="center")
         text.tag_configure("footnote_style", foreground="#1a73e8")
         text.tag_configure("search_match", background="#ffe08a")
         for tag in ("bold", "italic", "strike", "superscript", "link_style", "image_style", "footnote_style"):
@@ -1121,6 +1163,7 @@ class ContentEditorWindow(tk.Toplevel):
         return "table_source" in tags or "verbatim" in tags
 
     def _on_key_release(self, event: tk.Event) -> None:
+        self._update_toolbar_char_state()
         if self._current_line_is_raw():
             return
         char = event.char
@@ -1131,6 +1174,8 @@ class ContentEditorWindow(tk.Toplevel):
             self._autoformat_double_paren_note()
         elif char.isdigit():
             self._autoformat_page_number_space()
+        elif char == ".":
+            self._autoformat_period_spacing()
 
     def _autoformat_last_typed_char(self, char: str) -> None:
         # Index expressions with arithmetic (e.g. "1.8-1c") are re-evaluated
@@ -1212,6 +1257,23 @@ class ContentEditorWindow(tk.Toplevel):
         self.text.delete(space_start, space_end)
         self.text.insert(space_start, NBSP)
 
+    def _autoformat_period_spacing(self) -> None:
+        """French typography never puts a space before a period, unlike
+        ``; : ! ?`` (which take a non-breaking one) — strip whatever run of
+        regular/non-breaking spaces the "." just typed landed after, same
+        rule as :func:`bloggen.markdown.typography.fix_period_spacing`
+        applied to pasted/imported content.
+        """
+        cursor = self.text.index("insert")
+        line = int(cursor.split(".")[0])
+        text_before = self.text.get(f"{line}.0", cursor)
+        match = SPACE_BEFORE_PERIOD_TYPED_RE.search(text_before)
+        if match is None:
+            return
+        space_start = self.text.index(f"{cursor}-{len(text_before) - match.start()}c")
+        period_index = self.text.index(f"{cursor}-1c")
+        self.text.delete(space_start, period_index)
+
     def _autoformat_double_paren_note(self) -> None:
         """Detect "((note text))" (Hypothèses/WordPress note shorthand)
         just completed by the closing "))" that triggered this call, and
@@ -1271,6 +1333,7 @@ class ContentEditorWindow(tk.Toplevel):
             "espaces": 0,
             "ponctuation": 0,
             "numeros_page": 0,
+            "avant_point": 0,
         }
         for tags, text, run_start, run_end in runs:
             step = convert_curly_quotes_to_guillemets(text)
@@ -1292,6 +1355,11 @@ class ContentEditorWindow(tk.Toplevel):
             step = fix_page_number_spacing(step)
             if step != after_punctuation:
                 counters["numeros_page"] += 1
+            after_page_number = step
+
+            step = fix_period_spacing(step)
+            if step != after_page_number:
+                counters["avant_point"] += 1
 
             fixed = step
             if fixed != text:
@@ -1323,6 +1391,7 @@ class ContentEditorWindow(tk.Toplevel):
             "espaces": "Espaces autour des guillemets corrigées",
             "ponctuation": "Espaces insécables ajoutées avant ; : ! ?",
             "numeros_page": "Espaces insécables ajoutées dans les numéros de page",
+            "avant_point": "Espaces supprimées avant les points",
         }
         lines = [f"• {labels[key]}" for key, count in counters.items() if count]
         messagebox.showinfo(
@@ -1372,6 +1441,8 @@ class ContentEditorWindow(tk.Toplevel):
         """
         if self._current_line_is_raw():
             return None
+        if self._paste_image_from_clipboard():
+            return "break"
         html = read_html_clipboard()
         if html:
             try:
@@ -1436,6 +1507,8 @@ class ContentEditorWindow(tk.Toplevel):
                 if i > 0:
                     self.text.insert("insert", "\n")
                 start = self.text.index("insert")
+                self.text.insert("insert", self._list_marker_text(tag, i + 1))
+                self.text.tag_add("list_marker", start, self.text.index("insert"))
                 self._insert_runs_at_cursor(item.runs)
                 self.text.tag_add(tag, start, self.text.index("insert"))
 
@@ -1676,6 +1749,38 @@ class ContentEditorWindow(tk.Toplevel):
             return None
         return str(ranges[0]), str(ranges[1])
 
+    def _activate_char_format(self, tag: str) -> None:
+        """Toolbar checkbutton command: apply the toggle, then resync every
+        checkbutton's pressed state to the real tags (the click already
+        flipped this one's own ``BooleanVar`` optimistically, which may not
+        match — e.g. a mixed-formatting selection resolves to "add", not
+        "remove", in :meth:`_toggle_char_tag`).
+        """
+        self._toggle_char_tag(tag)
+        self._update_toolbar_char_state()
+
+    def _update_toolbar_char_state(self, _event: tk.Event | None = None) -> None:
+        """Light up each character-formatting toolbar button (gras/italique/
+        barré/exposant) that applies to the current selection, or — with no
+        selection — to the character the cursor sits on, so the toolbar
+        always reflects what's under the cursor instead of only ever
+        showing "off".
+        """
+        if not self._char_format_vars:
+            return
+        selected = self._selection_range()
+        if selected is not None:
+            start, end = selected
+            active = {
+                tag
+                for tag in self._char_format_vars
+                if all(tag in self.text.tag_names(idx) for idx in self._char_indices(start, end))
+            }
+        else:
+            active = set(self.text.tag_names("insert"))
+        for tag, var in self._char_format_vars.items():
+            var.set(tag in active)
+
     def _toggle_char_tag(self, tag: str) -> None:
         selected = self._selection_range()
         if selected is None:
@@ -1719,18 +1824,48 @@ class ContentEditorWindow(tk.Toplevel):
     def _toggle_line_tag(self, tag: str) -> None:
         start_line, end_line = self._selected_lines()
         changes: list[tuple[str, str, set[str], set[str]]] = []
+        ordinal = 0
         for line in range(start_line, end_line + 1):
-            line_start, line_end = f"{line}.0", f"{line}.end"
+            line_start = f"{line}.0"
             before = set(self.text.tag_names(line_start)) & _BLOCK_LINE_TAGS
             already = tag in before
+            if before & _LIST_LINE_TAGS:
+                self._strip_list_marker(line)
+            line_end = f"{line}.end"
             for existing in _BLOCK_LINE_TAGS:
                 self.text.tag_remove(existing, line_start, line_end)
             after: set[str] = set()
             if not already:
+                if tag in _LIST_LINE_TAGS:
+                    ordinal += 1
+                    self._apply_list_marker(line, self._list_marker_text(tag, ordinal))
+                    line_end = f"{line}.end"
                 self.text.tag_add(tag, line_start, line_end)
                 after = {tag}
             changes.append((line_start, line_end, before, after))
         self._push_line_tag_undo(_BLOCK_LINE_TAGS, changes)
+
+    def _list_marker_text(self, tag: str, ordinal: int) -> str:
+        return "•  " if tag == "bullet_item" else f"{ordinal}.  "
+
+    def _apply_list_marker(self, line: int, marker_text: str) -> None:
+        """Insert a visible bullet/number at the start of ``line``, tagged
+        "list_marker" so :meth:`_extract_runs` can recognize and skip it —
+        it's a display affordance only, not part of the exported content
+        (which already renders as a real ``<ul>``/``<ol>`` from the
+        bullet_item/ordered_item line tag alone).
+        """
+        self._strip_list_marker(line)
+        line_start = f"{line}.0"
+        self.text.insert(line_start, marker_text)
+        marker_end = self.text.index(f"{line_start}+{len(marker_text)}c")
+        self.text.tag_add("list_marker", line_start, marker_end)
+
+    def _strip_list_marker(self, line: int) -> None:
+        line_start, line_end = f"{line}.0", f"{line}.end"
+        marker_range = self.text.tag_nextrange("list_marker", line_start, line_end)
+        if marker_range and self.text.compare(marker_range[0], "==", line_start):
+            self.text.delete(*marker_range)
 
     def _set_paragraph_normal(self) -> None:
         """Clear the block-level formatting (heading/citation/liste) of the
@@ -1741,10 +1876,13 @@ class ContentEditorWindow(tk.Toplevel):
         start_line, end_line = self._selected_lines()
         changes: list[tuple[str, str, set[str], set[str]]] = []
         for line in range(start_line, end_line + 1):
-            line_start, line_end = f"{line}.0", f"{line}.end"
+            line_start = f"{line}.0"
             before = set(self.text.tag_names(line_start)) & _BLOCK_LINE_TAGS
             if not before:
                 continue
+            if before & _LIST_LINE_TAGS:
+                self._strip_list_marker(line)
+            line_end = f"{line}.end"
             for existing in _BLOCK_LINE_TAGS:
                 self.text.tag_remove(existing, line_start, line_end)
             changes.append((line_start, line_end, before, set()))
@@ -1850,8 +1988,66 @@ class ContentEditorWindow(tk.Toplevel):
         if not source:
             return
         alt = simpledialog.askstring("Image", "Texte alternatif (description de l'image) :", parent=self) or ""
-        src_repr = copy_into_images_dir(Path(source), self.images_dir)
+        src_repr = copy_into_images_dir(Path(source), self.images_dir, self._doc_dir())
         self._insert_image_widget("insert", src_repr, alt)
+
+    def _paste_image_from_clipboard(self) -> bool:
+        """Insert whatever image is on the clipboard at the cursor, sized
+        for immediate viewing and centered by default (unlike a file-based
+        insert, which keeps its natural position in the text flow).
+        ``ImageWidget`` still lets the user recenter/resize afterward.
+        """
+        image = grab_clipboard_image()
+        if image is None:
+            return False
+        caption = (
+            simpledialog.askstring(
+                "Image collée",
+                "Légende (affichée sous l'image sur le site publié ; laissez vide pour ne pas en mettre) :",
+                parent=self,
+            )
+            or ""
+        )
+        src = save_clipboard_image(image, self.images_dir, self._doc_dir())
+        self._insert_image_widget("insert", src, caption, align="center")
+        return True
+
+    def _paste_image_button(self) -> None:
+        if not self._paste_image_from_clipboard():
+            messagebox.showinfo("Coller une image", "Le presse-papiers ne contient pas d'image.")
+
+    def _paste_as_plain_text(self) -> None:
+        """Force a plain-text paste, discarding any HTML formatting the
+        clipboard might also carry (bold/links/tables from Word, Google
+        Docs, a browser...) — the counterpart to :meth:`_on_paste`'s
+        automatic rich paste, for pasting content whose source formatting
+        should not carry over. Still recognizes the "((note))" shorthand,
+        like every other paste path.
+        """
+        if self._current_line_is_raw():
+            return
+        try:
+            plain = self.clipboard_get()
+        except tk.TclError:
+            return
+        if not plain:
+            return
+        runs = split_double_paren_notes([InlineRun(text=plain)], self._register_new_footnote)
+        self._insert_runs_at_cursor(runs)
+        self._refresh_notes_panel()
+
+    def _shortcut_paste_plain(self, _event: tk.Event) -> str:
+        self._paste_as_plain_text()
+        return "break"
+
+    def _doc_dir(self) -> Path:
+        """Directory Markdown image paths should be written/resolved
+        relative to — the post/page's own file location, matching how the
+        Pandoc/TEI/site-build pipeline resolves them. Falls back to
+        ``posts_dir`` for an unsaved document (same depth as ``pages_dir``,
+        so the relative path still lands correctly once saved).
+        """
+        return self.current_path.parent if self.current_path else self.posts_dir
 
     def _insert_image_widget(
         self,
@@ -1863,16 +2059,24 @@ class ContentEditorWindow(tk.Toplevel):
         height: int | None = None,
         align: str | None = None,
     ) -> ImageWidget:
+        at = self.text.index(index)
         widget = ImageWidget(
             self.text,
             images_dir=self.images_dir,
+            doc_dir=self._doc_dir(),
             src=src,
             alt=alt,
             width=width,
             height=height,
             align=align,
         )
-        self.text.window_create(index, window=widget)
+        self.text.window_create(at, window=widget)
+        # Purely cosmetic: center the widget in the editor regardless of the
+        # image's own alignment (left/center/right), which only affects the
+        # published page — Tk's Text has no floats, so that alignment can't
+        # be simulated visually here anyway (see ImageWidget's docstring).
+        line = at.split(".")[0]
+        self.text.tag_add("image_center", f"{line}.0", f"{line}.end")
         return widget
 
     def _insert_table(self) -> None:
@@ -2002,6 +2206,8 @@ class ContentEditorWindow(tk.Toplevel):
                 flush()
                 active.discard(value)
             elif key == "text":
+                if "list_marker" in active:
+                    continue
                 buffer += value
             elif key == "window":
                 flush()
@@ -2152,6 +2358,8 @@ class ContentEditorWindow(tk.Toplevel):
                 if i > 0:
                     self.text.insert("end", "\n")
                 start = self.text.index("end-1c")
+                self.text.insert("end", self._list_marker_text(tag, i + 1))
+                self.text.tag_add("list_marker", start, self.text.index("end-1c"))
                 self._insert_runs(item.runs)
                 self.text.tag_add(tag, start, self.text.index("end-1c"))
         elif block.kind == TABLE:

@@ -14,7 +14,9 @@ float visually; it only shows which alignment is currently set.
 
 from __future__ import annotations
 
+import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, simpledialog, ttk
 import tkinter as tk
@@ -25,14 +27,17 @@ from bloggen.ui.tooltip import add_tooltip
 
 _HANDLE_SIZE = 8
 _MIN_SIZE = 40
-_MAX_PREVIEW_WIDTH = 480
+_MAX_PREVIEW_WIDTH = 400
 _MAX_CROP_PREVIEW_DIM = 700
 _ALIGN_LABELS = {"left": "gauche", "center": "centré", "right": "droite"}
 
 
-def copy_into_images_dir(source: Path, images_dir: Path) -> str:
+def copy_into_images_dir(source: Path, images_dir: Path, doc_dir: Path) -> str:
     """Copy ``source`` into ``images_dir`` (avoiding collisions) and return
-    the path to reference from Markdown, relative to ``images_dir``'s parent.
+    the path to reference from Markdown, relative to ``doc_dir`` (the
+    directory of the post/page Markdown file the image is inserted into —
+    the same base the Pandoc/TEI/site-build pipeline resolves image
+    references against, so the two must agree or the generated link 404s).
     """
     images_dir.mkdir(parents=True, exist_ok=True)
     destination = images_dir / source.name
@@ -42,17 +47,60 @@ def copy_into_images_dir(source: Path, images_dir: Path) -> str:
         counter += 1
     if not destination.exists():
         shutil.copyfile(source, destination)
-    return _relative_src(destination, images_dir)
+    return _relative_src(destination, doc_dir)
 
 
-def _relative_src(path: Path, images_dir: Path) -> str:
+def grab_clipboard_image() -> Image.Image | None:
+    """Return the image currently on the system clipboard, if any.
+
+    Covers both a raw bitmap (e.g. a screenshot, or an image copied from a
+    browser/editor) and a copied image file (e.g. from Explorer, which puts
+    a file path list on the clipboard instead of pixel data). Returns
+    ``None`` on any other platform, when the clipboard holds something else
+    (plain text, multiple/non-image files...), or on any grab failure —
+    callers should fall back to their normal paste handling.
+    """
     try:
-        return path.relative_to(images_dir.parent).as_posix()
-    except ValueError:
-        return path.as_posix()
+        from PIL import ImageGrab
+
+        content = ImageGrab.grabclipboard()
+    except Exception:
+        return None
+    if isinstance(content, Image.Image):
+        return content
+    if isinstance(content, list) and len(content) == 1:
+        try:
+            return Image.open(content[0])
+        except Exception:
+            return None
+    return None
 
 
-def _write_cropped_copy(source_path: Path, box: tuple[int, int, int, int], images_dir: Path) -> str:
+def save_clipboard_image(image: Image.Image, images_dir: Path, doc_dir: Path) -> str:
+    """Save a clipboard image to ``images_dir`` and return its Markdown src
+    (relative to ``doc_dir``, see :func:`copy_into_images_dir`), the paste
+    counterpart to :func:`copy_into_images_dir` for a file already on disk.
+    """
+    images_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    destination = images_dir / f"presse-papiers-{timestamp}.png"
+    counter = 2
+    while destination.exists():
+        destination = images_dir / f"presse-papiers-{timestamp}-{counter}.png"
+        counter += 1
+    if image.mode not in ("RGB", "RGBA", "L", "LA", "P"):
+        image = image.convert("RGBA")
+    image.save(destination, "PNG")
+    return _relative_src(destination, doc_dir)
+
+
+def _relative_src(path: Path, doc_dir: Path) -> str:
+    return Path(os.path.relpath(path, doc_dir)).as_posix()
+
+
+def _write_cropped_copy(
+    source_path: Path, box: tuple[int, int, int, int], doc_dir: Path
+) -> str:
     image = Image.open(source_path)
     cropped = image.crop(box)
     counter = 1
@@ -61,7 +109,7 @@ def _write_cropped_copy(source_path: Path, box: tuple[int, int, int, int], image
         counter += 1
         candidate = source_path.with_name(f"{source_path.stem}-crop{counter}{source_path.suffix}")
     cropped.convert("RGB").save(candidate)
-    return _relative_src(candidate, images_dir)
+    return _relative_src(candidate, doc_dir)
 
 
 class ImageWidget(tk.Frame):
@@ -70,6 +118,7 @@ class ImageWidget(tk.Frame):
         master: tk.Misc,
         *,
         images_dir: Path,
+        doc_dir: Path,
         src: str,
         alt: str = "",
         width: int | None = None,
@@ -78,6 +127,7 @@ class ImageWidget(tk.Frame):
     ) -> None:
         super().__init__(master, borderwidth=1, relief="solid")
         self.images_dir = Path(images_dir)
+        self.doc_dir = Path(doc_dir)
         self.src = src
         self.alt = alt
         self.align = align
@@ -97,7 +147,7 @@ class ImageWidget(tk.Frame):
         self._render_preview()
 
     def _resolve_path(self) -> Path:
-        return (self.images_dir.parent / self.src).resolve()
+        return (self.doc_dir / self.src).resolve()
 
     def _load_source_image(self) -> Image.Image:
         try:
@@ -200,7 +250,7 @@ class ImageWidget(tk.Frame):
         )
         if not source:
             return
-        self.src = copy_into_images_dir(Path(source), self.images_dir)
+        self.src = copy_into_images_dir(Path(source), self.images_dir, self.doc_dir)
         self._source_image = self._load_source_image()
         self._render_preview()
 
@@ -209,7 +259,7 @@ class ImageWidget(tk.Frame):
         self.wait_window(dialog)
         if dialog.result is None:
             return
-        self.src = _write_cropped_copy(self._resolve_path(), dialog.result, self.images_dir)
+        self.src = _write_cropped_copy(self._resolve_path(), dialog.result, self.doc_dir)
         self._source_image = self._load_source_image()
         self._render_preview()
 
