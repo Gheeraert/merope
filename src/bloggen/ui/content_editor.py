@@ -1446,7 +1446,7 @@ class ContentEditorWindow(tk.Toplevel):
         html = read_html_clipboard()
         if html:
             try:
-                blocks = html_to_blocks(html, images_dir=self.images_dir)
+                blocks = html_to_blocks(html, images_dir=self.images_dir, doc_dir=self._doc_dir())
             except Exception:
                 return None
             if not blocks:

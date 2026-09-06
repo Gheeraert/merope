@@ -190,11 +190,25 @@ def test_typography_straight_quote_parity_spans_bold_run():
 def test_data_uri_image_is_decoded_and_saved(tmp_path: Path):
     images_dir = tmp_path / "assets" / "images"
     html = f'<p><img src="data:image/png;base64,{_TINY_PNG_BASE64}" alt="Une image"></p>'
-    result = _export(html, images_dir=images_dir)
-    assert result.startswith("![Une image](images/collage-")
+    result = _export(html, images_dir=images_dir, doc_dir=images_dir)
+    assert result.startswith("![Une image](collage-")
     saved = list(images_dir.glob("*.png"))
     assert len(saved) == 1
     assert saved[0].read_bytes()  # non-empty
+
+
+def test_data_uri_image_src_is_relative_to_doc_dir_not_images_dir(tmp_path: Path):
+    """The Markdown src must be relative to the post's own directory (what
+    the Pandoc/TEI/site-build pipeline resolves it against), not to
+    images_dir's parent — the same bug class fixed in image_widget.py's
+    copy_into_images_dir/save_clipboard_image.
+    """
+    images_dir = tmp_path / "assets" / "images"
+    doc_dir = tmp_path / "content" / "posts"
+    doc_dir.mkdir(parents=True)
+    html = f'<p><img src="data:image/png;base64,{_TINY_PNG_BASE64}" alt="Une image"></p>'
+    result = _export(html, images_dir=images_dir, doc_dir=doc_dir)
+    assert result.startswith("![Une image](../../assets/images/collage-")
 
 
 def test_http_image_is_downloaded_and_saved(tmp_path: Path, monkeypatch):
@@ -216,9 +230,9 @@ def test_http_image_is_downloaded_and_saved(tmp_path: Path, monkeypatch):
 
     images_dir = tmp_path / "assets" / "images"
     html = '<p><img src="https://example.org/photo.jpg" alt="Distante"></p>'
-    result = _export(html, images_dir=images_dir)
+    result = _export(html, images_dir=images_dir, doc_dir=images_dir)
 
-    assert result.startswith("![Distante](images/collage-")
+    assert result.startswith("![Distante](collage-")
     saved = list(images_dir.glob("*.jpg"))
     assert len(saved) == 1
     assert saved[0].read_bytes() == b"fake-image-bytes"

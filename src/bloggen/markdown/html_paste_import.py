@@ -14,6 +14,7 @@ it never touches the real Markdown -> TEI -> HTML build pipeline.
 from __future__ import annotations
 
 import base64
+import os
 import re
 import urllib.request
 import uuid
@@ -52,14 +53,20 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _BOLD_WEIGHTS = {"bold", "bolder", "600", "700", "800", "900"}
 
 
-def html_to_blocks(html: str, *, images_dir: Path | None = None) -> list[Block]:
+def html_to_blocks(html: str, *, images_dir: Path | None = None, doc_dir: Path | None = None) -> list[Block]:
     """Parse a pasted HTML fragment into a list of ``Block``.
 
     ``images_dir`` is where any ``data:``/``http(s)://`` images found in the
     fragment are saved (skipped, with an alt-text placeholder, if not
-    provided or on download failure).
+    provided or on download failure). ``doc_dir`` is the directory of the
+    post/page Markdown file being pasted into — the Markdown ``src`` is
+    written relative to it (falling back to ``images_dir`` itself if not
+    given), matching the convention the Pandoc/TEI/site-build pipeline
+    resolves image references against; see
+    :func:`bloggen.ui.image_widget.copy_into_images_dir` for the same
+    convention on the file-based insert path.
     """
-    builder = _HtmlBlockBuilder(images_dir=images_dir)
+    builder = _HtmlBlockBuilder(images_dir=images_dir, doc_dir=doc_dir or images_dir)
     builder.feed(html)
     builder.close()
     blocks = builder.finish()
@@ -78,9 +85,10 @@ class _Frame:
 
 
 class _HtmlBlockBuilder(HTMLParser):
-    def __init__(self, *, images_dir: Path | None) -> None:
+    def __init__(self, *, images_dir: Path | None, doc_dir: Path | None) -> None:
         super().__init__(convert_charrefs=True)
         self.images_dir = images_dir
+        self.doc_dir = doc_dir
         self.result: list[Block] = []
         self.frame_stack: list[_Frame] = []
         self.inline_stack: list[dict] = []
@@ -256,7 +264,7 @@ class _HtmlBlockBuilder(HTMLParser):
         if tag == "img":
             src = attrs_dict.get("src", "")
             alt = attrs_dict.get("alt", "")
-            resolved = _resolve_image_src(src, self.images_dir)
+            resolved = _resolve_image_src(src, self.images_dir, self.doc_dir)
             if resolved:
                 self._emit_image(resolved, alt)
             elif alt:
@@ -343,17 +351,18 @@ def _style_is_superscript(style: dict[str, str]) -> bool:
     return style.get("vertical-align", "") == "super"
 
 
-def _resolve_image_src(src: str, images_dir: Path | None) -> str | None:
+def _resolve_image_src(src: str, images_dir: Path | None, doc_dir: Path | None) -> str | None:
     if not src or images_dir is None:
         return None
+    doc_dir = doc_dir or images_dir
     if src.startswith("data:"):
-        return _save_data_uri_image(src, images_dir)
+        return _save_data_uri_image(src, images_dir, doc_dir)
     if src.startswith("http://") or src.startswith("https://"):
-        return _download_image(src, images_dir)
+        return _download_image(src, images_dir, doc_dir)
     return None
 
 
-def _save_data_uri_image(data_uri: str, images_dir: Path) -> str | None:
+def _save_data_uri_image(data_uri: str, images_dir: Path, doc_dir: Path) -> str | None:
     match = re.match(r"data:image/([a-zA-Z0-9.+-]+);base64,(.+)", data_uri, re.DOTALL)
     if not match:
         return None
@@ -363,27 +372,24 @@ def _save_data_uri_image(data_uri: str, images_dir: Path) -> str | None:
         data = base64.b64decode(payload, validate=False)
     except (ValueError, base64.binascii.Error):
         return None
-    return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{extension}", images_dir)
+    return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{extension}", images_dir, doc_dir)
 
 
-def _download_image(url: str, images_dir: Path) -> str | None:
+def _download_image(url: str, images_dir: Path, doc_dir: Path) -> str | None:
     try:
         with urllib.request.urlopen(url, timeout=_IMAGE_FETCH_TIMEOUT) as response:
             data = response.read()
     except (OSError, ValueError):
         return None
     suffix = Path(url.split("?", 1)[0]).suffix.lstrip(".") or "jpg"
-    return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{suffix}", images_dir)
+    return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{suffix}", images_dir, doc_dir)
 
 
-def _write_image_bytes(data: bytes, filename: str, images_dir: Path) -> str:
+def _write_image_bytes(data: bytes, filename: str, images_dir: Path, doc_dir: Path) -> str:
     images_dir.mkdir(parents=True, exist_ok=True)
     destination = images_dir / filename
     destination.write_bytes(data)
-    try:
-        return destination.relative_to(images_dir.parent).as_posix()
-    except ValueError:
-        return destination.as_posix()
+    return Path(os.path.relpath(destination, doc_dir)).as_posix()
 
 
 def _normalize_typography(blocks: list[Block]) -> None:
