@@ -32,7 +32,8 @@ def apply_french_typography(text: str) -> str:
     text = _convert_straight_quotes(text)
     text = fix_guillemet_spacing(text)
     text = fix_double_punctuation_spacing(text)
-    return fix_page_number_spacing(text)
+    text = fix_page_number_spacing(text)
+    return fix_period_spacing(text)
 
 
 def convert_curly_quotes_to_guillemets(text: str) -> str:
@@ -104,6 +105,22 @@ def fix_double_punctuation_spacing(text: str) -> str:
                 result.append(NBSP)
         result.append(char)
     return "".join(result)
+
+
+SPACE_BEFORE_PERIOD_RE = re.compile(r"[  ]+\.")
+# Same shape, anchored to the end of the string: used to detect the pattern
+# right as the "." is typed, one line-prefix at a time (mirrors this
+# module's other typed-shorthand regexes, see PAGE_ABBREVIATION_TYPED_RE).
+SPACE_BEFORE_PERIOD_TYPED_RE = re.compile(r"[  ]+\.$")
+
+
+def fix_period_spacing(text: str) -> str:
+    """Unlike ``; : ! ?`` (which take a non-breaking space before them),
+    French typography never puts a space before a period — strip any
+    regular or non-breaking space directly preceding one, however it got
+    there (stray keystroke, pasted content...). Idempotent.
+    """
+    return SPACE_BEFORE_PERIOD_RE.sub(".", text)
 
 
 _LETTER_CLASS = "A-Za-zÀ-ÖØ-öø-ÿ"

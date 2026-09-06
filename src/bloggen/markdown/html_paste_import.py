@@ -36,6 +36,7 @@ from bloggen.markdown.typography import (
     fix_double_punctuation_spacing,
     fix_guillemet_spacing,
     fix_page_number_spacing,
+    fix_period_spacing,
     split_century_ordinals,
 )
 
@@ -403,7 +404,8 @@ def _normalize_block(block: Block, opening_next: bool) -> bool:
         text, opening_next = convert_straight_quotes_stateful(text, opening_next=opening_next)
         text = fix_guillemet_spacing(text)
         text = fix_double_punctuation_spacing(text)
-        run.text = fix_page_number_spacing(text)
+        text = fix_page_number_spacing(text)
+        run.text = fix_period_spacing(text)
     block.runs = split_century_ordinals(block.runs)
     for child in block.children:
         opening_next = _normalize_block(child, opening_next)

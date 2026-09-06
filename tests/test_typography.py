@@ -8,6 +8,7 @@ from bloggen.markdown.typography import (
     convert_straight_quotes_stateful,
     fix_guillemet_spacing,
     fix_page_number_spacing,
+    fix_period_spacing,
     is_valid_century_ordinal,
     split_century_ordinals,
 )
@@ -207,6 +208,34 @@ def test_fix_guillemet_spacing_is_idempotent():
     once = fix_guillemet_spacing(f"{OPENING_GUILLEMET} bonjour {CLOSING_GUILLEMET}")
     twice = fix_guillemet_spacing(once)
     assert once == twice
+
+
+def test_fix_period_spacing_removes_regular_space():
+    assert fix_period_spacing("mot .") == "mot."
+
+
+def test_fix_period_spacing_removes_nbsp():
+    assert fix_period_spacing(f"mot{NBSP}.") == "mot."
+
+
+def test_fix_period_spacing_removes_multiple_spaces():
+    assert fix_period_spacing("mot   .") == "mot."
+
+
+def test_fix_period_spacing_leaves_glued_period_unchanged():
+    text = "mot."
+    assert fix_period_spacing(text) == text
+
+
+def test_fix_period_spacing_is_idempotent():
+    once = fix_period_spacing("mot .")
+    twice = fix_period_spacing(once)
+    assert once == twice
+
+
+def test_apply_french_typography_also_fixes_period_spacing():
+    result = apply_french_typography("Vraiment ? Oui .")
+    assert result == f"Vraiment{NBSP}? Oui."
 
 
 def test_apply_french_typography_fixes_pre_existing_guillemets_too():
