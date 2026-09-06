@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -199,6 +200,7 @@ class MainWindow(tk.Tk):
                 "output_dir",
                 "tei_dir",
             },
+            resolve_root=lambda: self._resolve_assets_root()[0],
         )
         self.notebook.add(self.paths_tab, text="Chemins")
 
@@ -373,7 +375,7 @@ class MainWindow(tk.Tk):
         )
         self.notebook.add(self.render_tab, text="Rendu")
 
-        self.media_panel = MediaPanel(self.notebook)
+        self.media_panel = MediaPanel(self.notebook, resolve_project_root=lambda: self._resolve_assets_root()[0])
         self.notebook.add(self.media_panel, text="Médias")
 
         self.notes_panel = NotesPanel(self.notebook)
@@ -939,12 +941,21 @@ def _create_form_tab(
     help_texts: dict[str, str] | None = None,
     dir_fields: set[str] | None = None,
     file_fields: dict[str, list[tuple[str, str]]] | None = None,
+    resolve_root: Callable[[], Path] | None = None,
 ) -> tuple[ttk.Frame, dict[str, tk.Variable]]:
     """Build a simple grid form tab.
 
     ``dir_fields`` marks field names that get a "Parcourir..." button opening a
     folder picker. ``file_fields`` marks field names that get a button opening
     a file picker, mapped to the filetypes list passed to the dialog.
+
+    ``resolve_root`` (called lazily, at click time — see ``BannerPanel`` for
+    the same pattern) lets a directory picked via "Parcourir..." be stored
+    relative to the project root instead of as an absolute, machine-specific
+    path. Every field in ``dir_fields`` uses it except one literally named
+    "project_root" (its own value, by design, is the base every other path
+    in this tab is relative to, and may itself be absolute — see the
+    "Chemins" tab's help text).
     """
     frame = ttk.Frame(notebook)
     vars_map: dict[str, tk.Variable] = {}
@@ -971,8 +982,11 @@ def _create_form_tab(
             add_tooltip(label_widget, help_text)
             add_tooltip(entry, help_text)
         if field_name in dir_fields:
+            field_root_resolver = resolve_root if field_name != "project_root" else None
             browse = ttk.Button(
-                frame, text="Parcourir...", command=lambda v=var: _browse_directory(v)
+                frame,
+                text="Parcourir...",
+                command=lambda v=var, r=field_root_resolver: _browse_directory(v, r),
             )
             browse.grid(row=row, column=2, sticky="w", padx=(0, 8), pady=4)
             add_tooltip(browse, "Ouvre un sélecteur pour choisir un dossier existant sur le disque.")
@@ -1000,10 +1014,34 @@ def _create_form_tab(
     return frame, vars_map
 
 
-def _browse_directory(var: tk.StringVar) -> None:
+def _relativize_or_warn(selected: str, resolve_root: Callable[[], Path] | None) -> str:
+    """Store a folder chosen via "Parcourir..." relative to the project
+    root when possible, instead of the absolute, machine-specific path the
+    dialog returns — matching what the field's own help text promises
+    ("chemin relatif à la racine projet") and what saving/reloading the
+    config on another machine needs to keep working.
+    """
+    if resolve_root is None:
+        return selected
+    try:
+        root = resolve_root().resolve()
+        relative = Path(selected).resolve().relative_to(root)
+    except (OSError, ValueError):
+        messagebox.showwarning(
+            "Dossier hors du projet",
+            f"Le dossier choisi est en dehors de la racine du projet ({selected!s})."
+            "\nIl sera enregistré tel quel (chemin absolu), ce qui rendra le projet "
+            "moins portable d'une machine à l'autre.",
+        )
+        return selected
+    return relative.as_posix()
+
+
+def _browse_directory(var: tk.StringVar, resolve_root: Callable[[], Path] | None = None) -> None:
     selected = filedialog.askdirectory(title="Choisir un dossier", initialdir=var.get() or ".")
-    if selected:
-        var.set(selected)
+    if not selected:
+        return
+    var.set(_relativize_or_warn(selected, resolve_root))
 
 
 def _browse_file(var: tk.StringVar, filetypes: list[tuple[str, str]]) -> None:

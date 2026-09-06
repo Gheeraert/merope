@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import filedialog, ttk
+from collections.abc import Callable
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
 from bloggen.config.models import MediaHandlingConfig
 from bloggen.ui.tooltip import add_tooltip
 
 
 class MediaPanel(ttk.Frame):
-    def __init__(self, master: tk.Misc) -> None:
+    def __init__(self, master: tk.Misc, *, resolve_project_root: Callable[[], Path] | None = None) -> None:
+        """``resolve_project_root`` is called lazily (only when the user
+        actually browses for the images folder), matching the pattern used
+        by ``BannerPanel``'s ``resolve_assets_root`` — the Chemins tab (which
+        owns ``project_root``) is typically built after this panel.
+        """
         super().__init__(master)
+        self._resolve_project_root = resolve_project_root
         self.strategy_var = tk.StringVar(value="copy_local_assets")
         self.images_dir_var = tk.StringVar(value="assets/images")
         self.copy_media_var = tk.BooleanVar(value=True)
@@ -102,8 +110,31 @@ class MediaPanel(ttk.Frame):
         selected = filedialog.askdirectory(
             title="Choisir le dossier images", initialdir=self.images_dir_var.get() or "."
         )
-        if selected:
-            self.images_dir_var.set(selected)
+        if not selected:
+            return
+        self.images_dir_var.set(self._relativize_or_warn(selected))
+
+    def _relativize_or_warn(self, selected: str) -> str:
+        """Store the chosen folder relative to the project root when
+        possible, instead of the absolute, machine-specific path the dialog
+        returns — matching this field's own help text ("relatif à la racine
+        projet") and the convention every image src in the site is resolved
+        against.
+        """
+        if self._resolve_project_root is None:
+            return selected
+        try:
+            root = self._resolve_project_root().resolve()
+            relative = Path(selected).resolve().relative_to(root)
+        except (OSError, ValueError):
+            messagebox.showwarning(
+                "Dossier hors du projet",
+                f"Le dossier choisi est en dehors de la racine du projet ({selected!s})."
+                "\nIl sera enregistré tel quel (chemin absolu), ce qui rendra le projet "
+                "moins portable d'une machine à l'autre.",
+            )
+            return selected
+        return relative.as_posix()
 
     def set_data(self, media: MediaHandlingConfig) -> None:
         self.strategy_var.set(media.strategy)
