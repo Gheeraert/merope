@@ -2043,11 +2043,17 @@ class ContentEditorWindow(tk.Toplevel):
     def _doc_dir(self) -> Path:
         """Directory Markdown image paths should be written/resolved
         relative to — the post/page's own file location, matching how the
-        Pandoc/TEI/site-build pipeline resolves them. Falls back to
-        ``posts_dir`` for an unsaved document (same depth as ``pages_dir``,
-        so the relative path still lands correctly once saved).
+        Pandoc/TEI/site-build pipeline resolves them. Falls back to the
+        directory this unsaved document will be saved into (``pages_dir``
+        or ``posts_dir`` depending on ``current_kind`` — they aren't
+        guaranteed to be at the same depth, both are freely reconfigurable
+        in the "Chemins" tab), so the relative path still lands correctly
+        once saved.
         """
-        return self.current_path.parent if self.current_path else self.posts_dir
+        if self.current_path is not None:
+            return self.current_path.parent
+        kind = self.current_kind or "page"
+        return self.pages_dir if kind == "page" else self.posts_dir
 
     def _insert_image_widget(
         self,
