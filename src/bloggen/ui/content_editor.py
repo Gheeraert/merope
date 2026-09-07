@@ -95,6 +95,18 @@ _DOUBLE_PAREN_NOTE_TYPED_RE = re.compile(r"\(\((.+?)\)\)$")
 # archives the previous on-disk version before overwriting it.
 _VERSIONS_DIRNAME = ".versions"
 _VERSION_FILENAME_RE_TEMPLATE = r"^{stem}\.v(\d+){suffix}$"
+# Unbounded otherwise: every save added one more file to .versions/,
+# forever, for the life of a document that might be saved hundreds of
+# times over months — the oldest versions beyond this cap are pruned
+# each time a new one is archived.
+_MAX_VERSIONS_PER_DOCUMENT = 20
+# Caps both Tk's own native undo/redo history (-maxundo) and the parallel
+# _undo_stack/_redo_stack tracked alongside it (see _on_text_modified) —
+# unbounded otherwise for the length of one editing session. Consuming a
+# stale marker whose underlying Tk undo group has already aged out is
+# harmless (_perform_undo/_perform_redo already tolerate edit_undo/
+# edit_redo raising TclError when there's nothing left to undo/redo).
+_MAX_UNDO_HISTORY = 500
 # How often the in-progress document is autosaved to the crash-recovery
 # draft while dirty — frequent enough that a crash loses at most a short
 # stretch of work, infrequent enough not to matter for disk I/O.
@@ -824,7 +836,9 @@ class ContentEditorWindow(tk.Toplevel):
 
         text_frame = ttk.Frame(vertical_paned)
         vertical_paned.add(text_frame, weight=5)
-        self.text = tk.Text(text_frame, wrap="word", undo=True, font=("TkDefaultFont", 11))
+        self.text = tk.Text(
+            text_frame, wrap="word", undo=True, maxundo=_MAX_UNDO_HISTORY, font=("TkDefaultFont", 11)
+        )
         # Clicking a toolbar button moves keyboard focus away from the text
         # widget, and Tk's default "inactiveselectbackground" is pale/absent
         # on most themes — the selection is still there, it just visually
@@ -985,6 +999,12 @@ class ContentEditorWindow(tk.Toplevel):
     def _char_count(self) -> int:
         return int(self.text.count("1.0", "end", "chars")[0])
 
+    @staticmethod
+    def _trim_undo_stack(stack: list) -> None:
+        overflow = len(stack) - _MAX_UNDO_HISTORY
+        if overflow > 0:
+            del stack[:overflow]
+
     def _on_text_modified(self, _event: tk.Event | None = None) -> None:
         """Track every insert/delete as one coalesced "text" marker on our
         own undo stack, so it interleaves in the right order with the
@@ -1011,6 +1031,7 @@ class ContentEditorWindow(tk.Toplevel):
             kind = self._current_edit_kind or "insert"
         if kind != self._current_edit_kind:
             self._undo_stack.append(("text",))
+            self._trim_undo_stack(self._undo_stack)
             self._redo_stack.clear()
         self._current_edit_kind = kind
         self._last_char_count = new_count
@@ -1029,6 +1050,7 @@ class ContentEditorWindow(tk.Toplevel):
         """
         self.text.edit_separator()
         self._undo_stack.append(("format", undo_fn, redo_fn))
+        self._trim_undo_stack(self._undo_stack)
         self._redo_stack.clear()
         self._current_edit_kind = None
         self._dirty = True
@@ -1045,6 +1067,7 @@ class ContentEditorWindow(tk.Toplevel):
         else:
             entry[1]()
         self._redo_stack.append(entry)
+        self._trim_undo_stack(self._redo_stack)
         self._current_edit_kind = None
         self._last_char_count = self._char_count()
 
@@ -1060,6 +1083,7 @@ class ContentEditorWindow(tk.Toplevel):
         else:
             entry[2]()
         self._undo_stack.append(entry)
+        self._trim_undo_stack(self._undo_stack)
         self._current_edit_kind = None
         self._last_char_count = self._char_count()
 
@@ -2732,27 +2756,44 @@ class ContentEditorWindow(tk.Toplevel):
 
     # -- save ---------------------------------------------------------------
 
+    def _existing_versions(self, versions_dir: Path, path: Path) -> list[tuple[int, Path]]:
+        """(version number, path) for every archived version of ``path``
+        found in ``versions_dir``, sorted oldest first."""
+        pattern = re.compile(
+            _VERSION_FILENAME_RE_TEMPLATE.format(stem=re.escape(path.stem), suffix=re.escape(path.suffix))
+        )
+        numbered: list[tuple[int, Path]] = []
+        for existing in versions_dir.glob(f"{path.stem}.v*{path.suffix}"):
+            match = pattern.match(existing.name)
+            if match:
+                numbered.append((int(match.group(1)), existing))
+        numbered.sort(key=lambda item: item[0])
+        return numbered
+
     def _archive_previous_version(self, path: Path) -> None:
         """Before a save overwrites ``path``, copy its current on-disk
         content into a sibling ``.versions`` folder under a numbered
         filename (``slug.v1.md``, ``slug.v2.md``, ...), so past edits stay
         recoverable. No-op the first time a file is saved (nothing to
         archive yet).
+
+        Once archived, prunes the oldest versions beyond
+        ``_MAX_VERSIONS_PER_DOCUMENT`` — otherwise this folder grows by one
+        file per save, forever, for the life of the document.
         """
         if not path.exists():
             return
         versions_dir = path.parent / _VERSIONS_DIRNAME
         versions_dir.mkdir(exist_ok=True)
-        pattern = re.compile(
-            _VERSION_FILENAME_RE_TEMPLATE.format(stem=re.escape(path.stem), suffix=re.escape(path.suffix))
-        )
-        next_number = 1
-        for existing in versions_dir.glob(f"{path.stem}.v*{path.suffix}"):
-            match = pattern.match(existing.name)
-            if match:
-                next_number = max(next_number, int(match.group(1)) + 1)
+        existing_versions = self._existing_versions(versions_dir, path)
+        next_number = (existing_versions[-1][0] + 1) if existing_versions else 1
         version_path = versions_dir / f"{path.stem}.v{next_number}{path.suffix}"
         version_path.write_bytes(path.read_bytes())
+
+        existing_versions.append((next_number, version_path))
+        overflow = len(existing_versions) - _MAX_VERSIONS_PER_DOCUMENT
+        for _, old_path in existing_versions[: max(overflow, 0)]:
+            old_path.unlink(missing_ok=True)
 
     def _save(self) -> None:
         if not self.metadata.get("title") or not self.metadata.get("slug"):
