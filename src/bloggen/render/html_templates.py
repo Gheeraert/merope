@@ -121,6 +121,9 @@ def render_page_document(
     )
 
 
+_ALLOWED_EMBED_SCHEMES = ("http:", "https:")
+
+
 def render_external_link_fragment(*, label: str, url: str) -> str:
     """Content for the wrapper page generated for a "lien externe" menu entry.
 
@@ -128,14 +131,33 @@ def render_external_link_fragment(*, label: str, url: str) -> str:
     stay visible around it, instead of navigating away. Not every external
     site allows this (``X-Frame-Options``/CSP can refuse to be framed), so a
     plain fallback link is always shown above the frame.
+
+    ``url`` ultimately comes from a menu link's ``target`` in site.json —
+    free text with only a "non-empty" check upstream (see config/validator.py)
+    at the time this was written. Only http(s) is ever embedded or linked:
+    the config validator is expected to reject anything else, but this is
+    the last line of defense against a scheme an <a>/<iframe> would act on
+    (``javascript:``, ``data:``, …) reaching the generated HTML.
     """
+    if not url.lower().startswith(_ALLOWED_EMBED_SCHEMES):
+        return (
+            '<div class="external-embed">'
+            '<p class="external-embed-notice">'
+            f"Lien externe invalide pour « {escape(label)} » : seules les adresses "
+            "http(s) peuvent être intégrées."
+            "</p>"
+            "</div>"
+        )
+
     escaped_url = escape(url)
     return (
         '<div class="external-embed">'
         '<p class="external-embed-notice">Contenu externe : '
         f'<a href="{escaped_url}" target="_blank" rel="noopener noreferrer">{escaped_url}</a>'
         "</p>"
-        f'<iframe class="external-embed-frame" src="{escaped_url}" title="{escape(label)}" loading="lazy"></iframe>'
+        f'<iframe class="external-embed-frame" src="{escaped_url}" title="{escape(label)}" '
+        'loading="lazy" referrerpolicy="no-referrer" '
+        'sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>'
         "</div>"
     )
 

@@ -145,6 +145,18 @@ def _validate_menus(data: dict[str, Any], errors: list[str]) -> None:
         _validate_side_section(section, errors, idx)
 
 
+def _validate_external_target_scheme(target: str, target_type: str, errors: list[str], path: str) -> None:
+    """An "external" menu target is embedded in an <iframe> and linked in
+    an <a href> (see render_external_link_fragment) — only http(s) is
+    safe there. A scheme such as javascript:/data: would otherwise reach
+    the generated HTML verbatim.
+    """
+    if target_type != "external" or not isinstance(target, str):
+        return
+    if target.strip() and not target.strip().lower().startswith(("http://", "https://")):
+        errors.append(f"{path}.target doit être une URL http(s) pour un lien de type 'external'.")
+
+
 def _validate_side_section(section: Any, errors: list[str], index: int) -> None:
     base_path = f"menus.side[{index}]"
     if not isinstance(section, dict):
@@ -166,6 +178,8 @@ def _validate_side_section(section: Any, errors: list[str], index: int) -> None:
     target_type = section.get("target_type", "internal")
     if not isinstance(target_type, str):
         errors.append(f"{base_path}.target_type doit être une chaîne.")
+    elif isinstance(target, str):
+        _validate_external_target_scheme(target, target_type, errors, base_path)
 
     numbered = section.get("numbered", False)
     if not isinstance(numbered, bool):
@@ -211,6 +225,8 @@ def _validate_side_subsection(subsection: Any, errors: list[str], base_path: str
     target_type = subsection.get("target_type", "internal")
     if not isinstance(target_type, str):
         errors.append(f"{base_path}.target_type doit être une chaîne.")
+    elif isinstance(target, str):
+        _validate_external_target_scheme(target, target_type, errors, base_path)
 
     children = subsection.get("children")
     if not isinstance(children, list):
@@ -240,6 +256,8 @@ def _validate_menu_link(item: Any, errors: list[str], path: str) -> None:
     target_type = item.get("target_type")
     if not isinstance(target_type, str) or not target_type.strip():
         errors.append(f"{path}.target_type est requis.")
+    elif isinstance(target, str):
+        _validate_external_target_scheme(target, target_type, errors, path)
 
     enabled = item.get("enabled")
     if not isinstance(enabled, bool):

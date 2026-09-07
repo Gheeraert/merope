@@ -112,3 +112,58 @@ def test_side_menu_title_round_trip():
 def test_side_menu_title_defaults_to_empty_string():
     config = build_default_config()
     assert config.menus.side_title == ""
+
+
+def test_external_menu_link_with_a_dangerous_scheme_is_rejected():
+    """An "external" link is embedded in an <iframe> and an <a href>
+    (render_external_link_fragment) — only http(s) belongs there."""
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["menus"]["top"].append(
+        {"label": "Malveillant", "target": "javascript:alert(1)", "target_type": "external", "enabled": True, "new_tab": False}
+    )
+    with pytest.raises(ConfigValidationError, match="http"):
+        parse_config(raw)
+
+
+def test_external_side_section_with_a_dangerous_scheme_is_rejected():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["menus"]["side"].append(
+        {
+            "label": "Malveillant",
+            "target": "javascript:alert(1)",
+            "target_type": "external",
+            "children": [],
+            "subsections": [],
+        }
+    )
+    with pytest.raises(ConfigValidationError, match="http"):
+        parse_config(raw)
+
+
+def test_external_side_subsection_with_a_dangerous_scheme_is_rejected():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["menus"]["side"].append(
+        {
+            "label": "Section",
+            "children": [],
+            "subsections": [
+                {
+                    "label": "Malveillant",
+                    "target": "javascript:alert(1)",
+                    "target_type": "external",
+                    "children": [],
+                }
+            ],
+        }
+    )
+    with pytest.raises(ConfigValidationError, match="http"):
+        parse_config(raw)
+
+
+def test_external_menu_link_with_an_http_url_is_accepted():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["menus"]["top"].append(
+        {"label": "Wikipédia", "target": "https://fr.wikipedia.org", "target_type": "external", "enabled": True, "new_tab": False}
+    )
+    config = parse_config(raw)
+    assert config.menus.top[-1].target == "https://fr.wikipedia.org"
