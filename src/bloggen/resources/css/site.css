@@ -239,6 +239,17 @@ button:focus-visible {
   line-height: 1.5;
 }
 
+.site-search-error {
+  color: var(--muted);
+  font-style: italic;
+  cursor: default;
+}
+
+.site-search-error:hover,
+.site-search-error:focus-within {
+  background: none;
+}
+
 .page-layout {
   width: min(var(--page-max-width), 100% - 2.4rem);
   margin: 0 auto 2rem;

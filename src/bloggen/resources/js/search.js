@@ -13,8 +13,10 @@
   }
 
   var MAX_RESULTS = 8;
+  var TITLE_MATCH_WEIGHT = 10;
   var entries = null;
   var loadingPromise = null;
+  var loadFailed = false;
 
   function normalize(value) {
     return (value || "")
@@ -22,6 +24,28 @@
       .normalize("NFD")
       .replace(/[̀-ͯ]/g, "")
       .toLowerCase();
+  }
+
+  function splitWords(query) {
+    return normalize(query)
+      .split(/\s+/)
+      .filter(function (word) {
+        return word.length > 0;
+      });
+  }
+
+  function countOccurrences(haystack, needle) {
+    if (!needle) {
+      return 0;
+    }
+    var count = 0;
+    var from = 0;
+    var at;
+    while ((at = haystack.indexOf(needle, from)) !== -1) {
+      count += 1;
+      from = at + needle.length;
+    }
+    return count;
   }
 
   function resolveUrl(rootRelativeUrl) {
@@ -50,17 +74,57 @@
                 title: entry.title || "",
                 url: entry.url || "",
                 excerpt: entry.excerpt || "",
+                normalizedTitle: normalize(entry.title || ""),
                 normalizedText: normalize((entry.title || "") + " " + (entry.text || "")),
               };
             })
           : [];
+        loadFailed = false;
         return entries;
       })
       .catch(function () {
         entries = [];
+        loadFailed = true;
         return entries;
       });
     return loadingPromise;
+  }
+
+  // Every query word must appear somewhere in the entry (title or body) —
+  // plain substring matching, no stemming/morphological variants, but this
+  // already rules out far more noise than matching the query as one single
+  // literal phrase. Ranked by a simple relevance score (title hits weigh
+  // more than body hits, repeated occurrences count) rather than left in
+  // whatever order the index happened to list entries.
+  function matchAndScore(loadedEntries, words) {
+    var scored = [];
+    for (var i = 0; i < loadedEntries.length; i += 1) {
+      var entry = loadedEntries[i];
+      var score = 0;
+      var matchesAll = true;
+      for (var w = 0; w < words.length; w += 1) {
+        var word = words[w];
+        var titleHits = countOccurrences(entry.normalizedTitle, word);
+        var textHits = countOccurrences(entry.normalizedText, word);
+        if (titleHits === 0 && textHits === 0) {
+          matchesAll = false;
+          break;
+        }
+        score += titleHits * TITLE_MATCH_WEIGHT + textHits;
+      }
+      if (matchesAll) {
+        scored.push({ entry: entry, score: score, index: i });
+      }
+    }
+    scored.sort(function (a, b) {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return a.index - b.index; // stable: keep original order among ties
+    });
+    return scored.map(function (item) {
+      return item.entry;
+    });
   }
 
   function renderResults(matches) {
@@ -85,17 +149,27 @@
     resultsList.hidden = false;
   }
 
+  function renderError() {
+    resultsList.innerHTML = "";
+    var item = document.createElement("li");
+    item.className = "site-search-result site-search-error";
+    item.textContent = "Recherche indisponible pour le moment.";
+    resultsList.appendChild(item);
+    resultsList.hidden = false;
+  }
+
   function runSearch(query) {
-    var needle = normalize(query);
-    if (!needle) {
+    var words = splitWords(query);
+    if (!words.length) {
       renderResults([]);
       return;
     }
     loadIndex().then(function (loadedEntries) {
-      var matches = loadedEntries.filter(function (entry) {
-        return entry.normalizedText.indexOf(needle) !== -1;
-      });
-      renderResults(matches);
+      if (loadFailed) {
+        renderError();
+        return;
+      }
+      renderResults(matchAndScore(loadedEntries, words));
     });
   }
 
