@@ -756,18 +756,21 @@ class MainWindow(tk.Tk):
         self._write_config_to(Path(destination))
 
     def _write_config_to(self, destination: Path) -> None:
+        warnings: list[str] = []
         try:
             config = self._collect_from_form()
             errors = validate_config_model(config)
             if errors:
                 raise ConfigValidationError(errors)
-            save_config(config, destination)
+            save_config(config, destination, warnings=warnings)
         except (ConfigValidationError, OSError, ValueError) as exc:
             messagebox.showerror("Erreur", f"Enregistrement impossible:\n{exc}")
             return
 
         self.current_config_path = destination
         self._set_path_label()
+        if warnings:
+            messagebox.showwarning("Configuration", "\n\n".join(warnings))
         messagebox.showinfo("Configuration", "Configuration enregistrée.")
 
     def generate_site(self) -> None:
@@ -823,10 +826,13 @@ class MainWindow(tk.Tk):
         def on_ftp_config_changed(ftp_config: FtpConfig) -> None:
             self._ftp_config = ftp_config
             if self.current_config_path is not None:
+                warnings: list[str] = []
                 try:
-                    save_config(self._collect_from_form(), self.current_config_path)
+                    save_config(self._collect_from_form(), self.current_config_path, warnings=warnings)
                 except (ConfigValidationError, OSError, ValueError):
-                    pass
+                    return
+                if warnings:
+                    messagebox.showwarning("Configuration", "\n\n".join(warnings))
 
         FtpPublishDialog(
             self,

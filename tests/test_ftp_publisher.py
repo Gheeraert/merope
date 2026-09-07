@@ -21,10 +21,10 @@ class FakeFTP:
         self.dirs: set[str] = {"/"}
         self.cwd_path = "/"
         self.stored: list[str] = []
+        self.file_contents: dict[str, bytes] = {}
         self.fail_files: set[str] = set()
         self.die_after: str | None = None
         self._alive = True
-        self.supports_mlsd = True
         self.delete_fail_files: set[str] = set()
 
     # -- connection lifecycle -------------------------------------------------
@@ -74,10 +74,19 @@ class FakeFTP:
         key = self._resolve(filename)
         if key in self.fail_files:
             raise ftplib.error_perm("550 Permission refusée")
-        handle.read()
-        self.stored.append(key)
+        content = handle.read()
+        if key not in self.stored:
+            self.stored.append(key)
+        self.file_contents[key] = content
         if self.die_after == key:
             self._alive = False
+
+    def retrbinary(self, cmd: str, callback) -> None:
+        filename = cmd.split(" ", 1)[1]
+        key = self._resolve(filename)
+        if key not in self.file_contents:
+            raise ftplib.error_perm(f"550 {filename}: No such file")
+        callback(self.file_contents[key])
 
     def voidcmd(self, _cmd: str) -> str:
         if not self._alive:
@@ -91,26 +100,7 @@ class FakeFTP:
         if key not in self.stored:
             raise ftplib.error_perm(f"550 {filename}: No such file")
         self.stored.remove(key)
-
-    def mlsd(self, path: str = ""):
-        if not self.supports_mlsd:
-            raise ftplib.error_perm("502 Command not implemented")
-        base = self.cwd_path if not path else (path if path.startswith("/") else self._resolve(path))
-        seen_dirs: set[str] = set()
-        for d in self.dirs:
-            if d == base:
-                continue
-            parent = d.rsplit("/", 1)[0] or "/"
-            if parent != base:
-                continue
-            name = d.rsplit("/", 1)[1]
-            if name and name not in seen_dirs:
-                seen_dirs.add(name)
-                yield name, {"type": "dir"}
-        for f in self.stored:
-            parent = f.rsplit("/", 1)[0] or "/"
-            if parent == base:
-                yield f.rsplit("/", 1)[1], {"type": "file"}
+        self.file_contents.pop(key, None)
 
 
 def _make_ftp_factory():
@@ -136,6 +126,16 @@ def _seed_remote(instance: FakeFTP, absolute_paths: list[str]) -> None:
         for part in parts:
             prefix = f"{prefix}/{part}"
             instance.dirs.add(prefix)
+
+
+def _seed_manifest(instance: FakeFTP, publish_root: str, relative_paths: list[str]) -> None:
+    """Simulates a MEROPE manifest left over from a previous successful
+    publish to this same remote_dir — the baseline stale-file detection
+    reads back and diffs against the current build."""
+    import json as _json
+
+    key = f"{publish_root.rstrip('/')}/{module._MANIFEST_FILENAME}"
+    instance.file_contents[key] = _json.dumps(relative_paths).encode("utf-8")
 
 
 def _config(**overrides) -> FtpConfig:
@@ -269,48 +269,95 @@ def test_publish_raises_when_local_dir_is_empty(tmp_path):
 
 
 # -- stale remote file detection / deletion ----------------------------------
+#
+# Detection is manifest-based: a small JSON file MEROPE itself writes to
+# the remote publish root after every fully successful publish, listing
+# exactly the files it deployed. Stale = present in that PREVIOUS
+# manifest but not in the CURRENT build — never "any remote file this
+# build doesn't have", which would also flag an unrelated application's
+# files sharing the same remote_dir (see the external audit).
 
 
-def test_detect_stale_files_finds_remote_leftovers_not_in_the_local_build(tmp_path, monkeypatch):
+def test_detect_stale_files_finds_files_the_previous_merope_manifest_no_longer_has(
+    tmp_path, monkeypatch
+):
     factory = _make_ftp_factory()
 
-    def factory_with_leftovers(*, timeout=None):
+    def factory_with_previous_manifest(*, timeout=None):
         instance = FakeFTP(timeout=timeout)
-        _seed_remote(instance, ["/www/old-post/index.html", "/www/billets/premier/stray.jpg"])
+        _seed_manifest(
+            instance,
+            "/www",
+            ["index.html", "billets/premier/index.html", "old-post/index.html", "billets/premier/stray.jpg"],
+        )
         factory.created.append(instance)
         return instance
 
-    monkeypatch.setattr(module.ftplib, "FTP", factory_with_leftovers)
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_previous_manifest)
 
     site = _make_site(tmp_path)
     result = publish_directory(site, _config(), detect_stale_files=True)
 
     assert result.ok is True
     assert result.stale_remote_error is None
+    assert result.stale_remote_manifest_missing is False
     assert sorted(result.stale_remote) == ["billets/premier/stray.jpg", "old-post/index.html"]
+
+
+def test_detect_stale_files_ignores_a_remote_file_never_listed_in_a_merope_manifest(
+    tmp_path, monkeypatch
+):
+    """A file physically present on the server but absent from every
+    MEROPE manifest (an unrelated application's file sharing remote_dir,
+    or something a human FTP'd in by hand) must never be proposed for
+    deletion, even if it isn't part of this build."""
+    factory = _make_ftp_factory()
+
+    def factory_with_foreign_file(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        _seed_manifest(instance, "/www", ["index.html", "billets/premier/index.html"])
+        _seed_remote(instance, ["/www/other-app/config.php"])
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_foreign_file)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config(), detect_stale_files=True)
+
+    assert result.ok is True
+    assert result.stale_remote == []
 
 
 def test_detect_stale_files_is_empty_when_remote_matches_local(tmp_path, monkeypatch):
     factory = _make_ftp_factory()
-    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    def factory_with_matching_manifest(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        _seed_manifest(instance, "/www", ["index.html", "billets/premier/index.html"])
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_matching_manifest)
 
     site = _make_site(tmp_path)
     result = publish_directory(site, _config(), detect_stale_files=True)
 
     assert result.stale_remote == []
     assert result.stale_remote_error is None
+    assert result.stale_remote_manifest_missing is False
 
 
 def test_detect_stale_files_is_skipped_by_default(tmp_path, monkeypatch):
     factory = _make_ftp_factory()
 
-    def factory_with_leftovers(*, timeout=None):
+    def factory_with_previous_manifest(*, timeout=None):
         instance = FakeFTP(timeout=timeout)
-        _seed_remote(instance, ["/www/old-post/index.html"])
+        _seed_manifest(instance, "/www", ["old-post/index.html"])
         factory.created.append(instance)
         return instance
 
-    monkeypatch.setattr(module.ftplib, "FTP", factory_with_leftovers)
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_previous_manifest)
 
     site = _make_site(tmp_path)
     result = publish_directory(site, _config())  # detect_stale_files defaults to False
@@ -324,7 +371,7 @@ def test_detect_stale_files_is_skipped_when_the_publish_itself_failed(tmp_path, 
     def factory(*, timeout=None):
         instance = FakeFTP(timeout=timeout)
         instance.fail_files.add("/www/index.html")
-        _seed_remote(instance, ["/www/old-post/index.html"])
+        _seed_manifest(instance, "/www", ["old-post/index.html"])
         factory_calls.append(instance)
         return instance
 
@@ -337,25 +384,52 @@ def test_detect_stale_files_is_skipped_when_the_publish_itself_failed(tmp_path, 
     # An incomplete transfer is not a trustworthy basis for "what's stale".
     assert result.stale_remote == []
     assert result.stale_remote_error is None
+    assert result.stale_remote_manifest_missing is False
 
 
-def test_detect_stale_files_reports_when_the_server_lacks_mlsd_support(tmp_path, monkeypatch):
+def test_detect_stale_files_reports_no_baseline_when_no_previous_manifest_exists(
+    tmp_path, monkeypatch
+):
+    """First publish to a remote_dir (with this feature, or ever): there
+    is no MEROPE manifest to diff against yet, so nothing is proposed
+    for deletion — a full directory listing would risk catching another
+    application's files. A manifest is still written for next time."""
     factory = _make_ftp_factory()
 
-    def factory_no_mlsd(*, timeout=None):
+    def factory_with_leftovers_but_no_manifest(*, timeout=None):
         instance = FakeFTP(timeout=timeout)
-        instance.supports_mlsd = False
+        _seed_remote(instance, ["/www/old-post/index.html"])
         factory.created.append(instance)
         return instance
 
-    monkeypatch.setattr(module.ftplib, "FTP", factory_no_mlsd)
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_leftovers_but_no_manifest)
 
     site = _make_site(tmp_path)
     result = publish_directory(site, _config(), detect_stale_files=True)
 
     assert result.ok is True  # the publish itself still succeeded
     assert result.stale_remote == []
-    assert result.stale_remote_error is not None
+    assert result.stale_remote_manifest_missing is True
+    assert result.stale_remote_error is None
+
+    ftp = factory.created[0]
+    manifest_key = "/www/" + module._MANIFEST_FILENAME
+    assert manifest_key in ftp.file_contents
+
+
+def test_a_successful_publish_writes_a_fresh_manifest_for_the_next_one(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    site = _make_site(tmp_path)
+    publish_directory(site, _config(), detect_stale_files=True)
+
+    ftp = factory.created[0]
+    manifest_key = "/www/" + module._MANIFEST_FILENAME
+    import json as _json
+
+    written = _json.loads(ftp.file_contents[manifest_key].decode("utf-8"))
+    assert sorted(written) == ["billets/premier/index.html", "index.html"]
 
 
 def test_delete_remote_files_removes_the_given_paths(tmp_path, monkeypatch):

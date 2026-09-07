@@ -71,9 +71,19 @@ def test_credentials_are_scoped_by_host_and_username(fake_backend):
     [("", ""), ("ftp.example.org", ""), ("", "alice")],
 )
 def test_operations_are_no_ops_without_both_host_and_username(fake_backend, host, username):
-    ftp_credentials.save_password(host, username, "secret")
+    # A non-empty password with no host/username to key it by can't be
+    # stored anywhere — save_password must report that honestly (False),
+    # not claim success while silently dropping it.
+    assert ftp_credentials.save_password(host, username, "secret") is False
     assert ftp_credentials.load_password(host, username) == ""
     ftp_credentials.delete_password(host, username)  # must not raise
+    assert fake_backend.store == {}
+
+
+def test_saving_an_empty_password_with_no_host_or_username_is_a_true_no_op(fake_backend):
+    # Nothing to store either way — this is the "no password entered
+    # yet" case, not a failure to persist one.
+    assert ftp_credentials.save_password("", "", "") is True
     assert fake_backend.store == {}
 
 
@@ -90,4 +100,7 @@ def test_save_degrades_silently_when_the_backend_is_unavailable(monkeypatch):
         raise keyring.errors.NoKeyringError("no backend configured")
 
     monkeypatch.setattr(ftp_credentials.keyring, "set_password", broken)
-    ftp_credentials.save_password("ftp.example.org", "alice", "secret")  # must not raise
+    # Must not raise, but must report the failure via its return value —
+    # callers that would otherwise discard their own copy of the
+    # password rely on this (see test_config_ftp_password.py).
+    assert ftp_credentials.save_password("ftp.example.org", "alice", "secret") is False

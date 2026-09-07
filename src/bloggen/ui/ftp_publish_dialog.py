@@ -257,8 +257,21 @@ class FtpPublishDialog(tk.Toplevel):
             messagebox.showinfo(
                 "Publication terminée",
                 f"{file_count} fichier(s) transféré(s) avec succès.\n\n"
-                "Impossible de vérifier la présence de fichiers obsolètes sur le serveur "
-                f"(le serveur ne répond pas à la commande de listing) :\n{result.stale_remote_error}",
+                "Le manifeste MEROPE n'a pas pu être mis à jour sur le serveur : la "
+                f"détection des fichiers obsolètes ne sera pas fiable la prochaine fois "
+                f"tant que ce problème persiste.\n{result.stale_remote_error}",
+                parent=self,
+            )
+        elif result.stale_remote_manifest_missing:
+            messagebox.showinfo(
+                "Publication terminée",
+                f"{file_count} fichier(s) transféré(s) avec succès.\n\n"
+                "Aucun manifeste MEROPE existant n'a été trouvé sur le serveur (première "
+                "publication avec cette fonctionnalité, ou dossier distant utilisé pour "
+                "la première fois) : aucun fichier n'est proposé à la suppression cette "
+                "fois-ci, par précaution. Un manifeste vient d'être déposé ; les "
+                "publications suivantes pourront détecter les fichiers réellement "
+                "obsolètes.",
                 parent=self,
             )
         elif result.stale_remote and self._confirm_stale_cleanup(result.stale_remote):

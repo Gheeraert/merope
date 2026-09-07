@@ -27,6 +27,7 @@ def fake_keyring(monkeypatch):
             store[(host, username)] = password
         else:
             store.pop((host, username), None)
+        return True
 
     def fake_load(host, username):
         return store.get((host, username), "")
@@ -99,3 +100,46 @@ def test_password_persistence_delegates_host_and_username_as_is(tmp_path, fake_k
     save_config(config, tmp_path / "site.json")
 
     assert fake_keyring == {("", ""): "orphaned"}
+
+
+def test_a_credential_store_failure_keeps_the_password_on_disk_instead_of_losing_it(
+    tmp_path, monkeypatch
+):
+    """If the OS credential store is unavailable (no backend configured,
+    a headless environment, ...), save_password silently fails — but the
+    password must NOT then be blanked out of site.json too, or the
+    secret is gone from both places at once (see the external audit)."""
+    monkeypatch.setattr(config_io.ftp_credentials, "save_password", lambda *_a, **_k: False)
+
+    config = build_default_config()
+    config.ftp.host = "ftp.example.org"
+    config.ftp.username = "alice"
+    config.ftp.password = "s3cret"
+
+    path = tmp_path / "site.json"
+    warnings: list[str] = []
+    save_config(config, path, warnings=warnings)
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk["ftp"]["password"] == "s3cret"
+    assert len(warnings) == 1
+    assert "trousseau" in warnings[0].lower()
+
+
+def test_a_credential_store_recovery_does_strip_the_password_again(tmp_path, monkeypatch):
+    """Once the credential store becomes available again, the very next
+    save must go back to omitting the password from disk — the fallback
+    above isn't meant to become permanent plaintext storage."""
+    monkeypatch.setattr(config_io.ftp_credentials, "save_password", lambda *_a, **_k: False)
+    config = build_default_config()
+    config.ftp.host = "ftp.example.org"
+    config.ftp.username = "alice"
+    config.ftp.password = "s3cret"
+    path = tmp_path / "site.json"
+    save_config(config, path)
+
+    monkeypatch.setattr(config_io.ftp_credentials, "save_password", lambda *_a, **_k: True)
+    save_config(config, path)
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk["ftp"]["password"] == ""

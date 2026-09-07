@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ftplib
+import io
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +13,16 @@ from bloggen.config.models import FtpConfig
 
 ProgressCallback = Callable[[int, int, str], None]
 """Called after each file transfer attempt with (files_done, files_total, relative_path)."""
+
+# Written to the remote publish root after every fully successful publish:
+# the exact set of relative paths MEROPE itself deployed. The next publish
+# reads it back as the baseline for "what's stale" — anything MEROPE
+# previously deployed but no longer in the current build. This is
+# deliberately never a directory listing of the whole remote folder: a
+# remote_dir shared with another application (or files a human FTP'd in by
+# hand) must never be treated as MEROPE's to delete just because they
+# aren't part of this build (see the external audit).
+_MANIFEST_FILENAME = ".merope-manifest.json"
 
 
 class FtpPublishError(RuntimeError):
@@ -42,17 +54,31 @@ class PublishResult:
     total: int
     transferred: list[str] = field(default_factory=list)
     failed: list[FailedTransfer] = field(default_factory=list)
-    # Remote files under config.remote_dir that no longer correspond to
-    # any file in this build — only populated when detect_stale_files is
-    # requested, and only once the whole transfer succeeded (an
-    # incomplete "current" set is not a trustworthy basis for deciding
-    # what's obsolete). Never deleted automatically here — see
-    # delete_remote_files, called separately once the caller has shown
-    # this list to the user and gotten explicit confirmation.
+    # Files listed in MEROPE's own manifest from the previous publish
+    # that are no longer part of this build — only populated when
+    # detect_stale_files is requested, only once the whole transfer
+    # succeeded (an incomplete "current" set is not a trustworthy basis
+    # for deciding what's obsolete), AND only when a previous manifest
+    # was actually found (see stale_remote_manifest_missing). Deliberately
+    # restricted to files MEROPE itself previously deployed — never "any
+    # remote file not in this build", which would also catch an unrelated
+    # application's files sharing the same remote_dir. Never deleted
+    # automatically here — see delete_remote_files, called separately
+    # once the caller has shown this list to the user and gotten explicit
+    # confirmation.
     stale_remote: list[str] = field(default_factory=list)
-    # Set when detect_stale_files was requested but listing the remote
-    # directory failed (e.g. the server doesn't support MLSD) — the
-    # publish itself still succeeded, this only means "couldn't check".
+    # True when detect_stale_files was requested and the transfer
+    # succeeded, but no previous MEROPE manifest could be found/read on
+    # the server (first publish with this feature, or a remote_dir never
+    # published to by MEROPE before) — there is then no trustworthy
+    # baseline, so stale_remote is deliberately left empty rather than
+    # falling back to a directory listing. A fresh manifest is still
+    # written from this publish, so the next one has a baseline.
+    stale_remote_manifest_missing: bool = False
+    # Set when detect_stale_files was requested but the updated manifest
+    # could not be written back to the server after a successful publish
+    # (connection/permission issue) — the publish itself still succeeded,
+    # this only means the next publish won't have an up-to-date baseline.
     stale_remote_error: str | None = None
 
     @property
@@ -138,11 +164,15 @@ def publish_directory(
 
         result = PublishResult(total=total, transferred=transferred, failed=failed)
         if detect_stale_files and result.ok:
+            ftp.cwd(publish_root)
+            previous_manifest = _download_manifest(ftp)
+            if previous_manifest is None:
+                result.stale_remote_manifest_missing = True
+            else:
+                result.stale_remote = sorted(previous_manifest - set(transferred))
             try:
                 ftp.cwd(publish_root)
-                remote_files = _list_remote_files(ftp, publish_root)
-                local_files = set(transferred)
-                result.stale_remote = sorted(name for name in remote_files if name not in local_files)
+                _upload_manifest(ftp, transferred)
             except ftplib.all_errors as exc:
                 result.stale_remote_error = str(exc)
         return result
@@ -196,32 +226,35 @@ def _cwd_strict(ftp: ftplib.FTP, path: str) -> None:
         ftp.cwd(part)
 
 
-def _list_remote_files(ftp: ftplib.FTP, root: str) -> list[str]:
-    """Recursively lists every file under ``root`` (an absolute path,
-    already the current directory), as POSIX-style paths relative to it.
+def _download_manifest(ftp: ftplib.FTP) -> set[str] | None:
+    """Returns the set of relative paths MEROPE deployed on the previous
+    successful publish, read back from the manifest it wrote then — or
+    None if there is no trustworthy baseline (no manifest file, a read
+    error, or content that doesn't parse as the expected JSON list).
 
-    Requires MLSD (RFC 3659) support on the server — raises whatever
-    ``ftplib`` error that command produces if it's missing, letting the
-    caller treat "can't tell what's stale" as distinct from "nothing is
-    stale".  Navigates by absolute path at every step (rather than
-    ``cwd("..")``) so a server's exact handling of ".." never matters.
+    Deliberately treats every failure as "unknown baseline" rather than
+    raising: the caller must never fall back to guessing staleness from
+    a full directory listing (see PublishResult.stale_remote_manifest_missing).
     """
-    files: list[str] = []
+    buffer = bytearray()
+    try:
+        ftp.retrbinary(f"RETR {_MANIFEST_FILENAME}", buffer.extend)
+    except ftplib.all_errors:
+        return None
+    try:
+        data = json.loads(bytes(buffer).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, list):
+        return None
+    return {str(item) for item in data}
 
-    def walk(dir_path: str, prefix: str) -> None:
-        ftp.cwd(dir_path)
-        for name, facts in ftp.mlsd():
-            if name in (".", ".."):
-                continue
-            entry_type = facts.get("type", "")
-            child_path = f"{dir_path.rstrip('/')}/{name}"
-            if entry_type == "dir":
-                walk(child_path, f"{prefix}{name}/")
-            elif entry_type == "file":
-                files.append(f"{prefix}{name}")
 
-    walk(root, "")
-    return files
+def _upload_manifest(ftp: ftplib.FTP, relative_paths: list[str]) -> None:
+    """Writes the manifest that the next publish will use as its
+    "previously deployed by MEROPE" baseline."""
+    payload = json.dumps(sorted(relative_paths), ensure_ascii=False).encode("utf-8")
+    ftp.storbinary(f"STOR {_MANIFEST_FILENAME}", io.BytesIO(payload))
 
 
 @dataclass(slots=True)
