@@ -59,29 +59,42 @@ def read_markdown_with_front_matter(path: str | Path) -> FrontMatterResult:
 def format_front_matter(metadata: dict[str, str]) -> str:
     """Serialize a flat metadata mapping into a ``---`` front matter block.
 
-    This is the inverse of :func:`parse_front_matter`, which has no escape
-    syntax for quotes, so values are quoted with whichever of ``"``/``'``
-    does not appear in them; a value containing both is a documented edge
-    case and has its double quotes stripped rather than corrupting the
-    front matter block. Values must not contain newlines (they are
-    replaced with spaces).
+    Every value is wrapped in double quotes, with ``\\`` and ``"``
+    backslash-escaped (undone by :func:`_strip_quotes` on read) — a title
+    or citation containing both an apostrophe and a double quote (common
+    in SHS work: ""le mot 'juste'"", etc.) must round-trip byte for byte,
+    not lose its double quotes. Values must not contain newlines (they
+    are replaced with spaces).
     """
     lines = ["---"]
     for key, value in metadata.items():
         text = str(value).replace("\n", " ").replace("\r", " ")
-        if '"' not in text:
-            quoted = f'"{text}"'
-        elif "'" not in text:
-            quoted = f"'{text}'"
-        else:
-            quoted = f'"{text.replace(chr(34), "")}"'
-        lines.append(f"{key}: {quoted}")
+        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'{key}: "{escaped}"')
     lines.append("---")
     lines.append("")
     return "\n".join(lines)
 
 
 def _strip_quotes(value: str) -> str:
-    if len(value) >= 2 and ((value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'"))):
+    if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+        return _unescape_double_quoted(value[1:-1])
+    if len(value) >= 2 and value.startswith("'") and value.endswith("'"):
         return value[1:-1]
     return value
+
+
+def _unescape_double_quoted(inner: str) -> str:
+    """Reverses the ``\\\\``/``\\"`` escaping :func:`format_front_matter`
+    applies before wrapping a value in double quotes."""
+    result: list[str] = []
+    i = 0
+    while i < len(inner):
+        ch = inner[i]
+        if ch == "\\" and i + 1 < len(inner) and inner[i + 1] in ('"', "\\"):
+            result.append(inner[i + 1])
+            i += 2
+        else:
+            result.append(ch)
+            i += 1
+    return "".join(result)
