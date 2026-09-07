@@ -40,7 +40,7 @@ Développer un générateur de site statique léger, pérenne et simple d’usag
 - TEI comme format pivot
 - XSLT pour TEI → HTML
 - images cliquables avec lightbox
-- amorce marginale des notes + notes complètes en fin d’article
+- amorce marginale des notes + notes complètes en fin d’article (amorce marginale reportée en V1.1, voir `docs/ROADMAP.md`)
 
 ## Hors périmètre V1
 - CMS web

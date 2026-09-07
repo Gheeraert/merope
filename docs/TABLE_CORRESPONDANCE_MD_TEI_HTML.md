@@ -17,7 +17,7 @@
 | tableau simple | `table` + `row` + `cell` | `table` | |
 
 ## Notes
-La TEI conserve une note unique.  
-Le rendu HTML peut produire :
-- une amorce marginale
-- une note complète en fin d’article
+La TEI conserve une note unique.
+Le rendu HTML prévoit deux volets :
+- une amorce marginale (désactivée pour le moment, voir `docs/ROADMAP.md` § V1.1)
+- une note complète en fin d'article (seule effectivement produite actuellement)

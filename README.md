@@ -9,6 +9,7 @@ Google Docs → Markdown → XML-TEI → HTML
 ## Objectifs V1
 
 - interface graphique locale (Tkinter)
+- éditeur de contenu WYSIWYG intégré (pages/billets, sans écrire de Markdown à la main)
 - configuration JSON chargeable / sauvegardable
 - menu horizontal supérieur
 - menu latéral hiérarchique simple
@@ -17,7 +18,12 @@ Google Docs → Markdown → XML-TEI → HTML
 - conversion Markdown → XML-TEI via Pandoc
 - transformation TEI → HTML via XSLT
 - images avec lightbox type Fancybox
-- amorces de notes en marge + notes complètes en bas d’article
+- notes complètes en bas d'article (amorces en marge prévues mais désactivées pour le moment, voir `docs/ROADMAP.md`)
+- recherche plein texte statique côté client
+- RSS, sitemap, robots.txt et méta SEO de base
+- génération en ligne de commande (headless), en plus de l'interface graphique
+
+Détail complet des fonctionnalités livrées : `docs/ROADMAP.md`.
 
 ## Philosophie
 
@@ -42,7 +48,9 @@ Voir :
 
 ## État
 
-Ce dépôt est un **squelette documentaire de démarrage** destiné à lancer proprement un développement avec Codex.
+Le générateur est fonctionnel de bout en bout (configuration, éditeur de contenu, génération du
+site, CLI headless) et couvert par une suite de tests automatisés (`pytest`). Le suivi détaillé de
+l'avancement par version (V1 livrée, V1.1/V2 à venir) est tenu dans `docs/ROADMAP.md`.
 
 ## Format Obligatoire Des Fichiers Markdown
 
