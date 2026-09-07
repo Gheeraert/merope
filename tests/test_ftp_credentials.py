@@ -104,3 +104,58 @@ def test_save_degrades_silently_when_the_backend_is_unavailable(monkeypatch):
     # callers that would otherwise discard their own copy of the
     # password rely on this (see test_config_ftp_password.py).
     assert ftp_credentials.save_password("ftp.example.org", "alice", "secret") is False
+
+
+# ftp_credentials.keyring is None when the keyring *package* itself isn't
+# installed (module-level ImportError, caught at import time) — distinct
+# from the backend-unavailable cases above, where the package is present
+# but keyring.errors.KeyringError is raised at call time. Simulated here
+# by monkeypatching the module attribute directly, since actually
+# uninstalling the package for one test isn't practical.
+def test_load_degrades_to_empty_string_when_keyring_is_not_installed(monkeypatch):
+    monkeypatch.setattr(ftp_credentials, "keyring", None)
+    assert ftp_credentials.load_password("ftp.example.org", "alice") == ""
+
+
+def test_save_degrades_to_false_when_keyring_is_not_installed(monkeypatch):
+    monkeypatch.setattr(ftp_credentials, "keyring", None)
+    assert ftp_credentials.save_password("ftp.example.org", "alice", "secret") is False
+
+
+def test_saving_an_empty_password_when_keyring_is_not_installed_is_still_a_true_no_op(monkeypatch):
+    monkeypatch.setattr(ftp_credentials, "keyring", None)
+    assert ftp_credentials.save_password("ftp.example.org", "alice", "") is True
+
+
+def test_delete_does_not_raise_when_keyring_is_not_installed(monkeypatch):
+    monkeypatch.setattr(ftp_credentials, "keyring", None)
+    ftp_credentials.delete_password("ftp.example.org", "alice")
+
+
+def test_module_import_survives_keyring_being_uninstalled(monkeypatch):
+    """The real-world scenario this all exists for: config/io.py imports
+    ftp_credentials unconditionally on every config load/save, even a
+    plain build with no FTP configured — that import must not raise on a
+    machine where the keyring package was never installed at all.
+    Reproduced by making the import machinery itself fail exactly as it
+    would if the package were absent, then re-executing the module.
+    """
+    import builtins
+    import importlib
+    import sys
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "keyring" or name.startswith("keyring."):
+            raise ImportError(f"No module named {name!r}")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.delitem(sys.modules, "keyring", raising=False)
+    monkeypatch.delitem(sys.modules, "keyring.errors", raising=False)
+    try:
+        reloaded = importlib.reload(ftp_credentials)
+        assert reloaded.keyring is None
+    finally:
+        importlib.reload(ftp_credentials)
