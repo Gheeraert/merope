@@ -1834,3 +1834,52 @@ def test_commons_publishing_diagnostic_can_be_disabled():
 
     assert report.success is True
     assert not any("Commons Publishing" in warning for warning in report.warnings)
+
+
+def test_tei_header_is_enriched_with_author_orcid_license_language_and_dates():
+    """Real Pandoc conversion, exercising the full build_site -> _build_single_item
+    -> convert_markdown_file_to_tei -> postprocess_tei_file chain (Phase 2
+    of the TEI Commons Publishing roadmap)."""
+    project = RUNTIME_ROOT / f"tei_header_enrichment_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Un billet enrichi"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n'
+        'updated: "2026-03-15"\nauthor: "Marie Curie"\norcid: "0000-0002-1825-0097"\n'
+        'keywords: "radioactivite, physique"\n---\n\nUn paragraphe.\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.site.title = "Carnet de Recherche"
+    config.site.language = "fr"
+    config.site.license_spdx_id = "CC-BY-4.0"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    tei = (project / "content/posts/premier.xml").read_text(encoding="utf-8")
+    assert "Marie Curie" in tei
+    assert 'type="ORCID">0000-0002-1825-0097' in tei
+    assert "Carnet de Recherche" in tei
+    assert 'when="2026-01-01"' in tei
+    assert 'when="2026-03-15"' in tei
+    assert "CC BY 4.0" in tei
+    assert "creativecommons.org/licenses/by/4.0" in tei
+    assert 'ident="fr">fr<' in tei
+    assert "radioactivite" in tei

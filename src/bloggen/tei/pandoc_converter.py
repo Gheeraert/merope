@@ -9,6 +9,7 @@ import tempfile
 from bloggen.markdown.front_matter import read_markdown_with_front_matter
 from bloggen.markdown.image_attributes import strip_image_attributes
 from bloggen.markdown.normalizer import normalize_markdown_text
+from bloggen.tei.header_builder import TeiHeaderMetadata
 from bloggen.tei.postprocess import (
     apply_heading_levels_in_tei_file,
     apply_image_attributes_in_tei_file,
@@ -98,6 +99,7 @@ def convert_markdown_file_to_tei(
     *,
     google_docs_mode: bool = True,
     pandoc_command: str = "pandoc",
+    header_metadata: TeiHeaderMetadata | None = None,
 ) -> MarkdownToTeiResult:
     source = Path(input_path)
     destination = Path(output_path)
@@ -137,7 +139,7 @@ def convert_markdown_file_to_tei(
             )
 
         title = parsed.metadata.get("title")
-        postprocess_tei_file(destination, destination, title=title)
+        postprocess_tei_file(destination, destination, title=title, header_metadata=header_metadata)
         heading_levels = extract_heading_levels(normalized_body)
         if heading_levels:
             apply_heading_levels_in_tei_file(destination, heading_levels)

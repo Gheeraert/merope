@@ -8,7 +8,7 @@ from datetime import date
 from tkinter import messagebox, simpledialog, ttk
 import tkinter as tk
 
-from bloggen.content.metadata import is_valid_iso_date
+from bloggen.content.metadata import is_valid_iso_date, normalize_orcid
 from bloggen.content.slugify import is_valid_slug_format
 from bloggen.content.writer import suggest_slug
 from bloggen.ui.tooltip import add_tooltip
@@ -40,6 +40,8 @@ class ContentMetadataDialog(simpledialog.Dialog):
         self.date_var = tk.StringVar(value=self.initial.get("date", date.today().isoformat()))
         self.updated_var = tk.StringVar(value=self.initial.get("updated", ""))
         self.author_var = tk.StringVar(value=self.initial.get("author", ""))
+        self.orcid_var = tk.StringVar(value=self.initial.get("orcid", ""))
+        self.keywords_var = tk.StringVar(value=self.initial.get("keywords", ""))
         self.description_var = tk.StringVar(value=self.initial.get("description", ""))
         self.layout_var = tk.StringVar(value=self.initial.get("layout", ""))
         self.draft_var = tk.BooleanVar(value=self.initial.get("draft", "false") == "true")
@@ -93,6 +95,22 @@ class ContentMetadataDialog(simpledialog.Dialog):
         ttk.Entry(master, textvariable=self.author_var, width=40).grid(
             row=row, column=1, sticky="ew", padx=4, pady=4
         )
+        row += 1
+
+        ttk.Label(master, text="ORCID de l'auteur").grid(row=row, column=0, sticky="w", padx=4, pady=4)
+        orcid_entry = ttk.Entry(master, textvariable=self.orcid_var, width=40)
+        orcid_entry.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        add_tooltip(
+            orcid_entry,
+            "Identifiant ORCID de l'auteur, optionnel — accepté sous forme complète "
+            "(https://orcid.org/...) ou compacte.\nExemple : 0000-0002-1825-0097",
+        )
+        row += 1
+
+        ttk.Label(master, text="Mots-clés").grid(row=row, column=0, sticky="w", padx=4, pady=4)
+        keywords_entry = ttk.Entry(master, textvariable=self.keywords_var, width=40)
+        keywords_entry.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        add_tooltip(keywords_entry, "Séparés par des virgules, optionnel.\nExemple : rhétorique, Bossuet, XVIIe siècle")
         row += 1
 
         ttk.Label(master, text="Description").grid(row=row, column=0, sticky="w", padx=4, pady=4)
@@ -155,6 +173,14 @@ class ContentMetadataDialog(simpledialog.Dialog):
                 "Métadonnées", "La date de mise à jour doit être au format AAAA-MM-JJ.", parent=self
             )
             return False
+        orcid = self.orcid_var.get().strip()
+        if orcid and normalize_orcid(orcid) is None:
+            messagebox.showerror(
+                "Métadonnées",
+                "ORCID invalide : attendu 0000-0000-0000-000X, avec une clé de contrôle correcte.",
+                parent=self,
+            )
+            return False
         return True
 
     def apply(self) -> None:
@@ -169,6 +195,10 @@ class ContentMetadataDialog(simpledialog.Dialog):
             metadata["updated"] = self.updated_var.get().strip()
         if self.author_var.get().strip():
             metadata["author"] = self.author_var.get().strip()
+        if self.orcid_var.get().strip():
+            metadata["orcid"] = normalize_orcid(self.orcid_var.get().strip()) or self.orcid_var.get().strip()
+        if self.keywords_var.get().strip():
+            metadata["keywords"] = self.keywords_var.get().strip()
         if self.description_var.get().strip():
             metadata["description"] = self.description_var.get().strip()
         if self.layout_var.get().strip():

@@ -9,13 +9,20 @@ import xml.etree.ElementTree as ET
 
 _T = TypeVar("_T")
 
-from bloggen.tei.header_builder import TEI_NAMESPACE, ensure_minimal_tei_header, ensure_text_body
+from bloggen.tei.header_builder import (
+    TEI_NAMESPACE,
+    TeiHeaderMetadata,
+    ensure_minimal_tei_header,
+    ensure_text_body,
+)
 
 _ALIGN_MARKER_RE = re.compile(r"^\{\{align=(left|center|right|justify)\}\}")
 _HEADING_LINE_RE = re.compile(r"^(#{1,6})\s+\S")
 
 
-def postprocess_tei_xml(tei_xml: str, *, title: str | None = None) -> str:
+def postprocess_tei_xml(
+    tei_xml: str, *, title: str | None = None, header_metadata: TeiHeaderMetadata | None = None
+) -> str:
     try:
         root = ET.fromstring(tei_xml)
     except ET.ParseError as exc:
@@ -25,7 +32,7 @@ def postprocess_tei_xml(tei_xml: str, *, title: str | None = None) -> str:
         raise ValueError("La racine XML doit être un élément TEI.")
 
     _ensure_namespace_on_root(root)
-    ensure_minimal_tei_header(root, title=title)
+    ensure_minimal_tei_header(root, title=title, metadata=header_metadata)
     ensure_text_body(root)
     _strip_duplicate_figure_caption_paragraphs(root)
 
@@ -39,10 +46,11 @@ def postprocess_tei_file(
     output_path: str | Path | None = None,
     *,
     title: str | None = None,
+    header_metadata: TeiHeaderMetadata | None = None,
 ) -> str:
     source = Path(input_path)
     xml_text = source.read_text(encoding="utf-8")
-    processed = postprocess_tei_xml(xml_text, title=title)
+    processed = postprocess_tei_xml(xml_text, title=title, header_metadata=header_metadata)
 
     destination = Path(output_path) if output_path is not None else source
     destination.parent.mkdir(parents=True, exist_ok=True)

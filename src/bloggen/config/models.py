@@ -14,6 +14,16 @@ class SiteConfig:
     language: str = "fr"
     author: str = ""
     description: str = ""
+    # Site-wide license (a personal/academic site has one license for its
+    # whole content, not one per post). license_spdx_id, when it names a
+    # known Creative Commons license (see bloggen.tei.licenses), resolves
+    # automatically and overrides license_name/license_url — those two
+    # stay as a free-text fallback for any other license. All three blank
+    # means "no license declared", both in the TEI teiHeader and in the
+    # HTML <meta>.
+    license_spdx_id: str = ""
+    license_name: str = ""
+    license_url: str = ""
 
 
 @dataclass(slots=True)

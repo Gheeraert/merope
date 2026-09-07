@@ -76,10 +76,13 @@ class MainWindow(tk.Tk):
                 ("base_url", "Base URL", ""),
                 ("author", "Auteur", ""),
                 ("description", "Description", ""),
+                ("license_spdx_id", "Licence (identifiant SPDX)", ""),
+                ("license_name", "Licence (nom, si pas de SPDX)", ""),
+                ("license_url", "Licence (URL, si pas de SPDX)", ""),
             ],
             intro=(
                 "Identité générale du site : ce qui apparaît dans l'onglet du navigateur, "
-                "l'en-tête des pages et les métadonnées (SEO, flux RSS)."
+                "l'en-tête des pages et les métadonnées (SEO, flux RSS, TEI)."
             ),
             help_texts={
                 "title": (
@@ -109,6 +112,21 @@ class MainWindow(tk.Tk):
                     "Résumé en une phrase du contenu du site, utilisé pour le SEO "
                     "(balise meta description) et les aperçus de partage.\n"
                     "Exemple : Carnet de recherche sur les archives orales du XIXe siècle."
+                ),
+                "license_spdx_id": (
+                    "Identifiant SPDX d'une licence Creative Commons connue : son nom et son URL "
+                    "sont alors résolus automatiquement (dans le TEI et le HTML), et les deux "
+                    "champs ci-dessous sont ignorés. Laisser vide si la licence n'est pas une CC "
+                    "standard, ou si aucune licence n'est déclarée.\n"
+                    "Exemple : CC-BY-4.0"
+                ),
+                "license_name": (
+                    "Nom de la licence affiché si aucun identifiant SPDX ci-dessus ne correspond.\n"
+                    "Exemple : Tous droits réservés"
+                ),
+                "license_url": (
+                    "URL de la licence, associée au nom ci-dessus.\n"
+                    "Exemple : https://exemple.fr/licence"
                 ),
             },
         )

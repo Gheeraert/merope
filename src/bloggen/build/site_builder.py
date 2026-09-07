@@ -47,6 +47,8 @@ from bloggen.render.margin_notes import apply_notes_rendering
 from bloggen.render.search_index import SearchEntry, extract_plain_text, render_search_index
 from bloggen.render.xslt_runner import render_tei_file_to_html_fragment
 from bloggen.tei.commons_publishing import validate_commons_publishing_bytes
+from bloggen.tei.header_builder import TeiHeaderMetadata
+from bloggen.tei.licenses import resolve_license
 from bloggen.tei.pandoc_converter import PandocUnavailableError, convert_markdown_file_to_tei
 from bloggen.tei.postprocess import rewrite_graphic_urls_in_tei_file
 from bloggen.content.loader import ContentItem, LoadedContent, load_content
@@ -655,11 +657,32 @@ def _build_single_item(
             if config.build.fail_on_missing_assets:
                 return None
 
+    license_ = resolve_license(
+        spdx_id=config.site.license_spdx_id,
+        name=config.site.license_name,
+        url=config.site.license_url,
+    )
+    header_metadata = TeiHeaderMetadata(
+        title=item.metadata.title,
+        author=item.metadata.author or (config.site.author or None),
+        orcid=item.metadata.orcid,
+        language=config.site.language or None,
+        published_date=item.metadata.date,
+        updated_date=item.metadata.updated,
+        license_name=license_.name,
+        license_url=license_.url,
+        keywords=item.metadata.keywords,
+        publisher=config.site.title or None,
+        source_description=(
+            f"Contenu Markdown converti pour {config.site.title}." if config.site.title else None
+        ),
+    )
     conversion = convert_markdown_file_to_tei(
         item.source_path,
         tei_path,
         google_docs_mode=(config.content.markdown_origin == "google_docs_export"),
         pandoc_command=config.build.pandoc_command,
+        header_metadata=header_metadata,
     )
     if not conversion.success:
         report.errors.append(f"{item.source_path}: {conversion.message}")
