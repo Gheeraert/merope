@@ -8,6 +8,8 @@ from pathlib import Path
 import os
 import re
 import shutil
+import time
+import uuid
 
 from bloggen.build.assets import (
     copy_linked_content_assets,
@@ -103,19 +105,57 @@ def _ensure_output_dir_is_safe_to_clean(output_root: Path, project_root: Path, c
             )
 
 
+def _replace_directory(staging: Path, final: Path, *, attempts: int = 5) -> None:
+    """Swap ``staging`` in for ``final``, retrying briefly on Windows.
+
+    A directory that was just written to can be transiently locked by
+    Windows Defender / the search indexer scanning the new files, which
+    makes ``shutil.rmtree``/``Path.rename`` fail with ``PermissionError``
+    (WinError 5) even though nothing is actually still using the files a
+    moment later — observed intermittently in practice, not just in
+    theory.
+    """
+    delay = 0.1
+    for attempt in range(attempts):
+        try:
+            if final.exists():
+                shutil.rmtree(final)
+            staging.rename(final)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2
+
+
 def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> BuildReport:
     project_root = resolve_project_root(config, config_path)
     runtime_config = copy.deepcopy(config)
-    output_root = (project_root / config.paths.output_dir).resolve()
+    final_output_root = (project_root / config.paths.output_dir).resolve()
     requested_tei_root = (project_root / config.paths.tei_dir).resolve()
 
-    report = BuildReport(success=False, output_dir=output_root, tei_dir=requested_tei_root)
+    report = BuildReport(success=False, output_dir=final_output_root, tei_dir=requested_tei_root)
+
+    # When cleaning is enabled, generate into a fresh sibling directory and
+    # swap it in atomically only once the whole build succeeds. Wiping
+    # final_output_root up front (the previous behaviour) destroyed the
+    # last good site the instant a later page/post failed to render,
+    # leaving nothing publishable until the next successful build.
+    staging_root: Path | None = None
 
     try:
-        if config.build.clean_output_dir and output_root.exists():
-            _ensure_output_dir_is_safe_to_clean(output_root, project_root, config)
-            shutil.rmtree(output_root)
-        output_root.mkdir(parents=True, exist_ok=True)
+        if config.build.clean_output_dir:
+            if final_output_root.exists():
+                _ensure_output_dir_is_safe_to_clean(final_output_root, project_root, config)
+            staging_root = final_output_root.parent / (
+                f".{final_output_root.name}.building-{uuid.uuid4().hex}"
+            )
+            staging_root.mkdir(parents=True, exist_ok=True)
+            output_root = staging_root
+        else:
+            final_output_root.mkdir(parents=True, exist_ok=True)
+            output_root = final_output_root
 
         _guard_banner_asset(runtime_config, project_root=project_root, report=report)
         _generate_external_link_pages(
@@ -191,6 +231,11 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             shutil.rmtree(temporary_tei_root, ignore_errors=True)
 
         report.success = len(report.errors) == 0
+
+        if staging_root is not None and report.success:
+            _replace_directory(staging_root, final_output_root)
+            staging_root = None
+
         return report
 
 
@@ -216,6 +261,13 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         report.success = False
 
         return report
+
+    finally:
+        # Reached whenever the build did not end with a successful swap
+        # above (an exception, or report.errors populated without raising):
+        # the failed attempt must never leak into the project directory.
+        if staging_root is not None:
+            shutil.rmtree(staging_root, ignore_errors=True)
 
 
 def _generate_pages(

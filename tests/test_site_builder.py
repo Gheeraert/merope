@@ -701,6 +701,65 @@ def test_site_builder_refuses_an_output_dir_outside_the_project_via_traversal():
     assert unrelated.exists()
 
 
+def test_site_builder_preserves_last_good_site_when_a_later_build_fails():
+    """Reproduces the scenario flagged by the external audit: a build that
+    fails partway through must not destroy the previously published site —
+    the old commit-and-rmtree-up-front behaviour left nothing publishable
+    until the next successful build."""
+    project = RUNTIME_ROOT / f"site_builder_transactional_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier-billet"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.build.clean_output_dir = True
+    config.home.mode = "recent_posts"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+
+    post_html = project / "site" / "billets" / "premier-billet" / "index.html"
+    assert post_html.exists()
+    good_content = post_html.read_text(encoding="utf-8")
+    assert "Premier" in good_content
+
+    # Break a second post's metadata so the second build fails partway
+    # through content loading, after the first build already published
+    # a good site.
+    (project / "content/posts/second.md").write_text(
+        '---\nslug: "second-billet"\ntype: "post"\ndate: "2026-04-24"\n---\n\n# Sans titre\n',
+        encoding="utf-8",
+    )
+
+    second_report = build_site(config, config_path=config_path)
+
+    assert second_report.success is False
+    assert second_report.errors  # the missing-title error was captured
+
+    # The site from the first, successful build must survive untouched.
+    assert post_html.exists()
+    assert post_html.read_text(encoding="utf-8") == good_content
+
+    # No leftover staging directory from the aborted build.
+    leftovers = list(project.glob(".site.building-*"))
+    assert leftovers == []
+
+
 def test_site_builder_allows_a_normal_output_dir_nested_under_project_root():
     """The default/typical layout (output_dir a plain subfolder of the
     project) must not be flagged by the new guard."""
