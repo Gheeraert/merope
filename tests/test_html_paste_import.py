@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 from bloggen.markdown.html_paste_import import html_to_blocks
@@ -249,10 +250,13 @@ class _FakeOpener:
         return self._response
 
 
+_FAKE_JPEG_BYTES = b"\xff\xd8\xfffake-image-bytes"
+
+
 def test_http_image_is_downloaded_and_saved(tmp_path: Path, monkeypatch):
     from bloggen.markdown import html_paste_import as module
 
-    opener = _FakeOpener(response=_FakeResponse(b"fake-image-bytes", "image/jpeg"))
+    opener = _FakeOpener(response=_FakeResponse(_FAKE_JPEG_BYTES, "image/jpeg"))
     monkeypatch.setattr(module, "_build_image_opener", lambda: opener)
 
     images_dir = tmp_path / "assets" / "images"
@@ -263,7 +267,7 @@ def test_http_image_is_downloaded_and_saved(tmp_path: Path, monkeypatch):
     assert result.startswith("![Distante](collage-")
     saved = list(images_dir.glob("*.jpg"))
     assert len(saved) == 1
-    assert saved[0].read_bytes() == b"fake-image-bytes"
+    assert saved[0].read_bytes() == _FAKE_JPEG_BYTES
 
 
 def test_http_image_download_failure_falls_back_to_alt_text(tmp_path: Path, monkeypatch):
@@ -342,6 +346,74 @@ def test_no_redirect_handler_refuses_every_redirect():
         )
         is None
     )
+
+
+def test_http_image_content_not_matching_its_declared_content_type_is_rejected(
+    tmp_path: Path, monkeypatch
+):
+    """A server claiming "image/png" while actually serving something
+    else entirely (HTML, a script) must not be trusted on the header
+    alone — the file's own magic bytes are checked too."""
+    from bloggen.markdown import html_paste_import as module
+
+    opener = _FakeOpener(
+        response=_FakeResponse(b"<html><script>alert(1)</script></html>", "image/png")
+    )
+    monkeypatch.setattr(module, "_build_image_opener", lambda: opener)
+
+    images_dir = tmp_path / "assets" / "images"
+    html = '<p><img src="https://example.org/fake.png" alt="Faux"></p>'
+    assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: Faux\\]\n"
+    assert list(images_dir.glob("*")) == []
+
+
+def test_http_svg_is_rejected_outright(tmp_path: Path, monkeypatch):
+    """SVG is active content (can embed <script>, on* handlers) — never
+    accepted as a plain downloaded image, regardless of what magic bytes
+    it has."""
+    from bloggen.markdown import html_paste_import as module
+
+    opener = _FakeOpener(
+        response=_FakeResponse(b"<svg onload=alert(1)></svg>", "image/svg+xml")
+    )
+    monkeypatch.setattr(module, "_build_image_opener", lambda: opener)
+
+    images_dir = tmp_path / "assets" / "images"
+    html = '<p><img src="https://example.org/logo.svg" alt="Logo"></p>'
+    assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: Logo\\]\n"
+    assert list(images_dir.glob("*")) == []
+
+
+def test_data_uri_svg_is_rejected_outright(tmp_path: Path):
+    images_dir = tmp_path / "assets" / "images"
+    payload = base64.b64encode(b"<svg onload=alert(1)></svg>").decode()
+    html = f'<p><img src="data:image/svg+xml;base64,{payload}" alt="Logo"></p>'
+    assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: Logo\\]\n"
+    assert list(images_dir.glob("*")) == []
+
+
+def test_data_uri_content_not_matching_its_declared_subtype_is_rejected(tmp_path: Path):
+    """The subtype claimed in a data: URI is exactly as untrustworthy as
+    an HTTP Content-Type header — checked against the file's own magic
+    bytes the same way."""
+    images_dir = tmp_path / "assets" / "images"
+    payload = base64.b64encode(b"<html><script>alert(1)</script></html>").decode()
+    html = f'<p><img src="data:image/png;base64,{payload}" alt="Faux"></p>'
+    assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: Faux\\]\n"
+    assert list(images_dir.glob("*")) == []
+
+
+def test_data_uri_over_the_size_cap_is_rejected(tmp_path: Path):
+    """Unlike an http(s) download, a data: URI has no separate
+    "read up to N+1 bytes" step — the whole payload arrives as one
+    string. It must still be bounded, both before and after decoding."""
+    from bloggen.markdown import html_paste_import as module
+
+    images_dir = tmp_path / "assets" / "images"
+    oversized = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"x" * module._MAX_IMAGE_BYTES).decode()
+    html = f'<p><img src="data:image/png;base64,{oversized}" alt="Enorme"></p>'
+    assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: Enorme\\]\n"
+    assert list(images_dir.glob("*")) == []
 
 
 def test_image_without_images_dir_falls_back_to_alt_text():

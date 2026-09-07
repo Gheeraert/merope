@@ -62,7 +62,20 @@ _IMAGE_CONTENT_TYPES = {
     "image/gif": "gif",
     "image/webp": "webp",
     "image/bmp": "bmp",
-    "image/svg+xml": "svg",
+    # SVG is deliberately NOT accepted here: unlike the raster formats
+    # above, it's active content (can embed <script>, on* event handlers,
+    # external references) — accepting it as a plain "image" would let
+    # pasted/remote HTML smuggle a script onto the published site with no
+    # further processing. Rejected outright rather than sanitized, since
+    # a general SVG sanitizer is a much larger undertaking with a much
+    # weaker safety guarantee than a straight refusal.
+}
+# Same allowlist, keyed by the bare subtype (as it appears in a data: URI,
+# e.g. "jpeg" rather than "image/jpeg") — shared so a data: URI is held to
+# exactly the same set of accepted formats/extensions as an http(s) one,
+# rather than trusting whatever subtype string the URI itself claims.
+_IMAGE_SUBTYPE_EXTENSIONS = {
+    content_type.removeprefix("image/"): extension for content_type, extension in _IMAGE_CONTENT_TYPES.items()
 }
 _WHITESPACE_RE = re.compile(r"\s+")
 _BOLD_WEIGHTS = {"bold", "bolder", "600", "700", "800", "900"}
@@ -381,13 +394,52 @@ def _save_data_uri_image(data_uri: str, images_dir: Path, doc_dir: Path) -> str 
     match = re.match(r"data:image/([a-zA-Z0-9.+-]+);base64,(.+)", data_uri, re.DOTALL)
     if not match:
         return None
-    extension, payload = match.group(1).lower(), match.group(2)
-    extension = "jpg" if extension in ("jpeg", "jpg") else extension
+    subtype, payload = match.group(1).lower(), match.group(2)
+    # The subtype is whatever the pasted/generated HTML claims — never
+    # trusted as-is for the file extension (previously: "svg+xml" would
+    # be written straight onto disk as the extension). Only a format this
+    # importer actually recognizes is accepted; anything else (including
+    # svg+xml) is rejected here, same as an unrecognized HTTP Content-Type.
+    extension = _IMAGE_SUBTYPE_EXTENSIONS.get(subtype)
+    if extension is None:
+        return None
+    # Bounds the base64 text itself before decoding it — a decoded image
+    # over the cap is rejected below anyway, but a maliciously huge
+    # payload shouldn't first be fully materialized in memory to find
+    # that out. (~4/3 is base64's own encoded-size overhead.)
+    if len(payload) > (_MAX_IMAGE_BYTES // 3) * 4 + 8:
+        return None
     try:
         data = base64.b64decode(payload, validate=False)
     except (ValueError, base64.binascii.Error):
         return None
+    if len(data) > _MAX_IMAGE_BYTES:
+        return None
+    if not _content_matches_declared_type(data, extension):
+        return None
     return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{extension}", images_dir, doc_dir)
+
+
+def _content_matches_declared_type(data: bytes, extension: str) -> bool:
+    """Checks the file's own magic-byte signature against the extension
+    it's about to be saved under — a Content-Type header (http(s) images)
+    or a data: URI's declared subtype is provided by whoever sent the
+    data, not verified fact; without this, an attacker-controlled server
+    (or a maliciously crafted data: URI) can smuggle arbitrary content
+    (HTML, a script) onto disk under an image extension just by claiming
+    the right label.
+    """
+    if extension == "jpg":
+        return data.startswith(b"\xff\xd8\xff")
+    if extension == "png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+    if extension == "gif":
+        return data[:6] in (b"GIF87a", b"GIF89a")
+    if extension == "webp":
+        return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    if extension == "bmp":
+        return data[:2] == b"BM"
+    return False
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -445,6 +497,13 @@ def _download_image(url: str, images_dir: Path, doc_dir: Path) -> str | None:
             if len(data) > _MAX_IMAGE_BYTES:
                 return None
     except (OSError, ValueError):
+        return None
+
+    # The Content-Type header is whatever the remote server claims, not
+    # verified fact — a server (malicious or merely misconfigured) could
+    # label an HTML/script payload "image/png" and have it accepted on
+    # header trust alone. Check the file's own magic bytes too.
+    if not _content_matches_declared_type(data, extension):
         return None
 
     return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{extension}", images_dir, doc_dir)
