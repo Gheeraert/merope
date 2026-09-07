@@ -53,6 +53,16 @@ def render_page_document(
         published_date=article_date,
         noindex=noindex,
     )
+    # Only when feed.xml is actually generated (build_site skips it
+    # without a configured base_url — see _generate_feed_and_sitemap):
+    # an undiscoverable feed is a config gap, but a dangling <link> to
+    # one that was never written would be worse.
+    if config.blog.enabled and config.blog.generate_rss_feed and (config.site.base_url or "").strip():
+        feed_href = _asset_url("feed.xml", asset_prefix=asset_prefix)
+        seo_html += (
+            '    <link rel="alternate" type="application/rss+xml" '
+            f'title="{escape(config.site.title)}" href="{escape(feed_href)}">\n'
+        )
 
     side_class = "has-side-menu" if side_menu_html else "no-side-menu"
     lightbox_enabled_attr = "1" if config.render.enable_lightbox else "0"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 import os
 import re
@@ -50,6 +51,12 @@ class GeneratedItem:
     date: str | None
     content_html: str
     description: str | None
+    # The source .md file's own last-modified date (falls back to `date`
+    # when the file can't be stat'd) — used for sitemap <lastmod>, which
+    # previously always used the *publication* date, even for a page
+    # with no date field at all (any page: only posts require one) or a
+    # post edited long after its original publication.
+    lastmod: str | None = None
     # True for a page whose content is duplicated onto another indexable
     # URL — currently only the page configured as home.source when
     # home.mode is "page" (see _generate_home_page): its content is
@@ -501,6 +508,7 @@ def _build_single_item(
         content_html=fragment,
         description=item.metadata.description,
         noindex=noindex,
+        lastmod=_source_lastmod(item.source_path) or item.metadata.date,
     )
 
 
@@ -595,7 +603,7 @@ def _generate_archive_page(
     archive_path = config.blog.archive_path.strip("/") or "billets"
     pages = _paginate_posts(posts, config.blog.posts_per_page)
     total_pages = len(pages)
-    latest_date = posts[0].date if posts else None
+    latest_date = posts[0].lastmod if posts else None
     custom_template = load_custom_template(project_root, config, config.render.html_template)
 
     sitemap_entries: list[tuple[str, str | None]] = []
@@ -676,11 +684,11 @@ def _generate_feed_and_sitemap(
 
     if want_sitemap:
         urls: list[tuple[str, str | None]] = []
-        home_lastmod = posts[0].date if posts else None
+        home_lastmod = posts[0].lastmod if posts else None
         urls.append(("/index.html", home_lastmod))
         urls.extend(archive_sitemap_entries)
-        urls.extend((item.url, item.date) for item in pages if not item.noindex)
-        urls.extend((item.url, item.date) for item in posts)
+        urls.extend((item.url, item.lastmod) for item in pages if not item.noindex)
+        urls.extend((item.url, item.lastmod) for item in posts)
 
         sitemap_xml = render_sitemap(base_url=base_url, urls=urls)
         sitemap_path = output_root / "sitemap.xml"
@@ -768,6 +776,18 @@ def _resolve_xslt_path(config: ProjectConfig, project_root: Path) -> Path | None
 def _relative_path(from_dir: Path, to_dir: Path) -> str:
     relative = os.path.relpath(to_dir, start=from_dir)
     return relative.replace("\\", "/")
+
+
+def _source_lastmod(source_path: Path) -> str | None:
+    """The source .md file's own filesystem mtime, as an ISO date — a
+    more accurate sitemap <lastmod> than the publication date alone
+    (which never changes even when a post/page is later edited, and
+    doesn't exist at all for a page, only a post)."""
+    try:
+        mtime = source_path.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(mtime, tz=timezone.utc).date().isoformat()
 
 
 def _lightbox_group_name(item: ContentItem, config: ProjectConfig) -> str:

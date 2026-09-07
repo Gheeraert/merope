@@ -123,7 +123,13 @@ def test_build_site_generates_feed_sitemap_and_seo_meta(monkeypatch):
     # _generate_home_page) and is marked noindex — it must not appear in
     # the sitemap as if it were a second, independently indexable page.
     assert "https://exemple.fr/accueil/index.html" not in sitemap_xml
-    assert "<lastmod>2026-04-23</lastmod>" in sitemap_xml
+    # lastmod is now the source file's own mtime (today, since the test
+    # just wrote it), not the publication date baked into its front
+    # matter — see test_sitemap_lastmod.py for the isolated case.
+    import datetime
+
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    assert f"<lastmod>{today}</lastmod>" in sitemap_xml
 
     robots_txt = robots_path.read_text(encoding="utf-8")
     assert "Sitemap: https://exemple.fr/sitemap.xml" in robots_txt
