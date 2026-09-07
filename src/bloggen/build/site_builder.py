@@ -288,9 +288,22 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             final_output_root.mkdir(parents=True, exist_ok=True)
             output_root = final_output_root
 
+        loaded = load_content(project_root, runtime_config)
+        report.warnings.extend(loaded.warnings)
+        # Computed once, up front, from the content itself (never the
+        # wall-clock time of this particular build run — see
+        # _compute_site_last_updated and render_page_document's
+        # site_last_updated parameter) so the footer's "last updated" date
+        # stays identical across repeated builds of unchanged content.
+        site_last_updated = _compute_site_last_updated(loaded)
+
         _guard_banner_asset(runtime_config, project_root=project_root, report=report)
         _generate_external_link_pages(
-            runtime_config, project_root=project_root, output_root=output_root, report=report
+            runtime_config,
+            project_root=project_root,
+            output_root=output_root,
+            report=report,
+            site_last_updated=site_last_updated,
         )
 
         temporary_tei_root = output_root / "_tmp_tei_runtime"
@@ -304,9 +317,6 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             tei_root = temporary_tei_root
         tei_root.mkdir(parents=True, exist_ok=True)
 
-        loaded = load_content(project_root, runtime_config)
-        report.warnings.extend(loaded.warnings)
-
         generated_pages = _generate_pages(
             loaded,
             config=runtime_config,
@@ -314,6 +324,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             output_root=output_root,
             tei_root=tei_root,
             report=report,
+            site_last_updated=site_last_updated,
         )
         if runtime_config.blog.enabled:
             generated_posts = _generate_posts(
@@ -323,6 +334,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
                 output_root=output_root,
                 tei_root=tei_root,
                 report=report,
+                site_last_updated=site_last_updated,
             )
         else:
             # "Activer blog" off means no blog content anywhere (its own
@@ -338,6 +350,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             project_root=project_root,
             output_root=output_root,
             report=report,
+            site_last_updated=site_last_updated,
         )
         archive_sitemap_entries = _generate_archive_page(
             generated_posts,
@@ -345,6 +358,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             project_root=project_root,
             output_root=output_root,
             report=report,
+            site_last_updated=site_last_updated,
         )
 
         _generate_feed_and_sitemap(
@@ -467,6 +481,7 @@ def _generate_pages(
     output_root: Path,
     tei_root: Path,
     report: BuildReport,
+    site_last_updated: str | None,
 ) -> list[GeneratedItem]:
     # The page reused verbatim as /index.html's content (see
     # _generate_home_page) must not also be indexed at its own URL —
@@ -490,6 +505,7 @@ def _generate_pages(
             url=url,
             report=report,
             noindex=(home_source is not None and item.source_path.resolve() == home_source),
+            site_last_updated=site_last_updated,
         )
         if built is not None:
             generated.append(built)
@@ -504,6 +520,7 @@ def _generate_posts(
     output_root: Path,
     tei_root: Path,
     report: BuildReport,
+    site_last_updated: str | None,
 ) -> list[GeneratedItem]:
     generated: list[GeneratedItem] = []
     archive_path = config.blog.archive_path.strip("/") or "billets"
@@ -525,6 +542,7 @@ def _generate_posts(
             tei_path=tei_path,
             url=url,
             report=report,
+            site_last_updated=site_last_updated,
         )
         if built is not None:
             generated.append(built)
@@ -542,6 +560,7 @@ def _build_single_item(
     url: str,
     report: BuildReport,
     noindex: bool = False,
+    site_last_updated: str | None = None,
 ) -> GeneratedItem | None:
     rewritten_targets: dict[str, str] = {}
 
@@ -672,6 +691,7 @@ def _build_single_item(
         # (see _generate_home_page) — that's the preferred URL, not this
         # one, so the canonical must point there instead of at itself.
         canonical_path="/index.html" if noindex else None,
+        site_last_updated=site_last_updated,
     )
     html_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_text(html_document, encoding="utf-8")
@@ -713,6 +733,7 @@ def _generate_home_page(
     project_root: Path,
     output_root: Path,
     report: BuildReport,
+    site_last_updated: str | None,
 ) -> str | None:
     """Renders /index.html and returns its own lastmod for the sitemap.
 
@@ -768,6 +789,7 @@ def _generate_home_page(
         custom_template=custom_template,
         description=description,
         show_title_heading=show_title_heading,
+        site_last_updated=site_last_updated,
     )
     index_path.write_text(html, encoding="utf-8")
     report.generated_html.append(index_path)
@@ -795,6 +817,7 @@ def _generate_archive_page(
     project_root: Path,
     output_root: Path,
     report: BuildReport,
+    site_last_updated: str | None,
 ) -> list[tuple[str, str | None]]:
     """Renders the paginated archive ("Billets par page" in the Blog tab —
     previously displayed but never actually applied: the archive always
@@ -834,6 +857,7 @@ def _generate_archive_page(
             current_path=current_path,
             asset_prefix=_relative_path(archive_file.parent, output_root),
             custom_template=custom_template,
+            site_last_updated=site_last_updated,
         )
 
         archive_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1053,6 +1077,27 @@ def _source_lastmod(source_path: Path) -> str | None:
     return datetime.fromtimestamp(mtime, tz=timezone.utc).date().isoformat()
 
 
+def _compute_site_last_updated(loaded: LoadedContent) -> str | None:
+    """The most recent lastmod across every page and post — computed from
+    the same per-item signal used for each one's own sitemap <lastmod>
+    (``updated:`` front matter, else the source file's own mtime, else its
+    publication date), before any page is rendered.
+
+    This is what the footer's "last updated" date reflects (see
+    render_page_document's ``site_last_updated`` parameter) instead of
+    the wall-clock time of the current build run: two builds of the same
+    unchanged content must produce byte-for-byte identical output, which
+    embedding the actual build time defeated regardless of whether
+    anything had actually changed.
+    """
+    lastmods = [
+        item.metadata.updated or _source_lastmod(item.source_path) or item.metadata.date
+        for item in (*loaded.pages, *loaded.posts)
+    ]
+    known = [value for value in lastmods if value]
+    return max(known) if known else None
+
+
 def _lightbox_group_name(item: ContentItem, config: ProjectConfig) -> str:
     if config.media_handling.fancybox_group_posts:
         return f"{item.kind}-{item.metadata.slug}"
@@ -1087,7 +1132,12 @@ _EXTERNAL_LINKS_PATH = "liens-externes"
 
 
 def _generate_external_link_pages(
-    config: ProjectConfig, *, project_root: Path, output_root: Path, report: BuildReport
+    config: ProjectConfig,
+    *,
+    project_root: Path,
+    output_root: Path,
+    report: BuildReport,
+    site_last_updated: str | None,
 ) -> None:
     """"Lien externe" menu entries open in an iframe wrapped in the site's own
     banner/menus/footer, instead of navigating away or opening a new tab.
@@ -1132,6 +1182,7 @@ def _generate_external_link_pages(
             current_path=wrapper_path,
             asset_prefix=_relative_path(wrapper_file.parent, output_root),
             custom_template=custom_template,
+            site_last_updated=site_last_updated,
         )
         wrapper_file.parent.mkdir(parents=True, exist_ok=True)
         wrapper_file.write_text(html, encoding="utf-8")

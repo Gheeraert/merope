@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from html import escape
 import json
 from pathlib import PurePosixPath
@@ -35,13 +34,14 @@ def render_page_document(
     author: str | None = None,
     modified_date: str | None = None,
     canonical_path: str | None = None,
+    site_last_updated: str | None = None,
 ) -> str:
     banner_html = _render_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
     side_menu_html = build_side_menu_html(
         config.menus.side, current_path=current_path, title=config.menus.side_title
     )
-    footer_html = _render_footer(config)
+    footer_html = _render_footer(config, last_updated=site_last_updated)
     search_html = _render_search_box(config, asset_prefix=asset_prefix)
     css_href = _asset_url("static/css/site.css", asset_prefix=asset_prefix)
     app_js_src = _asset_url("static/js/app.js", asset_prefix=asset_prefix)
@@ -347,14 +347,22 @@ def _render_banner(config: ProjectConfig, *, asset_prefix: str, current_path: st
     )
 
 
-def _render_footer(config: ProjectConfig) -> str:
+def _render_footer(config: ProjectConfig, *, last_updated: str | None) -> str:
     chunks: list[str] = []
     if config.footer.text:
         chunks.append(escape(config.footer.text))
     if config.footer.show_generation_info:
         chunks.append("Généré par MEROPE")
-    if config.footer.show_last_build_date:
-        chunks.append(datetime.now().strftime("%Y-%m-%d %H:%M"))
+    # The current build's own wall-clock time used to appear here — every
+    # single build then produced a different footer even when nothing in
+    # the content had actually changed, defeating any attempt to diff or
+    # verify two builds of the same source as identical. This is instead
+    # the most recent content lastmod across the whole site (see
+    # site_builder._compute_site_last_updated): a genuine "content last
+    # updated" date that stays the same across repeated builds of
+    # unchanged content, and changes only when it should.
+    if config.footer.show_last_build_date and last_updated:
+        chunks.append(f"Mis à jour le {escape(last_updated)}")
     if not chunks:
         return ""
     return f'<footer class="site-footer">{" | ".join(chunks)}</footer>'

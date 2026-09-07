@@ -386,7 +386,7 @@ class MainWindow(tk.Tk):
             [("text", "Texte footer", "")],
             bool_fields=[
                 ("show_generation_info", "Afficher info génération", True),
-                ("show_last_build_date", "Afficher date build", True),
+                ("show_last_build_date", "Afficher date de mise à jour", True),
             ],
             intro="Contenu affiché en bas de chaque page du site.",
             help_texts={
@@ -399,8 +399,8 @@ class MainWindow(tk.Tk):
                     "de page."
                 ),
                 "show_last_build_date": (
-                    "Si activé, la date de la dernière génération du site est affichée dans "
-                    "le pied de page."
+                    "Si activé, la date de la dernière modification éditoriale du contenu "
+                    "(pas la date de génération technique) est affichée dans le pied de page."
                 ),
             },
         )
