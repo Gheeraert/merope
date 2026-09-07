@@ -167,3 +167,120 @@ def test_external_menu_link_with_an_http_url_is_accepted():
     )
     config = parse_config(raw)
     assert config.menus.top[-1].target == "https://fr.wikipedia.org"
+
+
+def test_menu_link_with_an_unknown_target_type_is_rejected():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["menus"]["top"].append(
+        {"label": "Bogus", "target": "/index.html", "target_type": "bogus", "enabled": True, "new_tab": False}
+    )
+    with pytest.raises(ConfigValidationError, match="target_type"):
+        parse_config(raw)
+
+
+@pytest.mark.parametrize("bad_url", ["not a url", "ftp://example.org", "example.org", "javascript:alert(1)"])
+def test_site_base_url_rejects_non_http_values(bad_url):
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["site"]["base_url"] = bad_url
+    with pytest.raises(ConfigValidationError, match="base_url"):
+        parse_config(raw)
+
+
+def test_site_base_url_accepts_a_real_http_url():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["site"]["base_url"] = "https://exemple.org"
+    config = parse_config(raw)
+    assert config.site.base_url == "https://exemple.org"
+
+
+def test_site_base_url_empty_string_is_allowed():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["site"]["base_url"] = ""
+    config = parse_config(raw)
+    assert config.site.base_url == ""
+
+
+def test_ftp_site_url_rejects_non_http_values():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["ftp"]["site_url"] = "not a url"
+    with pytest.raises(ConfigValidationError, match="site_url"):
+        parse_config(raw)
+
+
+@pytest.mark.parametrize("bad_mode", ["bogus", "recent-posts", "Page"])
+def test_home_mode_rejects_unknown_values(bad_mode):
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["home"]["mode"] = bad_mode
+    with pytest.raises(ConfigValidationError, match="home.mode"):
+        parse_config(raw)
+
+
+def test_home_mode_accepts_recent_posts():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["home"]["mode"] = "recent_posts"
+    config = parse_config(raw)
+    assert config.home.mode == "recent_posts"
+
+
+def test_negative_posts_per_page_is_rejected():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["blog"]["posts_per_page"] = -1
+    with pytest.raises(ConfigValidationError, match="posts_per_page"):
+        parse_config(raw)
+
+
+def test_non_integer_posts_per_page_is_rejected():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["blog"]["posts_per_page"] = "dix"
+    with pytest.raises(ConfigValidationError, match="posts_per_page"):
+        parse_config(raw)
+
+
+def test_posts_per_page_of_zero_is_accepted():
+    """0 is the documented "no pagination, show everything" value."""
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["blog"]["posts_per_page"] = 0
+    config = parse_config(raw)
+    assert config.blog.posts_per_page == 0
+
+
+@pytest.mark.parametrize("bad_port", [0, -1, 65536, 100000])
+def test_ftp_port_out_of_range_is_rejected(bad_port):
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["ftp"]["port"] = bad_port
+    with pytest.raises(ConfigValidationError, match="ftp.port"):
+        parse_config(raw)
+
+
+def test_ftp_port_in_range_is_accepted():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["ftp"]["port"] = 2121
+    config = parse_config(raw)
+    assert config.ftp.port == 2121
+
+
+def test_two_path_fields_pointing_at_the_same_folder_are_rejected():
+    """A collision means one role silently overwrites/reads the other
+    (e.g. output_dir == assets_dir would wipe assets on every clean)."""
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["paths"]["output_dir"] = raw["paths"]["assets_dir"]
+    with pytest.raises(ConfigValidationError, match="output_dir"):
+        parse_config(raw)
+
+
+def test_path_fields_with_different_separators_still_collide():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["paths"]["output_dir"] = "assets/"
+    raw["paths"]["assets_dir"] = "assets"
+    with pytest.raises(ConfigValidationError, match="output_dir"):
+        parse_config(raw)
+
+
+def test_nested_paths_like_the_defaults_do_not_collide():
+    """theme/templates and theme/xslt both live under theme_dir by
+    default — nesting is fine, only exact equality is a collision."""
+    config = build_default_config()
+    assert config.paths.templates_dir.startswith(config.paths.theme_dir)
+    assert config.paths.xslt_dir.startswith(config.paths.theme_dir)
+    # No exception: the default config itself must validate cleanly.
+    parse_config(json.loads(serialize_config(config)))
