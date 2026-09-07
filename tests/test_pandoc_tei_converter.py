@@ -138,7 +138,13 @@ def test_image_attributes_survive_real_pandoc_conversion_to_tei():
     assert "{width" not in tei_content
 
     html = render_tei_file_to_html_fragment(output_path, parameters={"article_slug": "attrs"})
-    assert 'style="width:300px;height:200px;"' in html
+    # Real HTML width/height attributes (not an inline style), so the
+    # responsive ".article-figure img { width:100%; height:auto; }" CSS
+    # rule keeps working on narrow viewports — the browser still reserves
+    # the correct aspect ratio from these attributes to avoid layout shift.
+    assert 'width="300"' in html
+    assert 'height="200"' in html
+    assert "style=" not in html
     assert "align-left" in html
 
 

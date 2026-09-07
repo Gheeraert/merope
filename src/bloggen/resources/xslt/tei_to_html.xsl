@@ -230,11 +230,11 @@
         <xsl:otherwise>Illustration</xsl:otherwise>
       </xsl:choose>
     </xsl:attribute>
-    <xsl:if test="$width != '' or $height != ''">
-      <xsl:attribute name="style">
-        <xsl:if test="$width != ''">width:<xsl:value-of select="$width"/>px;</xsl:if>
-        <xsl:if test="$height != ''">height:<xsl:value-of select="$height"/>px;</xsl:if>
-      </xsl:attribute>
+    <xsl:if test="$width != ''">
+      <xsl:attribute name="width"><xsl:value-of select="$width"/></xsl:attribute>
+    </xsl:if>
+    <xsl:if test="$height != ''">
+      <xsl:attribute name="height"><xsl:value-of select="$height"/></xsl:attribute>
     </xsl:if>
   </xsl:template>
 
