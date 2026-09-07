@@ -1,6 +1,7 @@
 """The custom _undo_stack/_redo_stack tracked alongside Tk's own undo
-mechanism (see content_editor.py's _on_text_modified/_push_format_undo)
-previously grew without any bound for the length of an editing session.
+mechanism (see content_editor/undo_redo.py's _on_text_modified/
+_push_format_undo) previously grew without any bound for the length of
+an editing session.
 Both are now capped, and Tk's own native undo history is capped the same
 way via -maxundo.
 """
@@ -9,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from bloggen.ui import content_editor as content_editor_module
+from bloggen.ui.content_editor import undo_redo as content_editor_module
 from bloggen.ui.content_editor import ContentEditorWindow
 
 

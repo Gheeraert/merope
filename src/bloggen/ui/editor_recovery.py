@@ -9,7 +9,7 @@ under the project, and the editor offers to restore it the next time it
 opens if one is found.
 
 Kept independent of Tk (pure dataclass + JSON I/O) so it's testable
-without a live widget; ``content_editor.py`` owns the timer and the
+without a live widget; ``content_editor.autosave`` owns the timer and the
 restore/discard prompt.
 """
 

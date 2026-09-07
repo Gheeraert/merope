@@ -14,7 +14,7 @@ import tkinter as tk
 
 import pytest
 
-import bloggen.ui.content_editor as content_editor_module
+import bloggen.ui.content_editor.paste as content_editor_module
 from bloggen.ui.content_editor import ContentEditorWindow
 
 
