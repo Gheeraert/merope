@@ -11,7 +11,9 @@ populate the widget on load.
 
 from __future__ import annotations
 
+import queue
 import re
+import threading
 from datetime import date
 from pathlib import Path
 from tkinter import font as tkfont, messagebox, filedialog, simpledialog, ttk
@@ -1445,15 +1447,7 @@ class ContentEditorWindow(tk.Toplevel):
             return "break"
         html = read_html_clipboard()
         if html:
-            try:
-                blocks = html_to_blocks(html, images_dir=self.images_dir, doc_dir=self._doc_dir())
-            except Exception:
-                return None
-            if not blocks:
-                return None
-            convert_double_paren_notes_in_blocks(blocks, self._register_new_footnote)
-            self._insert_pasted_blocks_at_cursor(blocks)
-            self._refresh_notes_panel()
+            self._start_async_html_paste(html)
             return "break"
 
         # No HTML on the clipboard (e.g. copied from a plain-text editor):
@@ -1470,6 +1464,66 @@ class ContentEditorWindow(tk.Toplevel):
         self._insert_runs_at_cursor(runs)
         self._refresh_notes_panel()
         return "break"
+
+    def _start_async_html_paste(self, html: str) -> None:
+        """Parse (and insert) pasted HTML off the Tk main thread.
+
+        ``html_to_blocks`` can synchronously download a remote ``<img>``
+        (up to 5s per image, see ``html_paste_import._download_image``),
+        which would otherwise freeze the whole editor — with no visual
+        indication why — for that long on every such paste. A Tk mark
+        (rather than a plain index string) anchors the insertion point, so
+        it still tracks the right place even if the user keeps typing
+        elsewhere while the paste is in flight.
+        """
+        doc_dir = self._doc_dir()
+        images_dir = self.images_dir
+        mark = self._new_tag("paste_anchor")
+        self.text.mark_set(mark, "insert")
+        self.text.mark_gravity(mark, "left")
+        self._set_paste_busy(True)
+
+        result_queue: queue.Queue = queue.Queue(maxsize=1)
+
+        def worker() -> None:
+            try:
+                result_queue.put(("ok", html_to_blocks(html, images_dir=images_dir, doc_dir=doc_dir)))
+            except Exception:
+                result_queue.put(("error", None))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self._poll_async_html_paste(result_queue, mark)
+
+    def _poll_async_html_paste(self, result_queue: "queue.Queue", mark: str) -> None:
+        if not self.winfo_exists():
+            return
+        try:
+            status, blocks = result_queue.get_nowait()
+        except queue.Empty:
+            self.after(50, lambda: self._poll_async_html_paste(result_queue, mark))
+            return
+
+        self._set_paste_busy(False)
+        self.text.mark_set("insert", mark)
+        self.text.mark_unset(mark)
+
+        if status == "ok" and blocks:
+            convert_double_paren_notes_in_blocks(blocks, self._register_new_footnote)
+            self._insert_pasted_blocks_at_cursor(blocks)
+            self._refresh_notes_panel()
+            return
+
+        # Parsing failed or produced nothing usable: fall back to the
+        # clipboard's own plain text, the same as an ordinary Ctrl+V would
+        # have done (see the plain-text branch of _on_paste).
+        try:
+            plain = self.clipboard_get()
+        except tk.TclError:
+            return
+        self.text.insert("insert", plain)
+
+    def _set_paste_busy(self, busy: bool) -> None:
+        self.text.configure(cursor="watch" if busy else "")
 
     def _insert_pasted_blocks_at_cursor(self, blocks: list[Block]) -> None:
         """Cursor-relative counterpart to :meth:`_insert_block`/

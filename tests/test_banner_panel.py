@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tkinter as tk
 from pathlib import Path
 
 import pytest
@@ -11,13 +10,10 @@ from bloggen.ui.banner_panel import BannerPanel, _copy_into_dir, _resize_banner_
 
 
 @pytest.fixture(scope="module")
-def root():
-    # See tests/test_menu_link_dialog.py: one Tk() reused across a module's
-    # tests avoids the flakiness of rapid create/destroy churn.
-    window = tk.Tk()
-    window.withdraw()
-    yield window
-    window.destroy()
+def root(tk_root):
+    # See tests/conftest.py: one Tk() interpreter shared across the whole
+    # test session avoids the flakiness of repeated create/destroy churn.
+    return tk_root
 
 
 def _make_image(path: Path, size: tuple[int, int], color: str = "red") -> None:

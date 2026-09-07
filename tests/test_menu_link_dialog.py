@@ -17,14 +17,11 @@ from bloggen.ui.menu_editor import SideMenuEditor
 
 
 @pytest.fixture(scope="module")
-def root():
-    # A single Tk() root is reused across every test in this module: creating
-    # and destroying one per test is what actually made these tests flaky
-    # (Tcl/Tk get into a broken state under rapid create/destroy churn).
-    window = tk.Tk()
-    window.withdraw()
-    yield window
-    window.destroy()
+def root(tk_root):
+    # See tests/conftest.py: one Tk() interpreter shared across every
+    # Tkinter-heavy test module in the session avoids the flakiness of
+    # creating/destroying the interpreter itself repeatedly.
+    return tk_root
 
 
 def _make_dialog(root: tk.Tk, initial: MenuLink, content_targets=None) -> MenuLinkDialog:

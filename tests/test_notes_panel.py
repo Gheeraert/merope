@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import tkinter as tk
-
 import pytest
 
 from bloggen.config.models import NotesRenderingConfig
@@ -9,13 +7,10 @@ from bloggen.ui.notes_panel import NotesPanel
 
 
 @pytest.fixture(scope="module")
-def root():
-    # See tests/test_menu_link_dialog.py: one Tk() reused across a module's
-    # tests avoids the flakiness of rapid create/destroy churn.
-    window = tk.Tk()
-    window.withdraw()
-    yield window
-    window.destroy()
+def root(tk_root):
+    # See tests/conftest.py: one Tk() interpreter shared across the whole
+    # test session avoids the flakiness of repeated create/destroy churn.
+    return tk_root
 
 
 def test_excerpt_fields_round_trip_through_set_and_get_data(root):
