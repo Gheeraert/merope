@@ -414,9 +414,31 @@ class ContentEditorWindow(tk.Toplevel):
         self._current_edit_kind: str | None = None
         self._last_char_count = 0
         self._suppress_undo_tracking = False
+        self._dirty = False
 
         self._build_ui()
         self._refresh_file_list()
+        self.protocol("WM_DELETE_WINDOW", self._on_close_request)
+
+    # -- unsaved-changes guard ---------------------------------------------
+
+    def _confirm_discard_changes(self) -> bool:
+        """Ask before an action that would replace the editor's current
+        content. Returns True if it is safe to proceed (nothing unsaved,
+        or the user confirmed discarding it)."""
+        if not self._dirty:
+            return True
+        return messagebox.askyesno(
+            "Modifications non enregistrées",
+            "Ce contenu contient des modifications non enregistrées qui seront "
+            "perdues. Continuer sans enregistrer ?",
+            parent=self,
+        )
+
+    def _on_close_request(self) -> None:
+        if not self._confirm_discard_changes():
+            return
+        self.destroy()
 
     # -- layout -----------------------------------------------------------
 
@@ -861,6 +883,7 @@ class ContentEditorWindow(tk.Toplevel):
             self._last_char_count = new_count
             self._current_edit_kind = None
             return
+        self._dirty = True
         if new_count > self._last_char_count:
             kind = "insert"
         elif new_count < self._last_char_count:
@@ -889,6 +912,7 @@ class ContentEditorWindow(tk.Toplevel):
         self._undo_stack.append(("format", undo_fn, redo_fn))
         self._redo_stack.clear()
         self._current_edit_kind = None
+        self._dirty = True
 
     def _perform_undo(self) -> None:
         if not self._undo_stack:
@@ -1665,6 +1689,8 @@ class ContentEditorWindow(tk.Toplevel):
         entry = self._selected_entry()
         if entry is None:
             return
+        if not self._confirm_discard_changes():
+            return
         kind, path = entry
         metadata, body = read_content_file(path)
         blocks = markdown_to_blocks(body)
@@ -1688,7 +1714,8 @@ class ContentEditorWindow(tk.Toplevel):
 
         result = parse_front_matter(text)
         kind = result.metadata.get("type") if result.metadata.get("type") in ("page", "post") else "page"
-        self._new_document(kind)
+        if not self._new_document(kind):
+            return
         self._populate_from_blocks(markdown_to_blocks(result.body))
         self.metadata = dict(result.metadata)
         self.metadata.setdefault("type", kind)
@@ -1777,7 +1804,11 @@ class ContentEditorWindow(tk.Toplevel):
         self._refresh_file_list()
         messagebox.showinfo("Convertir", f"Converti en {new_label} : {written}")
 
-    def _new_document(self, kind: str) -> None:
+    def _new_document(self, kind: str) -> bool:
+        """Returns False (leaving the editor untouched) if there were
+        unsaved changes and the user declined to discard them."""
+        if not self._confirm_discard_changes():
+            return False
         self._destroy_embedded_images()
         self.text.delete("1.0", "end")
         self.footnote_definitions.clear()
@@ -1795,6 +1826,8 @@ class ContentEditorWindow(tk.Toplevel):
         self._redo_stack.clear()
         self._current_edit_kind = None
         self._last_char_count = self._char_count()
+        self._dirty = False
+        return True
 
     def _destroy_embedded_images(self) -> None:
         # Text.delete() does not destroy windows embedded via window_create;
@@ -1820,6 +1853,7 @@ class ContentEditorWindow(tk.Toplevel):
         if dialog.result is not None:
             self.metadata = dialog.result
             self.current_kind = kind
+            self._dirty = True
         return dialog.result
 
     # -- toolbar actions --------------------------------------------------
@@ -2486,6 +2520,7 @@ class ContentEditorWindow(tk.Toplevel):
         self._current_edit_kind = None
         self._last_char_count = self._char_count()
         self._suppress_undo_tracking = False
+        self._dirty = False
 
     def _insert_block(self, block: Block) -> None:
         if block.kind == PARAGRAPH:
@@ -2612,5 +2647,6 @@ class ContentEditorWindow(tk.Toplevel):
             return
 
         self.current_path = written
+        self._dirty = False
         self._refresh_file_list()
         messagebox.showinfo("Enregistrement", f"Contenu enregistré : {written}")
