@@ -18,6 +18,11 @@ class ContentMetadata:
     author: str | None = None
     description: str | None = None
     draft: bool = False
+    # Editorial last-modified date, set explicitly by the author in front
+    # matter. Takes precedence over the file's filesystem mtime for the
+    # sitemap <lastmod>, which is otherwise reset by any git checkout or
+    # file resync unrelated to an actual content change.
+    updated: str | None = None
 
 
 class ContentMetadataError(ValueError):
@@ -67,6 +72,10 @@ def build_content_metadata(
     author = (front_matter.get("author") or "").strip() or None
     description = (front_matter.get("description") or "").strip() or None
 
+    updated = (front_matter.get("updated") or "").strip() or None
+    if updated is not None and not is_valid_iso_date(updated):
+        raise ContentMetadataError(f"Date invalide '{updated}' (format attendu YYYY-MM-DD){context} pour updated.")
+
     return ContentMetadata(
         title=title,
         slug=slug,
@@ -76,6 +85,7 @@ def build_content_metadata(
         author=author,
         description=description,
         draft=draft,
+        updated=updated,
     )
 
 

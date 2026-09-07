@@ -125,6 +125,7 @@ class ContentMetadataDialog(simpledialog.Dialog):
         self.title_var = tk.StringVar(value=self.initial.get("title", ""))
         self.slug_var = tk.StringVar(value=self.initial.get("slug", ""))
         self.date_var = tk.StringVar(value=self.initial.get("date", date.today().isoformat()))
+        self.updated_var = tk.StringVar(value=self.initial.get("updated", ""))
         self.author_var = tk.StringVar(value=self.initial.get("author", ""))
         self.description_var = tk.StringVar(value=self.initial.get("description", ""))
         self.layout_var = tk.StringVar(value=self.initial.get("layout", ""))
@@ -162,6 +163,18 @@ class ContentMetadataDialog(simpledialog.Dialog):
             date_entry.grid(row=row, column=1, sticky="w", padx=4, pady=4)
             add_tooltip(date_entry, "Date de publication du billet. Obligatoire.\nExemple : 2026-08-08")
             row += 1
+
+        ttk.Label(master, text="Mis à jour le (AAAA-MM-JJ)").grid(row=row, column=0, sticky="w", padx=4, pady=4)
+        updated_entry = ttk.Entry(master, textvariable=self.updated_var, width=20)
+        updated_entry.grid(row=row, column=1, sticky="w", padx=4, pady=4)
+        add_tooltip(
+            updated_entry,
+            "Date éditoriale de dernière modification, utilisée pour le sitemap (SEO). "
+            "Optionnel : à défaut, la date du fichier sur le disque est utilisée, "
+            "mais celle-ci peut être faussée par un déplacement de fichiers ou un "
+            "changement de branche Git.\nExemple : 2026-08-08",
+        )
+        row += 1
 
         ttk.Label(master, text="Auteur").grid(row=row, column=0, sticky="w", padx=4, pady=4)
         ttk.Entry(master, textvariable=self.author_var, width=40).grid(
@@ -223,6 +236,12 @@ class ContentMetadataDialog(simpledialog.Dialog):
                     "Métadonnées", "La date doit être au format AAAA-MM-JJ.", parent=self
                 )
                 return False
+        updated = self.updated_var.get().strip()
+        if updated and not is_valid_iso_date(updated):
+            messagebox.showerror(
+                "Métadonnées", "La date de mise à jour doit être au format AAAA-MM-JJ.", parent=self
+            )
+            return False
         return True
 
     def apply(self) -> None:
@@ -233,6 +252,8 @@ class ContentMetadataDialog(simpledialog.Dialog):
         }
         if self.kind == "post":
             metadata["date"] = self.date_var.get().strip()
+        if self.updated_var.get().strip():
+            metadata["updated"] = self.updated_var.get().strip()
         if self.author_var.get().strip():
             metadata["author"] = self.author_var.get().strip()
         if self.description_var.get().strip():

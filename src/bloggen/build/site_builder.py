@@ -331,7 +331,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             # indexed for search, or listed in the sitemap either.
             generated_posts = []
 
-        _generate_home_page(
+        home_lastmod = _generate_home_page(
             generated_pages,
             generated_posts,
             config=runtime_config,
@@ -351,6 +351,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             generated_pages,
             generated_posts,
             archive_sitemap_entries,
+            home_lastmod,
             config=runtime_config,
             output_root=output_root,
             report=report,
@@ -647,7 +648,7 @@ def _build_single_item(
     if item.kind != "post":
         article_date = None
 
-    lastmod = _source_lastmod(item.source_path) or item.metadata.date
+    lastmod = item.metadata.updated or _source_lastmod(item.source_path) or item.metadata.date
 
     template_name = config.render.post_template if item.kind == "post" else config.render.html_template
     custom_template = load_custom_template(project_root, config, template_name)
@@ -712,9 +713,16 @@ def _generate_home_page(
     project_root: Path,
     output_root: Path,
     report: BuildReport,
-) -> None:
+) -> str | None:
+    """Renders /index.html and returns its own lastmod for the sitemap.
+
+    In "page" mode that's the home source page's own lastmod, not the
+    most recent post's — the home page's real last-modified signal comes
+    from whichever content is actually displayed there.
+    """
     description: str | None = None
     show_title_heading = False
+    lastmod: str | None = None
 
     if config.home.mode == "recent_posts":
         title = config.site.title
@@ -728,6 +736,7 @@ def _generate_home_page(
             recent_items,
             current_path="/index.html",
         )
+        lastmod = posts[0].lastmod if posts else None
     else:
         home_source = (project_root / config.home.source).resolve()
         page = next((item for item in pages if item.source.resolve() == home_source), None)
@@ -742,6 +751,7 @@ def _generate_home_page(
             # URL got them, the home page reusing its content did not).
             description = page.description
             show_title_heading = True
+            lastmod = page.lastmod
         else:
             title = config.site.title
             content = "<article><h1>Accueil</h1><p>Page d'accueil non trouvée.</p></article>"
@@ -761,6 +771,7 @@ def _generate_home_page(
     )
     index_path.write_text(html, encoding="utf-8")
     report.generated_html.append(index_path)
+    return lastmod
 
 
 def _archive_page_url(archive_path: str, page_number: int) -> str:
@@ -837,6 +848,7 @@ def _generate_feed_and_sitemap(
     pages: list[GeneratedItem],
     posts: list[GeneratedItem],
     archive_sitemap_entries: list[tuple[str, str | None]],
+    home_lastmod: str | None,
     *,
     config: ProjectConfig,
     output_root: Path,
@@ -878,7 +890,6 @@ def _generate_feed_and_sitemap(
 
     if want_sitemap:
         urls: list[tuple[str, str | None]] = []
-        home_lastmod = posts[0].lastmod if posts else None
         urls.append(("/index.html", home_lastmod))
         urls.extend(archive_sitemap_entries)
         urls.extend((item.url, item.lastmod) for item in pages if not item.noindex)
@@ -1029,7 +1040,12 @@ def _source_lastmod(source_path: Path) -> str | None:
     """The source .md file's own filesystem mtime, as an ISO date — a
     more accurate sitemap <lastmod> than the publication date alone
     (which never changes even when a post/page is later edited, and
-    doesn't exist at all for a page, only a post)."""
+    doesn't exist at all for a page, only a post).
+
+    This is only a fallback: it's reset by anything that touches the file
+    on disk without changing its content (a git checkout, a file resync),
+    not just genuine edits. An explicit ``updated:`` front matter date
+    (see ContentMetadata.updated) always takes precedence over it."""
     try:
         mtime = source_path.stat().st_mtime
     except OSError:
