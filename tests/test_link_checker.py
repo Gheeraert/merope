@@ -13,6 +13,7 @@ import uuid
 from bloggen.build.link_checker import (
     check_broken_links,
     check_canonical_links,
+    check_seo_metadata,
     check_structured_data,
     find_orphan_pages,
 )
@@ -279,3 +280,115 @@ def test_an_unrecognized_json_ld_type_has_no_required_fields_checked():
     )
 
     assert check_structured_data(site) == []
+
+
+# -- SEO metadata (description, H1) ---------------------------------------
+
+
+def test_a_page_with_a_description_and_a_single_h1_is_fine():
+    site = _site("seo_ok")
+    (site / "index.html").write_text(
+        '<html><head><meta name="description" content="Un carnet de recherche."></head>'
+        "<body><article><h1>Titre</h1><p>Contenu.</p></article></body></html>",
+        encoding="utf-8",
+    )
+
+    assert check_seo_metadata(site) == []
+
+
+def test_a_page_with_no_description_meta_is_reported():
+    site = _site("seo_no_description")
+    (site / "index.html").write_text(
+        "<html><head></head><body><article><h1>Titre</h1></article></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_seo_metadata(site)
+    assert len(issues) == 1
+    assert "description" in issues[0].reason
+
+
+def test_a_page_with_a_blank_description_content_is_reported():
+    site = _site("seo_blank_description")
+    (site / "index.html").write_text(
+        '<html><head><meta name="description" content="   "></head>'
+        "<body><article><h1>Titre</h1></article></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_seo_metadata(site)
+    assert len(issues) == 1
+    assert "description" in issues[0].reason
+
+
+def test_a_page_with_no_h1_is_reported():
+    site = _site("seo_no_h1")
+    (site / "index.html").write_text(
+        '<html><head><meta name="description" content="Un carnet de recherche."></head>'
+        "<body><article><p>Contenu sans titre.</p></article></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_seo_metadata(site)
+    assert len(issues) == 1
+    assert "<h1>" in issues[0].reason
+
+
+def test_a_page_with_two_h1_is_reported():
+    site = _site("seo_two_h1")
+    (site / "index.html").write_text(
+        '<html><head><meta name="description" content="Un carnet de recherche."></head>'
+        "<body><article><h1>Un</h1><h1>Deux</h1></article></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_seo_metadata(site)
+    assert len(issues) == 1
+    assert "2 balises <h1>" in issues[0].reason
+
+
+def test_a_page_missing_both_description_and_h1_reports_both():
+    site = _site("seo_missing_both")
+    (site / "index.html").write_text(
+        "<html><head></head><body><article><p>Rien.</p></article></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_seo_metadata(site)
+    assert len(issues) == 2
+    reasons = {issue.reason for issue in issues}
+    assert 'aucune balise <meta name="description">' in reasons
+    assert "aucun <h1>" in reasons
+
+
+def test_recent_posts_home_layout_is_exempt_from_the_missing_h1_check():
+    """render_recent_posts_fragment deliberately renders no page-level
+    heading for the "derniers billets" home mode — its own post titles
+    (<h2>) identify the content instead. Recognized by its distinctive
+    "recent-post" markup rather than by path, so this only exempts the
+    real recent-posts layout, not just any page at /index.html."""
+    site = _site("seo_recent_posts_home")
+    (site / "index.html").write_text(
+        '<html><head><meta name="description" content="Un carnet de recherche."></head>'
+        '<body><section class="recent-post"><h2>Un billet</h2></section></body></html>',
+        encoding="utf-8",
+    )
+
+    assert check_seo_metadata(site) == []
+
+
+def test_a_page_mode_home_with_no_h1_is_still_reported():
+    """Unlike the recent-posts home layout above, a "page" mode home
+    (home.source rendered at /index.html) is a normal page with its own
+    <h1> — its absence must still be caught, not swallowed by a blanket
+    "it's the home page" exemption."""
+    site = _site("seo_page_mode_home_no_h1")
+    (site / "index.html").write_text(
+        '<html><head><meta name="description" content="Un carnet de recherche."></head>'
+        "<body><article><p>Contenu sans titre.</p></article></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_seo_metadata(site)
+    assert len(issues) == 1
+    assert "<h1>" in issues[0].reason

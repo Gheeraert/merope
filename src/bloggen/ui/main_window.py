@@ -446,7 +446,7 @@ class MainWindow(tk.Tk):
                 ("fail_on_invalid_config", "Échouer si config invalide", True),
                 (
                     "check_broken_links",
-                    "Vérifier liens/médias, pages orphelines, canoniques et données structurées",
+                    "Vérifier liens/médias, pages orphelines, canoniques, données structurées et métadonnées SEO",
                     True,
                 ),
                 ("fail_on_broken_links", "Échouer si l'une de ces vérifications signale un problème", False),
@@ -487,8 +487,9 @@ class MainWindow(tk.Tk):
                     "(détecte par exemple un menu resté pointé sur un ancien slug renommé) ; "
                     "qu'aucune page générée n'est orpheline (sans lien interne entrant) ; que "
                     "les liens canoniques correspondent bien à site.base_url et à une page "
-                    "existante ; et que les données structurées (JSON-LD) sont valides et "
-                    "complètes."
+                    "existante ; que les données structurées (JSON-LD) sont valides et "
+                    "complètes ; et que chaque page a bien une balise meta description et un "
+                    "titre <h1> unique."
                 ),
                 "fail_on_broken_links": (
                     "Si activé (et la vérification ci-dessus aussi), la génération s'arrête "

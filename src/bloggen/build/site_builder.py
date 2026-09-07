@@ -20,6 +20,7 @@ from bloggen.build.assets import (
 from bloggen.build.link_checker import (
     check_broken_links,
     check_canonical_links,
+    check_seo_metadata,
     check_structured_data,
     find_orphan_pages,
 )
@@ -469,6 +470,18 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
                 message += "".join(f"\n  - {item}" for item in shown)
                 if len(structured_data_issues) > len(shown):
                     message += f"\n  … et {len(structured_data_issues) - len(shown)} de plus."
+                if runtime_config.build.fail_on_broken_links:
+                    report.errors.append(message)
+                else:
+                    report.warnings.append(message)
+
+            seo_metadata_issues = check_seo_metadata(output_root)
+            if seo_metadata_issues:
+                message = f"Métadonnées SEO manquantes ou invalides ({len(seo_metadata_issues)}) :"
+                shown = seo_metadata_issues[:20]
+                message += "".join(f"\n  - {item}" for item in shown)
+                if len(seo_metadata_issues) > len(shown):
+                    message += f"\n  … et {len(seo_metadata_issues) - len(shown)} de plus."
                 if runtime_config.build.fail_on_broken_links:
                     report.errors.append(message)
                 else:

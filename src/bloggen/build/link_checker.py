@@ -1,6 +1,6 @@
 """Post-build content-integrity checks: broken internal links/images,
-orphan pages, malformed canonical URLs, and invalid/incomplete
-structured data (JSON-LD).
+orphan pages, malformed canonical URLs, invalid/incomplete structured
+data (JSON-LD), and missing SEO metadata (description, H1).
 
 MEROPE emits purely relative hrefs/srcs for anything internal (see
 render/navigation.py's resolve_navigation_href) — check_broken_links
@@ -9,10 +9,10 @@ to a real file under output_root. Catches what nothing else in the
 pipeline does: a menu target left pointing at a slug that was since
 renamed, a stale link inside hand-written Markdown, or a missing image —
 the audit's "aucun contrôle de doublons ou d'URL réellement produites".
-find_orphan_pages, check_canonical_links and check_structured_data
-extend that same after-the-fact safety net to three more ways the
-generated site can be quietly broken without a single file being
-individually invalid.
+find_orphan_pages, check_canonical_links, check_structured_data and
+check_seo_metadata extend that same after-the-fact safety net to more
+ways the generated site can be quietly broken without a single file
+being individually invalid.
 
 External links, mailto:/tel:, anchors, and data: URIs are never
 checked — only same-site references the build itself was responsible
@@ -245,4 +245,55 @@ def check_structured_data(output_root: Path) -> list[StructuredDataIssue]:
                         html_path, f'de type "{schema_type}" incomplètes (manque : {", ".join(missing)})'
                     )
                 )
+    return issues
+
+
+@dataclass(slots=True, frozen=True)
+class SeoMetadataIssue:
+    source_file: Path
+    reason: str
+
+    def __str__(self) -> str:
+        return f"{self.source_file}: {self.reason}"
+
+
+def _has_recent_posts_home_layout(tree) -> bool:
+    """True for the home page rendered in "derniers billets" mode — see
+    render_recent_posts_fragment, whose docstring documents that no
+    page-level heading is rendered there by design (the individual post
+    titles, as <h2>, identify the content instead). Detected by its own
+    distinctive markup rather than by path, since a "page" mode home
+    page (home.source) is a normal page with its own <h1> and must still
+    be checked."""
+    return bool(tree.xpath('//*[contains(concat(" ", normalize-space(@class), " "), " recent-post ")]'))
+
+
+def check_seo_metadata(output_root: Path) -> list[SeoMetadataIssue]:
+    """Every generated page: a non-empty <meta name="description">, and
+    exactly one <h1> — both silently degrade search-result snippets and
+    heading-based SEO/accessibility signals, with nothing else in the
+    pipeline surfacing a page that ends up missing either one (an empty
+    ``site.description`` with no page-level override, or a custom
+    template that drops the title injection)."""
+    issues: list[SeoMetadataIssue] = []
+    for html_path in sorted(output_root.rglob("*.html")):
+        try:
+            text = html_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        try:
+            tree = html.fromstring(text)
+        except Exception:  # noqa: BLE001 - a malformed fragment isn't this checker's job
+            continue
+
+        description = tree.xpath('string(//meta[@name="description"]/@content)').strip()
+        if not description:
+            issues.append(SeoMetadataIssue(html_path, 'aucune balise <meta name="description">'))
+
+        h1_count = len(tree.xpath("//h1"))
+        if h1_count == 0:
+            if not _has_recent_posts_home_layout(tree):
+                issues.append(SeoMetadataIssue(html_path, "aucun <h1>"))
+        elif h1_count > 1:
+            issues.append(SeoMetadataIssue(html_path, f"{h1_count} balises <h1> (une seule attendue)"))
     return issues
