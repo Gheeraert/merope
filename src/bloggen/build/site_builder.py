@@ -428,7 +428,6 @@ def _generate_home_page(
             (item.title, item.url, item.date, item.content_html) for item in posts[:count]
         ]
         content = render_recent_posts_fragment(
-            config.home.recent_posts_title,
             recent_items,
             current_path="/index.html",
         )

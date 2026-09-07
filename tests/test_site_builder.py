@@ -165,7 +165,6 @@ def test_site_builder_home_page_can_list_recent_posts(monkeypatch):
     config.home.source = "content/pages/accueil.md"
     config.home.mode = "recent_posts"
     config.home.recent_posts_count = 1
-    config.home.recent_posts_title = "Derniers billets"
 
     config_path = project / "config/site.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,7 +189,9 @@ def test_site_builder_home_page_can_list_recent_posts(monkeypatch):
 
     assert report.success is True
     home_html = (project / "site/index.html").read_text(encoding="utf-8")
-    assert "Derniers billets" in home_html
+    # No page-level "Derniers billets" heading: the individual post titles
+    # already identify the content.
+    assert "<h1>Derniers billets</h1>" not in home_html
     assert "Second billet" in home_html
     assert 'href="billets/second-billet/index.html"' in home_html
     # only the most recent post (recent_posts_count = 1) is listed

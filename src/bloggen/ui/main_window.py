@@ -541,18 +541,6 @@ class MainWindow(tk.Tk):
         add_tooltip(count_label, count_help)
         add_tooltip(count_entry, count_help)
 
-        recent_title_var = tk.StringVar(value="Derniers billets")
-        self.home_vars["recent_posts_title"] = recent_title_var
-        recent_title_label = ttk.Label(self.home_recent_frame, text="Titre de la page")
-        recent_title_label.grid(row=1, column=0, sticky="w", padx=8, pady=4)
-        recent_title_entry = ttk.Entry(
-            self.home_recent_frame, textvariable=recent_title_var, width=_FIELD_WIDTH
-        )
-        recent_title_entry.grid(row=1, column=1, sticky="w", padx=8, pady=4)
-        recent_title_help = "Titre affiché en haut de la page d'accueil.\nExemple : Derniers billets"
-        add_tooltip(recent_title_label, recent_title_help)
-        add_tooltip(recent_title_entry, recent_title_help)
-
         frame.grid_columnconfigure(3, weight=1)
         self._on_home_mode_changed()
 

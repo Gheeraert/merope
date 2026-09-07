@@ -57,7 +57,6 @@ class HomeConfig:
     source: str = "content/pages/accueil.md"
     layout: str = "home"
     recent_posts_count: int = 5
-    recent_posts_title: str = "Derniers billets"
 
 
 @dataclass(slots=True)

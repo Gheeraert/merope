@@ -174,7 +174,6 @@ def render_archive_fragment(
 
 
 def render_recent_posts_fragment(
-    title: str,
     items: list[tuple[str, str, str | None, str]],
     *,
     current_path: str,
@@ -184,6 +183,9 @@ def render_recent_posts_fragment(
     ``items`` are ``(title, url, date, content_html)`` tuples, most recent
     first — the home page shows the integral content of each recent post
     (not just a title list), so readers can read without leaving the page.
+    No page-level heading is rendered here: the individual post titles
+    (below) already identify the content, and the site's own title/nav is
+    already shown by the surrounding page template.
     """
     if items:
         entries_parts: list[str] = []
@@ -207,7 +209,6 @@ def render_recent_posts_fragment(
 
     return (
         '<article class="home-recent-posts">'
-        f"<h1>{escape(title)}</h1>"
         f'<div class="recent-posts-list">{entries}</div>'
         "</article>"
     )
