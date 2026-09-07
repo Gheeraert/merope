@@ -57,6 +57,11 @@ class HomeConfig:
     source: str = "content/pages/accueil.md"
     layout: str = "home"
     recent_posts_count: int = 5
+    # In "recent_posts" mode: length (characters) of the excerpt shown
+    # per post on the home page — the full body used to be embedded
+    # there too, duplicating every one of those posts' content across
+    # two fully-indexable URLs.
+    recent_posts_excerpt_length: int = 300
 
 
 @dataclass(slots=True)

@@ -261,29 +261,34 @@ def render_recent_posts_fragment(
     *,
     current_path: str,
 ) -> str:
-    """Home page content for the "derniers billets" mode: full post bodies.
+    """Home page content for the "derniers billets" mode: a title, date,
+    and short excerpt per post, linking to its own full page.
 
-    ``items`` are ``(title, url, date, content_html)`` tuples, most recent
-    first — the home page shows the integral content of each recent post
-    (not just a title list), so readers can read without leaving the page.
+    ``items`` are ``(title, url, date, excerpt)`` tuples, most recent
+    first. Embedding each post's *full* body here used to duplicate its
+    entire content across two fully-indexable URLs (its own page, and
+    the home page) — an excerpt-plus-link is both the SEO-sound choice
+    and the conventional shape of a blog's "recent posts" home page.
     No page-level heading is rendered here: the individual post titles
     (below) already identify the content, and the site's own title/nav is
     already shown by the surrounding page template.
     """
     if items:
         entries_parts: list[str] = []
-        for label, url, date, content_html in items:
+        for label, url, date, excerpt in items:
             resolved = resolve_navigation_href(url, current_path=current_path)
             date_html = (
                 f'<time class="recent-post-date" datetime="{escape(date)}">{escape(date)}</time>'
                 if date
                 else ""
             )
+            excerpt_html = f'<p class="recent-post-excerpt">{escape(excerpt)}</p>' if excerpt else ""
             entries_parts.append(
                 '<section class="recent-post">'
                 f'<h2 class="recent-post-title"><a href="{escape(resolved)}">{escape(label)}</a></h2>'
                 f"{date_html}"
-                f'<div class="recent-post-body">{content_html}</div>'
+                f"{excerpt_html}"
+                f'<a class="recent-post-more" href="{escape(resolved)}">Lire la suite</a>'
                 "</section>"
             )
         entries = "".join(entries_parts)

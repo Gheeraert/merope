@@ -506,8 +506,9 @@ class MainWindow(tk.Tk):
         add_tooltip(
             mode_combo,
             "Page fixe : le contenu d'accueil vient d'un fichier Markdown que vous rédigez.\n"
-            "Derniers billets publiés : la page d'accueil affiche automatiquement le texte "
-            "intégral des billets les plus récents, en commençant par le dernier publié.",
+            "Derniers billets publiés : la page d'accueil affiche automatiquement un titre, "
+            "une date et un extrait des billets les plus récents (avec lien vers chacun), "
+            "en commençant par le dernier publié.",
         )
 
         self.home_page_frame = ttk.Frame(frame)
@@ -554,11 +555,27 @@ class MainWindow(tk.Tk):
         count_entry = ttk.Entry(self.home_recent_frame, textvariable=count_var, width=_FIELD_WIDTH)
         count_entry.grid(row=0, column=1, sticky="w", padx=8, pady=4)
         count_help = (
-            "Nombre de billets récents affichés en texte intégral sur la page d'accueil, "
-            "du plus récent au plus ancien.\nExemple : 5"
+            "Nombre de billets récents affichés (titre, date, extrait) sur la page "
+            "d'accueil, du plus récent au plus ancien.\nExemple : 5"
         )
         add_tooltip(count_label, count_help)
         add_tooltip(count_entry, count_help)
+
+        excerpt_length_var = tk.StringVar(value="300")
+        self.home_vars["recent_posts_excerpt_length"] = excerpt_length_var
+        excerpt_length_label = ttk.Label(self.home_recent_frame, text="Longueur de l'extrait (car.)")
+        excerpt_length_label.grid(row=1, column=0, sticky="w", padx=8, pady=4)
+        excerpt_length_entry = ttk.Entry(
+            self.home_recent_frame, textvariable=excerpt_length_var, width=_FIELD_WIDTH
+        )
+        excerpt_length_entry.grid(row=1, column=1, sticky="w", padx=8, pady=4)
+        excerpt_length_help = (
+            "Longueur de l'extrait affiché sous chaque billet récent, en nombre de "
+            "caractères (utilisée seulement si le billet n'a pas de description dans "
+            "son en-tête, auquel cas c'est elle qui est affichée).\nExemple : 300"
+        )
+        add_tooltip(excerpt_length_label, excerpt_length_help)
+        add_tooltip(excerpt_length_entry, excerpt_length_help)
 
         frame.grid_columnconfigure(3, weight=1)
         self._on_home_mode_changed()
@@ -896,6 +913,7 @@ class MainWindow(tk.Tk):
 
         home_raw = _read_vars(self.home_vars)
         home_raw["recent_posts_count"] = int(home_raw["recent_posts_count"])
+        home_raw["recent_posts_excerpt_length"] = int(home_raw["recent_posts_excerpt_length"])
         home_raw["mode"] = _HOME_MODE_VALUES.get(self.home_mode_var.get(), _HOME_MODE_PAGE)
         home = HomeConfig(**home_raw)
 

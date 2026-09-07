@@ -39,6 +39,7 @@ REQUIRED_PATH_KEYS = (
 NUMBER_FIELDS: tuple[tuple[str, str, int, int | None], ...] = (
     ("banner", "height_px", 1, None),
     ("home", "recent_posts_count", 0, None),
+    ("home", "recent_posts_excerpt_length", 0, None),
     ("blog", "posts_per_page", 0, None),
     ("notes_rendering", "margin_excerpt_words", 0, None),
     ("notes_rendering", "margin_excerpt_chars", 0, None),

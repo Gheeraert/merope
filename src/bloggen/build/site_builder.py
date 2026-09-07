@@ -692,6 +692,18 @@ def _build_single_item(
     )
 
 
+def _recent_post_excerpt(item: GeneratedItem, excerpt_length: int) -> str:
+    """A short teaser for the home page's "derniers billets" mode —
+    prefers the post's own authored description (front matter), falling
+    back to an auto-extracted excerpt of its plain text. Never the full
+    body: that used to duplicate every recent post's entire content onto
+    /index.html, both URLs fully indexable.
+    """
+    if item.description:
+        return item.description
+    return extract_plain_text(item.content_html)[:excerpt_length]
+
+
 def _generate_home_page(
     pages: list[GeneratedItem],
     posts: list[GeneratedItem],
@@ -707,8 +719,10 @@ def _generate_home_page(
     if config.home.mode == "recent_posts":
         title = config.site.title
         count = max(config.home.recent_posts_count, 0)
+        excerpt_length = max(config.home.recent_posts_excerpt_length, 0)
         recent_items = [
-            (item.title, item.url, item.date, item.content_html) for item in posts[:count]
+            (item.title, item.url, item.date, _recent_post_excerpt(item, excerpt_length))
+            for item in posts[:count]
         ]
         content = render_recent_posts_fragment(
             recent_items,

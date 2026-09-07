@@ -201,6 +201,111 @@ def test_site_builder_home_page_can_list_recent_posts(monkeypatch):
     assert "Premier billet" not in home_html
 
 
+def test_recent_posts_mode_shows_an_excerpt_not_the_full_body(monkeypatch):
+    """Third external audit finding: "derniers billets" mode duplicated
+    every recent post's *entire* content onto /index.html, both URLs
+    fully indexable. The home page must now show only a short excerpt
+    and a link — the full text stays exclusively on the post's own page."""
+    project = RUNTIME_ROOT / f"recent_posts_excerpt_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier billet"\nslug: "premier-billet"\ntype: "post"\ndate: "2026-01-01"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    long_paragraph = "Phrase significative répétée pour dépasser la longueur d'extrait. " * 10
+    long_tei = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        '<teiHeader><fileDesc><titleStmt><title>Test</title></titleStmt>'
+        '<publicationStmt><p>p</p></publicationStmt><sourceDesc><p>s</p></sourceDesc></fileDesc></teiHeader>'
+        f'<text><body><div><head>Titre</head><p>{long_paragraph}</p></div></body></text>'
+        '</TEI>'
+    )
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(long_tei, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.home.mode = "recent_posts"
+    config.home.recent_posts_excerpt_length = 60
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    home_html = (project / "site/index.html").read_text(encoding="utf-8")
+    post_html = (project / "site/billets/premier-billet/index.html").read_text(encoding="utf-8")
+
+    assert long_paragraph.strip() in post_html  # full text still lives on the post's own page
+    assert long_paragraph.strip() not in home_html  # but not duplicated onto the home page
+    assert 'class="recent-post-excerpt"' in home_html
+    assert 'class="recent-post-more" href="billets/premier-billet/index.html"' in home_html
+
+
+def test_recent_posts_excerpt_prefers_the_authored_description(monkeypatch):
+    project = RUNTIME_ROOT / f"recent_posts_description_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier billet"\nslug: "premier-billet"\ntype: "post"\ndate: "2026-01-01"\n'
+        'description: "Résumé rédigé à la main pour ce billet."\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.home.mode = "recent_posts"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    home_html = (project / "site/index.html").read_text(encoding="utf-8")
+    assert "Résumé rédigé à la main pour ce billet." in home_html
+
+
 def test_site_builder_skips_search_index_when_disabled(monkeypatch):
     project = RUNTIME_ROOT / f"site_builder_nosearch_{uuid.uuid4().hex}"
     (project / "content/pages").mkdir(parents=True)

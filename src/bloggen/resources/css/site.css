@@ -900,8 +900,18 @@ button:focus-visible {
   margin-bottom: 0.6rem;
 }
 
-.recent-post-body {
-  margin-top: 0.5rem;
+.recent-post-excerpt {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.recent-post-more {
+  display: inline-block;
+  margin-top: 0.6rem;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 700;
 }
 
 .recent-posts-empty {
