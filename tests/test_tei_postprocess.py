@@ -2,8 +2,10 @@
 
 import xml.etree.ElementTree as ET
 
+from bloggen.tei.commons_publishing import validate_commons_publishing_bytes
 from bloggen.tei.header_builder import TeiHeaderMetadata
 from bloggen.tei.postprocess import (
+    apply_heading_levels_in_tei_xml,
     apply_image_attributes_in_tei_xml,
     apply_paragraph_alignment_in_tei_xml,
     postprocess_tei_xml,
@@ -229,3 +231,39 @@ def test_apply_paragraph_alignment_ignores_unknown_marker_value():
         "</TEI>"
     )
     assert apply_paragraph_alignment_in_tei_xml(raw) == raw
+
+
+def test_apply_heading_levels_writes_section_not_level():
+    """Phase 3 of the TEI Commons Publishing roadmap: div/@type must be
+    "sectionN" (a value the schema's enumerated attribute actually
+    accepts), never Pandoc's own "levelN" — see the module docstring."""
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        '<text><body><div type="level1"><head>Titre</head><p>Contenu.</p></div></body></text>'
+        "</TEI>"
+    )
+    rewritten = apply_heading_levels_in_tei_xml(raw, [2])
+    assert 'type="section2"' in rewritten
+    assert "level" not in rewritten
+
+
+def test_ordinary_headings_and_paragraphs_validate_against_commons_publishing_after_the_rename():
+    """The concrete, measurable Phase 3 win: this exact shape (nested
+    div/@type="levelN" with a <head> and a <p>) was the one confirmed
+    (in the report preceding this phase) to fail Commons Publishing
+    validation — it must now pass once apply_heading_levels_in_tei_xml
+    has run.
+    """
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<teiHeader><fileDesc><titleStmt><title>Test</title></titleStmt>"
+        "<publicationStmt><p>p</p></publicationStmt><sourceDesc><p>s</p></sourceDesc></fileDesc></teiHeader>"
+        '<text><body><div type="level1"><head>Titre</head><p>Un paragraphe.</p>'
+        '<div type="level2"><head>Sous-section</head><p>Un autre paragraphe.</p></div>'
+        "</div></body></text>"
+        "</TEI>"
+    )
+    rewritten = apply_heading_levels_in_tei_xml(raw, [1, 2])
+    result = validate_commons_publishing_bytes(rewritten.encode("utf-8"))
+    assert result.valid is True
+    assert result.issues == ()

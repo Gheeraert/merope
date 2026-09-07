@@ -62,8 +62,8 @@
     <xsl:variable name="typeAttr" select="parent::tei:div/@type"/>
     <xsl:variable name="level">
       <xsl:choose>
-        <xsl:when test="starts-with($typeAttr, 'level')">
-          <xsl:value-of select="substring-after($typeAttr, 'level')"/>
+        <xsl:when test="starts-with($typeAttr, 'section')">
+          <xsl:value-of select="substring-after($typeAttr, 'section')"/>
         </xsl:when>
         <xsl:otherwise>
           <xsl:value-of select="count(ancestor::tei:div)"/>

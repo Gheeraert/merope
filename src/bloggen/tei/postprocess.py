@@ -1,4 +1,22 @@
-﻿"""Light TEI post-processing for Pandoc output."""
+﻿"""Light TEI post-processing for Pandoc output.
+
+Also where Pandoc's own div/@type heading-depth convention ("level1",
+"level2"...) is replaced with TEI Commons Publishing's own enumerated
+equivalent ("section1".."section6") — see apply_heading_levels_in_tei_xml
+and Phase 3 of the roadmap in bloggen.tei.commons_publishing's module
+docstring. Verified (while building this) to be the single change that
+gets a real, representative range of Pandoc-generated content (headings
+up to 6 levels deep, paragraphs, ordered/unordered/nested lists,
+blockquotes, tables, footnotes, links, figures, bold/italic/
+strikethrough/superscript) passing that schema. Two rarer Markdown
+constructs are NOT representable in Commons Publishing at all and are
+left as-is (still correctly flagged by the Phase 1 diagnostic when
+present): fenced code blocks (Pandoc's own <ab type="codeblock">, an
+element this profile doesn't define) and horizontal rules (Pandoc's
+<milestone>, likewise undefined here) — neither already had a
+dedicated tei_to_html.xsl template before this, so nothing that
+currently renders is affected.
+"""
 
 from __future__ import annotations
 
@@ -220,11 +238,11 @@ def extract_heading_levels(markdown_text: str) -> list[int]:
     """Return the literal ATX heading levels (1-6), in document order.
 
     Pandoc's TEI writer shifts every heading level so that the shallowest
-    heading in the whole document becomes ``level1`` (see its ``@type``
-    attribute), which silently changes the level typed in the content
-    editor whenever that heading isn't the document's shallowest. The
-    literal levels are captured here straight from the source Markdown so
-    they can be reapplied to the generated TEI afterwards (see
+    heading in the whole document becomes ``div/@type="level1"`` (and so
+    on), which silently changes the level typed in the content editor
+    whenever that heading isn't the document's shallowest. The literal
+    levels are captured here straight from the source Markdown so they
+    can be reapplied to the generated TEI afterwards (see
     :func:`apply_heading_levels_in_tei_file`), guaranteeing the level typed
     in the editor is always the level rendered, without exception.
     """
@@ -262,7 +280,14 @@ def apply_heading_levels_in_tei_xml(tei_xml: str, levels: list[int]) -> str:
         if not remaining:
             break
         level = remaining.pop(0)
-        element.set("type", f"level{level}")
+        # "sectionN", not Pandoc's own "levelN": div/@type is a TEI Commons
+        # Publishing enumerated attribute (see the module docstring below
+        # and bloggen.tei.commons_publishing) that only accepts a fixed
+        # set of values — section1..section6 among them — never an
+        # arbitrary token like "level1". tei_to_html.xsl's tei:div/tei:head
+        # template reads this same convention back for its own heading
+        # depth, so the two must always agree.
+        element.set("type", f"section{level}")
         changed = True
 
     if not changed:
