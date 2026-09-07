@@ -56,9 +56,9 @@ def _export_with_notes(html: str) -> tuple[str, dict[str, str]]:
     blocks = html_to_blocks(html)
     definitions: dict[str, str] = {}
 
-    def register(text: str) -> str:
+    def register(runs) -> str:
         note_id = str(len(definitions) + 1)
-        definitions[note_id] = text
+        definitions[note_id] = "".join(run.text for run in runs)
         return note_id
 
     convert_double_paren_notes_in_blocks(blocks, register)

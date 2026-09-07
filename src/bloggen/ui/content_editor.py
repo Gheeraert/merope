@@ -33,6 +33,7 @@ from bloggen.markdown.note_shortcuts import (
     DOUBLE_PAREN_NOTE_RE,
     convert_double_paren_notes_in_blocks,
     split_double_paren_notes,
+    strip_runs,
 )
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks, parse_table_lines
@@ -1293,18 +1294,27 @@ class ContentEditorWindow(tk.Toplevel):
         match = _DOUBLE_PAREN_NOTE_TYPED_RE.search(text_before)
         if match is None:
             return
-        note_text = match.group(1).strip()
-        if not note_text:
-            return
 
         # Resolve indices up front from the *current* buffer, for the same
         # reason as _autoformat_last_typed_char: they must not be
         # re-evaluated after the delete/insert below has changed line length.
         chars_after_start = len(text_before) - match.start()
+        chars_after_note_start = len(text_before) - match.start(1)
+        chars_after_note_end = len(text_before) - match.end(1)
         start_index = self.text.index(f"{cursor}-{chars_after_start}c")
+        note_start_index = self.text.index(f"{cursor}-{chars_after_note_start}c")
+        note_end_index = self.text.index(f"{cursor}-{chars_after_note_end}c")
+
+        # Extracted with tags intact (not the plain text_before string
+        # above), so formatting applied while typing the note — e.g. an
+        # italicized title — survives into the footnote definition instead
+        # of being flattened to plain text.
+        note_runs = strip_runs(self._extract_runs(note_start_index, note_end_index))
+        if not any(run.text for run in note_runs):
+            return
 
         self.text.delete(start_index, cursor)
-        note_id = self._register_new_footnote(note_text)
+        note_id = self._register_new_footnote(note_runs)
         self._insert_footnote_marker(start_index, note_id)
         self._refresh_notes_panel()
 
@@ -2176,19 +2186,23 @@ class ContentEditorWindow(tk.Toplevel):
         self._insert_footnote_marker(self.text.index("insert"), note_id)
         self._refresh_notes_panel()
 
-    def _register_new_footnote(self, note_text: str) -> str:
+    def _register_new_footnote(self, note_content: str | list[InlineRun]) -> str:
         """Allocate the next free footnote id and record its definition.
-        Shared by the "Note..." dialog, the ((...)) typing shorthand, and
-        ((...)) found in pasted/imported content — each needs a fresh,
-        non-colliding id, and calling this repeatedly (e.g. for several
-        notes found in one paste) keeps allocating past ids already handed
-        out earlier in the same batch.
+        Shared by the "Note..." dialog (always plain text — a simple input
+        box), the ((...)) typing shorthand, and ((...)) found in pasted/
+        imported content (both can carry real formatting, e.g. an italic
+        title inside the note — see
+        :func:`bloggen.markdown.note_shortcuts.split_double_paren_notes`)
+        — each needs a fresh, non-colliding id, and calling this repeatedly
+        (e.g. for several notes found in one paste) keeps allocating past
+        ids already handed out earlier in the same batch.
         """
         next_id = 1
         while str(next_id) in self.footnote_definitions:
             next_id += 1
         note_id = str(next_id)
-        self.footnote_definitions[note_id] = [InlineRun(text=note_text)]
+        runs = [InlineRun(text=note_content)] if isinstance(note_content, str) else note_content
+        self.footnote_definitions[note_id] = runs or [InlineRun(text="")]
         return note_id
 
     def _insert_footnote_marker(self, index: str, note_id: str) -> str:

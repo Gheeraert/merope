@@ -41,13 +41,15 @@ from bloggen.markdown.rich_text_model import Block, InlineRun
 # must not stop the match from reaching the real, later "))".
 DOUBLE_PAREN_NOTE_RE = re.compile(r"\(\((.+?)\)\)")
 
-RegisterNote = Callable[[str], str]
+RegisterNote = Callable[[list[InlineRun]], str]
 
 
 def split_double_paren_notes(runs: list[InlineRun], register_note: RegisterNote) -> list[InlineRun]:
     """Split runs on the "((note))" shorthand into normal/footnote-ref/
-    normal parts. ``register_note`` is called with each note's text, in
-    document order, and must return the footnote id to reference.
+    normal parts. ``register_note`` is called with each note's own inline
+    runs (formatting intact — bold/italic/link runs all carry over into
+    the footnote definition), in document order, and must return the
+    footnote id to reference.
 
     A note's ``((``/``))`` delimiters do not need to land in the same run:
     pasted rich text routinely splits "((intro " / "a link" / " outro))"
@@ -56,9 +58,8 @@ def split_double_paren_notes(runs: list[InlineRun], register_note: RegisterNote)
     therefore grouped into maximal stretches of "text-bearing" runs (any
     run that isn't an image or an already-resolved footnote — bold/italic/
     link runs all qualify) and matched against the concatenation of that
-    whole stretch, not run by run; the note's own formatting inside the
-    stretch is necessarily lost (a footnote's text is a plain string here),
-    but everything up to the first image/footnote boundary is fair game.
+    whole stretch, not run by run; everything up to the first image/
+    footnote boundary is fair game.
     """
     result: list[InlineRun] = []
     group: list[InlineRun] = []
@@ -115,11 +116,11 @@ def _split_run_group(group: list[InlineRun], register_note: RegisterNote) -> lis
     pieces: list[InlineRun] = []
     cursor = 0
     for match in DOUBLE_PAREN_NOTE_RE.finditer(flat_text):
-        note_text = match.group(1).strip()
-        if not note_text:
+        note_runs = strip_runs(slice_group(match.start(1), match.end(1)))
+        if not any(run.text for run in note_runs):
             continue
         pieces.extend(slice_group(cursor, match.start()))
-        note_id = register_note(note_text)
+        note_id = register_note(note_runs)
         pieces.append(InlineRun(footnote_ref=note_id))
         cursor = match.end()
 
@@ -127,6 +128,26 @@ def _split_run_group(group: list[InlineRun], register_note: RegisterNote) -> lis
     if remainder or not pieces:
         pieces.extend(remainder)
     return pieces
+
+
+def strip_runs(runs: list[InlineRun]) -> list[InlineRun]:
+    """Trim leading/trailing whitespace off a run sequence (the ``.strip()``
+    a plain-string note's text used to get), without disturbing the
+    formatting of whatever non-whitespace text remains. Only ever called
+    with plain-text-bearing runs (no images/footnotes — see
+    :func:`split_double_paren_notes`'s grouping), so every run here is
+    guaranteed to have a ``.text``.
+    """
+    runs = list(runs)
+    while runs and not runs[0].text.strip():
+        runs.pop(0)
+    if runs:
+        runs[0] = replace(runs[0], text=runs[0].text.lstrip())
+    while runs and not runs[-1].text.strip():
+        runs.pop()
+    if runs:
+        runs[-1] = replace(runs[-1], text=runs[-1].text.rstrip())
+    return runs
 
 
 _CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")

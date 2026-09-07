@@ -7,14 +7,18 @@ from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
 
 
 def _registry():
+    """``definitions`` keeps the flattened text of each note (what most of
+    these tests care about); see test_note_formatting_is_preserved_* below
+    for assertions against the raw runs themselves.
+    """
     definitions: dict[str, str] = {}
 
-    def register(text: str) -> str:
+    def register(runs: list[InlineRun]) -> str:
         next_id = 1
         while str(next_id) in definitions:
             next_id += 1
         note_id = str(next_id)
-        definitions[note_id] = text
+        definitions[note_id] = "".join(run.text for run in runs)
         return note_id
 
     return register, definitions
@@ -256,6 +260,51 @@ def test_markdown_note_containing_a_markdown_link_converts():
     assert result == (
         "Une phrase avec une note^[voir [ce lien](https://example.org/page) pour plus]. Suite."
     )
+
+
+def test_note_formatting_is_preserved_in_the_registered_runs():
+    """Regression: a note containing formatted text (e.g. an italicized
+    title) used to lose that formatting entirely — register_note received
+    a flattened plain string. It must now receive the note's own runs,
+    tags intact.
+    """
+    captured: dict[str, list[InlineRun]] = {}
+
+    def register(runs: list[InlineRun]) -> str:
+        note_id = str(len(captured) + 1)
+        captured[note_id] = runs
+        return note_id
+
+    runs = [
+        InlineRun(text="avant ((voir "),
+        InlineRun(text="Le Titre", italic=True),
+        InlineRun(text=" pour plus)) apres"),
+    ]
+
+    split_double_paren_notes(runs, register)
+
+    note_runs = captured["1"]
+    assert [(r.text, r.italic) for r in note_runs] == [
+        ("voir ", False),
+        ("Le Titre", True),
+        (" pour plus", False),
+    ]
+
+
+def test_note_formatting_survives_leading_and_trailing_whitespace_stripping():
+    captured: dict[str, list[InlineRun]] = {}
+
+    def register(runs: list[InlineRun]) -> str:
+        note_id = str(len(captured) + 1)
+        captured[note_id] = runs
+        return note_id
+
+    runs = [InlineRun(text="mot ((  "), InlineRun(text="italique", italic=True), InlineRun(text="  )) fin")]
+
+    split_double_paren_notes(runs, register)
+
+    note_runs = captured["1"]
+    assert [(r.text, r.italic) for r in note_runs] == [("italique", True)]
 
 
 def test_split_double_paren_notes_note_with_link_run_has_no_stray_parens():
