@@ -126,6 +126,56 @@ def test_import_markdown_file_does_not_discard_unsaved_work_on_decline(editor, m
     assert "Contenu externe" not in editor.text.get("1.0", "end")
 
 
+def test_importing_a_file_marks_the_editor_dirty(editor, monkeypatch, tmp_path):
+    """A second external audit finding: _populate_from_blocks() marks the
+    editor clean (correct for opening an already-saved file), but an
+    import has no corresponding file in the project yet — closing right
+    after import previously lost it silently. Confirmed with a
+    metadata-only import (empty body: no text-widget edit event at all,
+    so no accidental self-correction from a later <<Modified>> event
+    either)."""
+    imported = tmp_path / "externe_metadata_only.md"
+    imported.write_text(
+        '---\ntitle: "Externe important"\nslug: "externe-important"\ntype: "page"\n---\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        content_editor_module.filedialog, "askopenfilename", lambda *a, **k: str(imported)
+    )
+    monkeypatch.setattr(content_editor_module.messagebox, "showinfo", lambda *a, **k: None)
+
+    editor._import_markdown_file()
+
+    assert editor._dirty is True
+
+
+def test_closing_right_after_import_asks_for_confirmation(editor, monkeypatch, tmp_path):
+    imported = tmp_path / "externe_metadata_only.md"
+    imported.write_text(
+        '---\ntitle: "Externe important"\nslug: "externe-important"\ntype: "page"\n---\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        content_editor_module.filedialog, "askopenfilename", lambda *a, **k: str(imported)
+    )
+    monkeypatch.setattr(content_editor_module.messagebox, "showinfo", lambda *a, **k: None)
+    editor._import_markdown_file()
+
+    asked = []
+    monkeypatch.setattr(
+        content_editor_module.messagebox,
+        "askyesno",
+        lambda *a, **k: asked.append(1) or False,
+    )
+    destroyed = []
+    monkeypatch.setattr(editor, "destroy", lambda: destroyed.append(1))
+
+    editor._on_close_request()
+
+    assert asked  # the confirmation dialog was actually shown
+    assert destroyed == []
+
+
 def test_save_clears_the_dirty_flag(editor, monkeypatch):
     editor.text.insert("insert", "Un contenu")
     editor.update()

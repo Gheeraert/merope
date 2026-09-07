@@ -1720,6 +1720,13 @@ class ContentEditorWindow(tk.Toplevel):
         self.metadata = dict(result.metadata)
         self.metadata.setdefault("type", kind)
         self.current_kind = kind
+        # _populate_from_blocks() marks the editor clean — correct when
+        # it's loading a file that's already saved (open an existing
+        # entry), wrong here: an import has no corresponding file in the
+        # project yet, so its content always differs from what's on
+        # disk (nothing), regardless of whether the body text itself
+        # triggered any edit event.
+        self._dirty = True
         messagebox.showinfo(
             "Importer",
             "Fichier importé dans l'éditeur. Vérifiez/complétez les métadonnées "
