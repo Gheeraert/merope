@@ -119,7 +119,10 @@ def test_build_site_generates_feed_sitemap_and_seo_meta(monkeypatch):
     sitemap_xml = sitemap_path.read_text(encoding="utf-8")
     assert "https://exemple.fr/index.html" in sitemap_xml
     assert "https://exemple.fr/billets/premier-billet/index.html" in sitemap_xml
-    assert "https://exemple.fr/accueil/index.html" in sitemap_xml
+    # /accueil/index.html duplicates /index.html's content (see
+    # _generate_home_page) and is marked noindex — it must not appear in
+    # the sitemap as if it were a second, independently indexable page.
+    assert "https://exemple.fr/accueil/index.html" not in sitemap_xml
     assert "<lastmod>2026-04-23</lastmod>" in sitemap_xml
 
     robots_txt = robots_path.read_text(encoding="utf-8")
@@ -134,9 +137,17 @@ def test_build_site_generates_feed_sitemap_and_seo_meta(monkeypatch):
     assert '"@type": "Article"' in post_html
     assert '<meta name="twitter:card" content="summary_large_image">' in post_html
 
+    accueil_html = (project / "site/accueil/index.html").read_text(encoding="utf-8")
+    assert '<meta name="robots" content="noindex,follow">' in accueil_html
+
     index_html = (project / "site/index.html").read_text(encoding="utf-8")
     assert '<meta property="og:type" content="website">' in index_html
     assert '"@type": "WebSite"' in index_html
+    assert '<meta name="robots" content="noindex"' not in index_html
+    # The home page reuses the accueil page's content but must get its
+    # own <h1> (previously missing entirely: the injection only ran for
+    # the standalone /accueil/ render, never for /index.html).
+    assert '<h1 class="article-title">Accueil</h1>' in index_html
 
 
 def test_build_site_warns_when_base_url_missing_for_feed(monkeypatch):
@@ -189,3 +200,54 @@ def test_build_site_warns_when_base_url_missing_for_feed(monkeypatch):
     robots_txt = robots_path.read_text(encoding="utf-8")
     assert "Allow: /" in robots_txt
     assert "Sitemap:" not in robots_txt
+
+
+def test_home_page_keeps_its_own_description_instead_of_the_site_wide_one(monkeypatch):
+    """Previously /index.html always fell back to config.site.description
+    — the accueil page's own front-matter description was silently
+    dropped when its content got reused for the home page."""
+    project = RUNTIME_ROOT / f"seo_home_description_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n'
+        'description: "Description propre à la page d\'accueil"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.site.description = "Description générale du site"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(TEI_SAMPLE, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    index_html = (project / "site/index.html").read_text(encoding="utf-8")
+    assert '<meta name="description" content="Description propre à la page d&#x27;accueil">' in index_html
+    assert "Description générale du site" not in index_html

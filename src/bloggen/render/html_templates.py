@@ -31,6 +31,7 @@ def render_page_document(
     show_title_heading: bool = False,
     description: str | None = None,
     custom_template: str | None = None,
+    noindex: bool = False,
 ) -> str:
     banner_html = _render_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
@@ -50,6 +51,7 @@ def render_page_document(
         description=description,
         is_article=bool(article_date),
         published_date=article_date,
+        noindex=noindex,
     )
 
     side_class = "has-side-menu" if side_menu_html else "no-side-menu"
@@ -355,6 +357,7 @@ def _render_seo_meta(
     description: str | None,
     is_article: bool = False,
     published_date: str | None = None,
+    noindex: bool = False,
 ) -> str:
     meta_description = (description or config.site.description or "").strip()
     base_url = (config.site.base_url or "").strip()
@@ -362,6 +365,8 @@ def _render_seo_meta(
     author = (config.site.author or "").strip()
 
     lines: list[str] = []
+    if noindex:
+        lines.append('    <meta name="robots" content="noindex,follow">')
     if meta_description:
         lines.append(f'    <meta name="description" content="{escape(meta_description)}">')
     if author:

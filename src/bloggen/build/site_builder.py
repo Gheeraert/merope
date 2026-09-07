@@ -50,6 +50,12 @@ class GeneratedItem:
     date: str | None
     content_html: str
     description: str | None
+    # True for a page whose content is duplicated onto another indexable
+    # URL — currently only the page configured as home.source when
+    # home.mode is "page" (see _generate_home_page): its content is
+    # rendered again at /index.html, which stays the one canonical,
+    # indexable copy.
+    noindex: bool = False
 
 
 def _critical_project_dirs(config: ProjectConfig, project_root: Path) -> dict[str, Path]:
@@ -287,6 +293,13 @@ def _generate_pages(
     tei_root: Path,
     report: BuildReport,
 ) -> list[GeneratedItem]:
+    # The page reused verbatim as /index.html's content (see
+    # _generate_home_page) must not also be indexed at its own URL —
+    # that would be the same content live at two canonical addresses.
+    home_source = (
+        (project_root / config.home.source).resolve() if config.home.mode == "page" else None
+    )
+
     generated: list[GeneratedItem] = []
     for item in loaded.pages:
         url = f"/{item.metadata.slug}/index.html"
@@ -301,6 +314,7 @@ def _generate_pages(
             tei_path=tei_path,
             url=url,
             report=report,
+            noindex=(home_source is not None and item.source_path.resolve() == home_source),
         )
         if built is not None:
             generated.append(built)
@@ -352,6 +366,7 @@ def _build_single_item(
     tei_path: Path,
     url: str,
     report: BuildReport,
+    noindex: bool = False,
 ) -> GeneratedItem | None:
     rewritten_targets: dict[str, str] = {}
 
@@ -469,6 +484,7 @@ def _build_single_item(
         show_title_heading=True,
         description=item.metadata.description,
         custom_template=custom_template,
+        noindex=noindex,
     )
     html_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_text(html_document, encoding="utf-8")
@@ -484,6 +500,7 @@ def _build_single_item(
         date=item.metadata.date,
         content_html=fragment,
         description=item.metadata.description,
+        noindex=noindex,
     )
 
 
@@ -496,6 +513,9 @@ def _generate_home_page(
     output_root: Path,
     report: BuildReport,
 ) -> None:
+    description: str | None = None
+    show_title_heading = False
+
     if config.home.mode == "recent_posts":
         title = config.site.title
         count = max(config.home.recent_posts_count, 0)
@@ -513,6 +533,13 @@ def _generate_home_page(
         if page is not None:
             content = page.content_html
             title = page.title
+            # page.content_html is the raw fragment from before the
+            # per-page render injected its own <h1>/description (see
+            # _build_single_item) — redo both here so /index.html isn't
+            # left with neither (previously: the source page at its own
+            # URL got them, the home page reusing its content did not).
+            description = page.description
+            show_title_heading = True
         else:
             title = config.site.title
             content = "<article><h1>Accueil</h1><p>Page d'accueil non trouvée.</p></article>"
@@ -527,6 +554,8 @@ def _generate_home_page(
         current_path="/index.html",
         asset_prefix=_relative_path(index_path.parent, output_root),
         custom_template=custom_template,
+        description=description,
+        show_title_heading=show_title_heading,
     )
     index_path.write_text(html, encoding="utf-8")
     report.generated_html.append(index_path)
@@ -650,7 +679,7 @@ def _generate_feed_and_sitemap(
         home_lastmod = posts[0].date if posts else None
         urls.append(("/index.html", home_lastmod))
         urls.extend(archive_sitemap_entries)
-        urls.extend((item.url, item.date) for item in pages)
+        urls.extend((item.url, item.date) for item in pages if not item.noindex)
         urls.extend((item.url, item.date) for item in posts)
 
         sitemap_xml = render_sitemap(base_url=base_url, urls=urls)
