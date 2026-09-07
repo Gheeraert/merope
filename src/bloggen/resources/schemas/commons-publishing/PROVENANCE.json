@@ -1,0 +1,15 @@
+{
+  "project": "TEI Commons Publishing",
+  "source_repository": "https://git.unicaen.fr/fnso/i-fair-ir/tei-commons-publishing.git",
+  "source_commit": "f3143754c0aef940ef6846123de2cd2c23ecddf9",
+  "source_tag": "1.0.0 (nearest ancestor; source commit is 4 commits ahead)",
+  "source_path": "rng/commons-publishing.rng",
+  "tei_version": "P5_Release_4.5.0",
+  "tei_stylesheets_version": "v7.54.0",
+  "retrieved_from": "references/normative/tei-commons-publishing.zip (project-supplied archive)",
+  "source_sha256": "f87ddd5a2673fda9994e516653bd9dda185380620ebf4d1a52c2b980a3b5d979",
+  "local_modifications": true,
+  "local_modifications_description": "Extension pour le contrat Impressions/Metopes (decision 0037, docs/architecture/METOPES_COMMONS_LATEI_CONTRACT.md) : ajout de div/@type part|chapter|titlePage, de p/@rend title-main|title-sub, et de l'element group (semantique TEI P5 standard) comme alternative a body dans text/model.resource.",
+  "local_sha256": "04bb10f0aa4ea799bbe9d95fb0552af27e3604ec7ed1c0494a879580e6e7cc08",
+  "merope_note": "Fichier copie sans modification depuis le projet compagnon Mini-Metopes (C:/mini-metopes, https://github.com/Gheeraert/mini-metopes), src/mini_metopes/resources/schemas/commons-publishing/, le 2026-09-07. Les extensions locales de Mini-Metopes decrites ci-dessus (group, div/@type part|chapter|titlePage, p/@rend title-main|title-sub) sont purement additives et ne genent pas MEROPE, qui ne produit que des documents <text><body> simples (jamais de livre a parties/chapitres) ; elles ne sont simplement jamais exercees ici."
+}

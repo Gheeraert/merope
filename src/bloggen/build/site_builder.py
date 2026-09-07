@@ -46,6 +46,7 @@ from bloggen.render.lightbox import apply_lightbox_markup
 from bloggen.render.margin_notes import apply_notes_rendering
 from bloggen.render.search_index import SearchEntry, extract_plain_text, render_search_index
 from bloggen.render.xslt_runner import render_tei_file_to_html_fragment
+from bloggen.tei.commons_publishing import validate_commons_publishing_bytes
 from bloggen.tei.pandoc_converter import PandocUnavailableError, convert_markdown_file_to_tei
 from bloggen.tei.postprocess import rewrite_graphic_urls_in_tei_file
 from bloggen.content.loader import ContentItem, LoadedContent, load_content
@@ -406,6 +407,22 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         if not runtime_config.render.generate_tei_files and temporary_tei_root.exists():
             shutil.rmtree(temporary_tei_root, ignore_errors=True)
 
+        if runtime_config.render.validate_commons_publishing:
+            commons_publishing_issues = _validate_generated_tei_against_commons_publishing(
+                generated_pages, generated_posts
+            )
+            if commons_publishing_issues:
+                message = (
+                    "TEI non conforme au profil Commons Publishing "
+                    f"({len(commons_publishing_issues)} page(s)/billet(s)) — diagnostic, "
+                    "n'affecte pas le résultat de cette génération :"
+                )
+                shown = commons_publishing_issues[:20]
+                message += "".join(f"\n  - {url}: {issue}" for url, issue in shown)
+                if len(commons_publishing_issues) > len(shown):
+                    message += f"\n  … et {len(commons_publishing_issues) - len(shown)} de plus."
+                report.warnings.append(message)
+
         if runtime_config.build.check_broken_links:
             broken_links = check_broken_links(output_root)
             if broken_links:
@@ -752,6 +769,31 @@ def _build_single_item(
         lastmod=lastmod,
         pending_sidecar=pending_sidecar,
     )
+
+
+def _validate_generated_tei_against_commons_publishing(
+    pages: list[GeneratedItem], posts: list[GeneratedItem]
+) -> list[tuple[str, str]]:
+    """Runs the Commons Publishing diagnostic (see
+    bloggen.tei.commons_publishing) against every generated item's TEI
+    sidecar. Returns (url, issue summary) for every item that doesn't
+    validate — purely informational, never raises and never affects
+    report.success (see that module's docstring for why this is
+    currently expected to report on every build).
+    """
+    results: list[tuple[str, str]] = []
+    for item in (*pages, *posts):
+        if item.pending_sidecar is None:
+            continue
+        _, tei_bytes = item.pending_sidecar
+        validation = validate_commons_publishing_bytes(tei_bytes)
+        if validation.valid or not validation.issues:
+            continue
+        first_issue = validation.issues[0]
+        extra = len(validation.issues) - 1
+        suffix = f" (+{extra} autre(s))" if extra > 0 else ""
+        results.append((item.url, f"{first_issue}{suffix}"))
+    return results
 
 
 def _recent_post_excerpt(item: GeneratedItem, excerpt_length: int) -> str:

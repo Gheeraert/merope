@@ -127,6 +127,12 @@ class RenderConfig:
     generate_tei_files: bool = True
     enable_lightbox: bool = True
     lightbox_engine: str = "fancybox"
+    # Diagnostic only — never fails the build (see
+    # bloggen.tei.commons_publishing's module docstring): MEROPE's
+    # Pandoc-based TEI does not conform to the Commons Publishing profile
+    # yet, so this is expected to report issues on every build until that
+    # gap is closed.
+    validate_commons_publishing: bool = True
 
 
 @dataclass(slots=True)

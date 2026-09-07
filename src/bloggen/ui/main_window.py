@@ -325,6 +325,7 @@ class MainWindow(tk.Tk):
             bool_fields=[
                 ("pretty_print_html", "HTML lisible", True),
                 ("generate_tei_files", "Conserver TEI", True),
+                ("validate_commons_publishing", "Diagnostic TEI Commons Publishing", True),
                 ("enable_lightbox", "Activer lightbox", True),
             ],
             intro=(
@@ -366,6 +367,14 @@ class MainWindow(tk.Tk):
                 "generate_tei_files": (
                     "Si activé, les fichiers TEI intermédiaires sont conservés dans le "
                     "dossier TEI au lieu d'être supprimés après génération."
+                ),
+                "validate_commons_publishing": (
+                    "Si activé, chaque génération vérifie le TEI produit contre le schéma "
+                    "normatif TEI Commons Publishing et affiche un avertissement s'il ne "
+                    "s'y conforme pas. Purement diagnostique : n'affecte jamais le résultat "
+                    "de la génération. Le pipeline actuel (Pandoc) ne produit pas encore de "
+                    "TEI conforme à ce profil — un avertissement est donc attendu pour "
+                    "l'instant sur chaque billet/page."
                 ),
                 "enable_lightbox": (
                     "Si activé, les images des articles s'ouvrent en grand dans une visionneuse "

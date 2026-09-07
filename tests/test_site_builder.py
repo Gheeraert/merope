@@ -1762,3 +1762,75 @@ def test_redirect_generation_can_be_disabled(monkeypatch):
     assert report.success is True
     assert not (project / "site/billets/ancien-slug/index.html").exists()
     assert not (project / ".merope-redirects.json").exists()
+
+
+def test_commons_publishing_diagnostic_reports_non_conformant_tei_without_failing_the_build():
+    """Real Pandoc conversion (not the TEI_SAMPLE fake used elsewhere in
+    this file): its own generic TEI output does not conform to the
+    Commons Publishing profile yet (see bloggen.tei.commons_publishing's
+    module docstring) — the diagnostic must surface that as a warning
+    without affecting report.success."""
+    project = RUNTIME_ROOT / f"commons_publishing_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n'
+        "# Premier\n\nUn paragraphe.\n\n## Une section\n\nUn autre paragraphe.\n",
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert any("Commons Publishing" in warning for warning in report.warnings)
+
+
+def test_commons_publishing_diagnostic_can_be_disabled():
+    project = RUNTIME_ROOT / f"commons_publishing_disabled_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n'
+        "# Premier\n\nUn paragraphe.\n\n## Une section\n\nUn autre paragraphe.\n",
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.render.validate_commons_publishing = False
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert not any("Commons Publishing" in warning for warning in report.warnings)
