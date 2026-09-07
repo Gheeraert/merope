@@ -102,6 +102,11 @@ def copy_builtin_resources(output_root: Path) -> int:
     copied = 0
     copied += copy_tree_if_exists(resources_root / "css", output_root / "static" / "css")
     copied += copy_tree_if_exists(resources_root / "js", output_root / "static" / "js")
+    # Self-hosted (see html_templates.py) instead of loaded from Google's
+    # CDN at every visit — a French/EU academic site sending every
+    # visitor's IP address to a third party just to render a heading font
+    # is a real GDPR exposure, not just a performance nicety.
+    copied += copy_tree_if_exists(resources_root / "fonts", output_root / "static" / "fonts")
     return copied
 
 

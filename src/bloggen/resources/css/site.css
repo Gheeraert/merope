@@ -1,3 +1,14 @@
+/* Self-hosted (see bloggen/resources/fonts/OFL.txt for the license) —
+   previously loaded from Google's CDN on every visit, which sends every
+   visitor's IP address to Google just to render "IM Fell English". */
+@font-face {
+  font-family: "IM Fell English";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/im-fell-english-v14-latin-regular.woff2") format("woff2");
+}
+
 :root {
   --page-max-width: 1260px;
   --content-max-width: 780px;
