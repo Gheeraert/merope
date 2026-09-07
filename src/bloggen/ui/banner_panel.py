@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageOps
 
 from bloggen.config.models import BannerConfig
+from bloggen.ui.form_validation import parse_int_field
 from bloggen.ui.tooltip import add_tooltip
 
 # Matches --page-max-width in the generated site's CSS: the banner is
@@ -41,7 +42,7 @@ class BannerPanel(ttk.Frame):
         self.link_var = tk.StringVar(value="/index.html")
         self.alt_var = tk.StringVar(value="")
         self.show_title_overlay_var = tk.BooleanVar(value=False)
-        self.height_var = tk.IntVar(value=220)
+        self.height_var = tk.StringVar(value="220")
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -129,7 +130,11 @@ class BannerPanel(ttk.Frame):
             return
         source = Path(selected)
 
-        target_height = max(self.height_var.get(), 1)
+        try:
+            target_height = parse_int_field(self.height_var.get(), "Hauteur (px)", minimum=1)
+        except ValueError as exc:
+            messagebox.showerror("Bannière", str(exc))
+            return
         final_path = source
         if messagebox.askyesno(
             "Bannière",
@@ -167,7 +172,7 @@ class BannerPanel(ttk.Frame):
         self.link_var.set(banner.link)
         self.alt_var.set(banner.alt)
         self.show_title_overlay_var.set(banner.show_title_overlay)
-        self.height_var.set(banner.height_px)
+        self.height_var.set(str(banner.height_px))
 
     def get_data(self) -> BannerConfig:
         return BannerConfig(
@@ -176,7 +181,7 @@ class BannerPanel(ttk.Frame):
             link=self.link_var.get().strip(),
             alt=self.alt_var.get().strip(),
             show_title_overlay=self.show_title_overlay_var.get(),
-            height_px=self.height_var.get(),
+            height_px=parse_int_field(self.height_var.get(), "Hauteur (px)", minimum=1),
         )
 
 
@@ -215,7 +220,7 @@ def _add_entry_row(
     master: tk.Misc,
     row: int,
     label: str,
-    variable: tk.StringVar | tk.IntVar,
+    variable: tk.StringVar,
 ) -> ttk.Entry:
     ttk.Label(master, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
     entry = ttk.Entry(master, textvariable=variable, width=55)

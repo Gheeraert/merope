@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from bloggen.config.models import NotesRenderingConfig
+from bloggen.ui.form_validation import parse_int_field
 from bloggen.ui.tooltip import add_tooltip
 
 
@@ -15,8 +16,8 @@ class NotesPanel(ttk.Frame):
         self.mode_var = tk.StringVar(value="margin_excerpt_plus_footnote")
         self.enable_margin_var = tk.BooleanVar(value=False)  # not implemented, see body()
         self.enable_footnotes_var = tk.BooleanVar(value=True)
-        self.excerpt_words_var = tk.IntVar(value=8)
-        self.excerpt_chars_var = tk.IntVar(value=80)
+        self.excerpt_words_var = tk.StringVar(value="8")
+        self.excerpt_chars_var = tk.StringVar(value="80")
         self.prefer_words_var = tk.BooleanVar(value=True)
         self.location_var = tk.StringVar(value="end_of_article")
         self._build_ui()
@@ -108,8 +109,8 @@ class NotesPanel(ttk.Frame):
         self.mode_var.set(notes.mode)
         self.enable_margin_var.set(notes.enable_margin_notes)
         self.enable_footnotes_var.set(notes.enable_footnotes)
-        self.excerpt_words_var.set(notes.margin_excerpt_words)
-        self.excerpt_chars_var.set(notes.margin_excerpt_chars)
+        self.excerpt_words_var.set(str(notes.margin_excerpt_words))
+        self.excerpt_chars_var.set(str(notes.margin_excerpt_chars))
         self.prefer_words_var.set(notes.prefer_words_over_chars)
         self.location_var.set(notes.footnotes_location)
 
@@ -118,8 +119,8 @@ class NotesPanel(ttk.Frame):
             mode=self.mode_var.get().strip(),
             enable_margin_notes=self.enable_margin_var.get(),
             enable_footnotes=self.enable_footnotes_var.get(),
-            margin_excerpt_words=self.excerpt_words_var.get(),
-            margin_excerpt_chars=self.excerpt_chars_var.get(),
+            margin_excerpt_words=parse_int_field(self.excerpt_words_var.get(), "Amorce (mots)", minimum=0),
+            margin_excerpt_chars=parse_int_field(self.excerpt_chars_var.get(), "Amorce (caractères)", minimum=0),
             prefer_words_over_chars=self.prefer_words_var.get(),
             footnotes_location=self.location_var.get().strip(),
         )
@@ -129,7 +130,7 @@ def _add_row(
     master: tk.Misc,
     row: int,
     label: str,
-    variable: tk.StringVar | tk.IntVar,
+    variable: tk.StringVar,
 ) -> ttk.Entry:
     ttk.Label(master, text=label).grid(row=row, column=0, sticky="w", padx=8, pady=4)
     entry = ttk.Entry(master, textvariable=variable, width=55)

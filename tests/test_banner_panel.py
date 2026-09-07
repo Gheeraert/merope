@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+import tkinter as tk
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
-from bloggen.ui.banner_panel import _copy_into_dir, _resize_banner_image
+from bloggen.config.models import BannerConfig
+from bloggen.ui.banner_panel import BannerPanel, _copy_into_dir, _resize_banner_image
+
+
+@pytest.fixture(scope="module")
+def root():
+    # See tests/test_menu_link_dialog.py: one Tk() reused across a module's
+    # tests avoids the flakiness of rapid create/destroy churn.
+    window = tk.Tk()
+    window.withdraw()
+    yield window
+    window.destroy()
 
 
 def _make_image(path: Path, size: tuple[int, int], color: str = "red") -> None:
@@ -79,3 +92,34 @@ def test_copy_into_dir_is_a_no_op_when_source_is_already_the_destination(tmp_pat
     result = _copy_into_dir(existing, destination_dir)
 
     assert result == existing
+
+
+def test_banner_panel_height_round_trips_through_set_and_get_data(root):
+    panel = BannerPanel(root)
+    panel.set_data(BannerConfig(height_px=300))
+    assert panel.get_data().height_px == 300
+
+
+def test_banner_panel_get_data_raises_a_clean_error_on_empty_height(root):
+    """height_var used to be a tk.IntVar: clearing the entry raised a raw
+    tkinter.TclError on .get() instead of a catchable, friendly message —
+    not caught by any of main_window.py's except (..., ValueError) clauses.
+    """
+    panel = BannerPanel(root)
+    panel.height_var.set("")
+    with pytest.raises(ValueError, match="Hauteur"):
+        panel.get_data()
+
+
+def test_banner_panel_get_data_raises_a_clean_error_on_non_numeric_height(root):
+    panel = BannerPanel(root)
+    panel.height_var.set("abc")
+    with pytest.raises(ValueError, match="Hauteur"):
+        panel.get_data()
+
+
+def test_banner_panel_get_data_rejects_a_non_positive_height(root):
+    panel = BannerPanel(root)
+    panel.height_var.set("0")
+    with pytest.raises(ValueError, match="supérieur ou égal à 1"):
+        panel.get_data()
