@@ -13,7 +13,7 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from bloggen.config.models import FtpConfig
-from bloggen.publish.ftp_publisher import FtpPublishError, publish_directory
+from bloggen.publish.ftp_publisher import FtpPublishError, PublishResult, publish_directory
 from bloggen.ui.tooltip import add_tooltip
 
 
@@ -152,13 +152,13 @@ class FtpPublishDialog(tk.Toplevel):
 
         def run() -> None:
             try:
-                count = publish_directory(
+                result = publish_directory(
                     self._output_dir,
                     config,
                     progress=progress_callback,
                     should_cancel=should_cancel,
                 )
-                self._queue.put(("done", count))
+                self._queue.put(("done", result))
             except FtpPublishError as exc:
                 self._queue.put(("error", str(exc)))
 
@@ -189,12 +189,32 @@ class FtpPublishDialog(tk.Toplevel):
             pass
         self.after(100, self._poll_queue)
 
-    def _on_publish_finished(self, file_count: int) -> None:
-        self.status_var.set(f"Publication terminée : {file_count} fichier(s) transféré(s).")
+    def _on_publish_finished(self, result: PublishResult) -> None:
         self._set_inputs_enabled(True)
         self._cancel_button.pack_forget()
         self._publish_button.pack(side="right", padx=(6, 0))
 
+        file_count = len(result.transferred)
+
+        if not result.ok:
+            self.status_var.set(
+                f"Publication incomplète : {file_count}/{result.total} fichier(s) transféré(s), "
+                f"{len(result.failed)} échec(s)."
+            )
+            shown = result.failed[:20]
+            details = "\n".join(f"- {item.relative_path} : {item.message}" for item in shown)
+            if len(result.failed) > len(shown):
+                details += f"\n… et {len(result.failed) - len(shown)} de plus."
+            messagebox.showwarning(
+                "Publication incomplète",
+                f"{file_count} fichier(s) sur {result.total} ont été transférés avec succès.\n"
+                f"{len(result.failed)} fichier(s) ont échoué et n'ont PAS été mis à jour sur le "
+                f"site en ligne :\n\n{details}",
+                parent=self,
+            )
+            return
+
+        self.status_var.set(f"Publication terminée : {file_count} fichier(s) transféré(s).")
         site_url = self.site_url_var.get().strip()
         if site_url and messagebox.askyesno(
             "Publication terminée",
