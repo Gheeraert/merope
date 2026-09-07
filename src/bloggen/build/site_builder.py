@@ -17,6 +17,7 @@ from bloggen.build.assets import (
     copy_project_assets,
     copy_theme_resources,
 )
+from bloggen.build.link_checker import check_broken_links
 from bloggen.build.reports import BuildReport
 from bloggen.config.models import MenuLink, ProjectConfig, SideMenuSection, SideMenuSubSection
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
@@ -250,6 +251,19 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
 
         if not runtime_config.render.generate_tei_files and temporary_tei_root.exists():
             shutil.rmtree(temporary_tei_root, ignore_errors=True)
+
+        if runtime_config.build.check_broken_links:
+            broken_links = check_broken_links(output_root)
+            if broken_links:
+                message = f"Liens/médias internes cassés ({len(broken_links)}) :"
+                shown = broken_links[:20]
+                message += "".join(f"\n  - {item}" for item in shown)
+                if len(broken_links) > len(shown):
+                    message += f"\n  … et {len(broken_links) - len(shown)} de plus."
+                if runtime_config.build.fail_on_broken_links:
+                    report.errors.append(message)
+                else:
+                    report.warnings.append(message)
 
         report.success = len(report.errors) == 0
 

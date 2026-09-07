@@ -417,6 +417,8 @@ class MainWindow(tk.Tk):
                 ("copy_assets", "Copier assets", True),
                 ("fail_on_missing_assets", "Échouer si assets manquants", False),
                 ("fail_on_invalid_config", "Échouer si config invalide", True),
+                ("check_broken_links", "Vérifier les liens/médias internes", True),
+                ("fail_on_broken_links", "Échouer si liens/médias internes cassés", False),
                 ("search_enabled", "Activer la recherche sur le site", True),
             ],
             intro=(
@@ -446,6 +448,16 @@ class MainWindow(tk.Tk):
                 "fail_on_invalid_config": (
                     "Si activé, la génération est bloquée tant que la configuration contient "
                     "des erreurs de validation (voir les messages d'erreur affichés)."
+                ),
+                "check_broken_links": (
+                    "Si activé, chaque génération vérifie que tous les liens et images "
+                    "internes du site produit pointent vers un fichier réellement présent "
+                    "(détecte par exemple un menu resté pointé sur un ancien slug renommé)."
+                ),
+                "fail_on_broken_links": (
+                    "Si activé (et « Vérifier les liens/médias internes » aussi), la "
+                    "génération s'arrête en erreur au moindre lien ou média interne cassé. "
+                    "Si désactivé, un avertissement est affiché mais la génération continue."
                 ),
                 "search_enabled": (
                     "Si activé, un index de recherche (JSON) est généré et une case de "

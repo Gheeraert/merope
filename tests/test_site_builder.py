@@ -966,3 +966,109 @@ def test_archive_pagination_urls_are_all_listed_in_the_sitemap(monkeypatch):
     assert "<loc>https://example.org/billets/index.html</loc>" in sitemap
     assert "<loc>https://example.org/billets/page/2/index.html</loc>" in sitemap
     assert "<loc>https://example.org/billets/page/3/index.html</loc>" in sitemap
+
+
+def _project_with_stale_menu_link(name: str) -> Path:
+    from bloggen.config.models import MenuLink
+
+    project = RUNTIME_ROOT / f"{name}_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    return project
+
+
+def test_broken_internal_menu_link_is_reported_as_a_warning_by_default(monkeypatch):
+    from bloggen.config.models import MenuLink
+
+    project = _project_with_stale_menu_link("link_checker_warning")
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    # A menu link left pointing at a slug that no longer exists — e.g.
+    # renamed without updating this link (the exact scenario the audit
+    # flagged: no mechanism catches this).
+    config.menus.top.append(
+        MenuLink(label="Ancien lien", target="/billets/slug-renomme/index.html", target_type="internal")
+    )
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert any("slug-renomme" in warning for warning in report.warnings)
+    assert not any("slug-renomme" in error for error in report.errors)
+
+
+def test_broken_internal_menu_link_fails_the_build_when_configured_to(monkeypatch):
+    from bloggen.config.models import MenuLink
+
+    project = _project_with_stale_menu_link("link_checker_fail")
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.build.fail_on_broken_links = True
+    config.menus.top.append(
+        MenuLink(label="Ancien lien", target="/billets/slug-renomme/index.html", target_type="internal")
+    )
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("slug-renomme" in error for error in report.errors)
+
+
+def test_broken_link_check_can_be_disabled(monkeypatch):
+    from bloggen.config.models import MenuLink
+
+    project = _project_with_stale_menu_link("link_checker_disabled")
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.build.check_broken_links = False
+    config.menus.top.append(
+        MenuLink(label="Ancien lien", target="/billets/slug-renomme/index.html", target_type="internal")
+    )
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert not any("slug-renomme" in warning for warning in report.warnings)

@@ -163,6 +163,8 @@ class BuildConfig:
     pandoc_command: str = "pandoc"
     generate_sitemap: bool = True
     generate_robots_txt: bool = True
+    check_broken_links: bool = True
+    fail_on_broken_links: bool = False
 
 
 @dataclass(slots=True)
