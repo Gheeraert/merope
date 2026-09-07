@@ -63,7 +63,7 @@ def copy_linked_content_assets(
     copied_sources: dict[Path, Path] = {}
 
     for ref in references:
-        if not ref.exists:
+        if not ref.exists or not ref.within_project:
             result.missing.append(ref)
             continue
 

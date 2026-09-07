@@ -16,6 +16,13 @@ class LinkedAssetReference:
     target: str
     resolved_path: Path
     exists: bool
+    # False for a target that resolves outside project_root (e.g. an
+    # absolute Windows path such as ``C:\Users\alice\confidential.pdf``,
+    # or ``/…``/``..`` climbing out via _resolve_target). Such a target
+    # must never be copied into the generated site: a Markdown file
+    # containing it — imported, pasted, or hand-edited — would otherwise
+    # silently publish an arbitrary local file to whoever builds the site.
+    within_project: bool
 
 
 def extract_local_image_targets(markdown_text: str) -> list[str]:
@@ -39,17 +46,20 @@ def collect_linked_assets(
     project_root: Path | None = None,
 ) -> list[LinkedAssetReference]:
     references: list[LinkedAssetReference] = []
+    resolved_root = project_root.resolve() if project_root is not None else None
     for target in extract_local_image_targets(markdown_text):
         resolved = _resolve_target(
             target,
             source_markdown_path=source_markdown_path,
             project_root=project_root,
         )
+        within_project = resolved_root is None or resolved.is_relative_to(resolved_root)
         references.append(
             LinkedAssetReference(
                 target=target,
                 resolved_path=resolved,
                 exists=resolved.exists(),
+                within_project=within_project,
             )
         )
     return references

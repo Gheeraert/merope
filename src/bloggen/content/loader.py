@@ -130,6 +130,13 @@ def _load_items_from_dir(
 
         linked_assets = collect_linked_assets(path, normalized, project_root=project_root)
         for linked in linked_assets:
+            if not linked.within_project:
+                warnings.append(
+                    f"Image hors du projet ignorée pour {path}: '{linked.target}' -> "
+                    f"{linked.resolved_path}. Copiez ce fichier dans le projet (ex. sous "
+                    "assets/) et référencez-le par un chemin relatif."
+                )
+                continue
             if linked.exists:
                 continue
             warnings.append(

@@ -65,3 +65,47 @@ def test_collect_and_copy_linked_assets():
     assert result.rewritten_targets["../../assets/images/global.jpg"] == "../../assets/images/global.jpg"
     assert len(result.missing) == 1
     assert result.missing[0].target == "missing.png"
+
+
+def test_collect_linked_assets_flags_paths_outside_the_project_as_unusable():
+    """A Markdown image referencing an absolute path outside the project
+    (e.g. pasted from another environment, or a hand-edited/imported
+    file) must never be copied into the generated site — that would
+    silently publish an arbitrary local file to whoever runs the build."""
+    project = RUNTIME_ROOT / f"media_outside_{uuid.uuid4().hex}"
+    source_file = project / "content/posts/demo.md"
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+
+    outside_dir = RUNTIME_ROOT / f"media_outside_target_{uuid.uuid4().hex}"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+    confidential = outside_dir / "confidential.pdf"
+    confidential.write_bytes(b"secret")
+
+    markdown = f"![Leak]({confidential.resolve()})\n"
+    references = collect_linked_assets(source_file, markdown, project_root=project)
+
+    assert len(references) == 1
+    ref = references[0]
+    assert ref.exists is True  # the file is real...
+    assert ref.within_project is False  # ...but lives outside the project
+
+    output_root = project / "site"
+    html_dir = output_root / "billets/demo"
+    html_dir.mkdir(parents=True, exist_ok=True)
+
+    result = copy_linked_content_assets(
+        references=references,
+        project_root=project,
+        output_root=output_root,
+        html_output_dir=html_dir,
+        source_markdown_path=source_file,
+        item_kind="post",
+        item_slug="demo",
+        assets_dir="assets",
+        copy_project_assets_enabled=False,
+    )
+
+    assert result.copied_files == []
+    assert result.rewritten_targets == {}
+    assert result.missing == [ref]
+    assert not any(output_root.rglob("confidential.pdf"))
