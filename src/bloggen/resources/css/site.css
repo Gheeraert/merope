@@ -239,6 +239,12 @@ button:focus-visible {
   line-height: 1.5;
 }
 
+.site-search-result mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .site-search-error {
   color: var(--muted);
   font-style: italic;

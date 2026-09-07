@@ -26,12 +26,29 @@
       .toLowerCase();
   }
 
-  function splitWords(query) {
-    return normalize(query)
-      .split(/\s+/)
-      .filter(function (word) {
-        return word.length > 0;
-      });
+  // Splits a query into match tokens: a "quoted phrase" becomes ONE token
+  // (its internal whitespace collapsed, so it must appear as a continuous
+  // run in an entry, in that exact word order), everything else outside
+  // quotes is split into individual words as before (each must appear
+  // somewhere, in any order — see matchAndScore's AND-of-tokens logic,
+  // which needs no change: it already does substring matching per token,
+  // so a multi-word phrase token works the same way a single word did).
+  function tokenizeQuery(query) {
+    var normalized = normalize(query);
+    var tokens = [];
+    var pattern = /"([^"]*)"|(\S+)/g;
+    var match;
+    while ((match = pattern.exec(normalized)) !== null) {
+      if (match[1] !== undefined) {
+        var phrase = match[1].replace(/\s+/g, " ").trim();
+        if (phrase) {
+          tokens.push(phrase);
+        }
+      } else if (match[2]) {
+        tokens.push(match[2]);
+      }
+    }
+    return tokens;
   }
 
   function countOccurrences(haystack, needle) {
@@ -90,22 +107,23 @@
     return loadingPromise;
   }
 
-  // Every query word must appear somewhere in the entry (title or body) —
+  // Every query token (a plain word, or a whole "quoted phrase" — see
+  // tokenizeQuery) must appear somewhere in the entry (title or body) —
   // plain substring matching, no stemming/morphological variants, but this
   // already rules out far more noise than matching the query as one single
   // literal phrase. Ranked by a simple relevance score (title hits weigh
   // more than body hits, repeated occurrences count) rather than left in
   // whatever order the index happened to list entries.
-  function matchAndScore(loadedEntries, words) {
+  function matchAndScore(loadedEntries, tokens) {
     var scored = [];
     for (var i = 0; i < loadedEntries.length; i += 1) {
       var entry = loadedEntries[i];
       var score = 0;
       var matchesAll = true;
-      for (var w = 0; w < words.length; w += 1) {
-        var word = words[w];
-        var titleHits = countOccurrences(entry.normalizedTitle, word);
-        var textHits = countOccurrences(entry.normalizedText, word);
+      for (var t = 0; t < tokens.length; t += 1) {
+        var token = tokens[t];
+        var titleHits = countOccurrences(entry.normalizedTitle, token);
+        var textHits = countOccurrences(entry.normalizedText, token);
         if (titleHits === 0 && textHits === 0) {
           matchesAll = false;
           break;
@@ -127,7 +145,67 @@
     });
   }
 
-  function renderResults(matches) {
+  // Wraps every match of any token in <mark>, built as real DOM nodes
+  // (never innerHTML) so the entry's own title/excerpt text can't be
+  // misread as markup. Matching is done on the normalized (accent/case
+  // -folded) text to find positions, then sliced out of the ORIGINAL
+  // text so the visible highlight keeps its real casing and accents —
+  // this assumes normalize() never changes a string's length (true for
+  // the NFD-then-strip-combining-marks approach on precomposed French
+  // text, which is what the generated site's own title/excerpt strings
+  // already are).
+  function highlightMatches(text, tokens) {
+    var normalizedText = normalize(text);
+    var ranges = [];
+    tokens.forEach(function (token) {
+      if (!token) {
+        return;
+      }
+      var from = 0;
+      var at;
+      while ((at = normalizedText.indexOf(token, from)) !== -1) {
+        ranges.push([at, at + token.length]);
+        from = at + token.length;
+      }
+    });
+    var fragment = document.createDocumentFragment();
+    if (!ranges.length) {
+      fragment.appendChild(document.createTextNode(text));
+      return fragment;
+    }
+    ranges.sort(function (a, b) {
+      return a[0] - b[0];
+    });
+    var merged = [ranges[0].slice()];
+    for (var i = 1; i < ranges.length; i += 1) {
+      var last = merged[merged.length - 1];
+      if (ranges[i][0] <= last[1]) {
+        last[1] = Math.max(last[1], ranges[i][1]);
+      } else {
+        merged.push(ranges[i].slice());
+      }
+    }
+    var cursor = 0;
+    merged.forEach(function (range) {
+      var start = Math.min(range[0], text.length);
+      var end = Math.min(range[1], text.length);
+      if (start > cursor) {
+        fragment.appendChild(document.createTextNode(text.slice(cursor, start)));
+      }
+      if (end > start) {
+        var mark = document.createElement("mark");
+        mark.textContent = text.slice(start, end);
+        fragment.appendChild(mark);
+      }
+      cursor = Math.max(cursor, end);
+    });
+    if (cursor < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(cursor)));
+    }
+    return fragment;
+  }
+
+  function renderResults(matches, tokens) {
     resultsList.innerHTML = "";
     if (!matches.length) {
       resultsList.hidden = true;
@@ -138,10 +216,10 @@
       item.className = "site-search-result";
       var link = document.createElement("a");
       link.href = resolveUrl(entry.url);
-      link.textContent = entry.title;
+      link.appendChild(highlightMatches(entry.title, tokens));
       var excerpt = document.createElement("p");
       excerpt.className = "site-search-excerpt";
-      excerpt.textContent = entry.excerpt;
+      excerpt.appendChild(highlightMatches(entry.excerpt, tokens));
       item.appendChild(link);
       item.appendChild(excerpt);
       resultsList.appendChild(item);
@@ -159,9 +237,9 @@
   }
 
   function runSearch(query) {
-    var words = splitWords(query);
-    if (!words.length) {
-      renderResults([]);
+    var tokens = tokenizeQuery(query);
+    if (!tokens.length) {
+      renderResults([], tokens);
       return;
     }
     loadIndex().then(function (loadedEntries) {
@@ -169,7 +247,7 @@
         renderError();
         return;
       }
-      renderResults(matchAndScore(loadedEntries, words));
+      renderResults(matchAndScore(loadedEntries, tokens), tokens);
     });
   }
 
