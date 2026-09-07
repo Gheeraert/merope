@@ -177,15 +177,18 @@ class SearchConfig:
 @dataclass(slots=True)
 class FtpConfig:
     """Publishing settings for the FTP/FTPS transfer of the generated site.
-    The password is stored in clear text in the project's JSON config, at
-    least for now — see the FTP publish dialog in the UI."""
+
+    ``password`` is never written to the project's JSON config — see
+    bloggen.publish.ftp_credentials and config/io.py, which persist it to
+    the OS credential store instead and populate this field in memory
+    only for the duration of a load/publish."""
 
     host: str = ""
     port: int = 21
     username: str = ""
     password: str = ""
     remote_dir: str = "/"
-    use_tls: bool = False
+    use_tls: bool = True
     passive_mode: bool = True
     site_url: str = ""
 

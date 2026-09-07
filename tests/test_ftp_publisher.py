@@ -7,7 +7,7 @@ import pytest
 
 from bloggen.config.models import FtpConfig
 from bloggen.publish import ftp_publisher as module
-from bloggen.publish.ftp_publisher import FtpPublishError, publish_directory
+from bloggen.publish.ftp_publisher import FtpPublishError, delete_remote_files, publish_directory
 
 
 class FakeFTP:
@@ -24,6 +24,8 @@ class FakeFTP:
         self.fail_files: set[str] = set()
         self.die_after: str | None = None
         self._alive = True
+        self.supports_mlsd = True
+        self.delete_fail_files: set[str] = set()
 
     # -- connection lifecycle -------------------------------------------------
     def connect(self, host: str, port: int) -> None:
@@ -82,6 +84,34 @@ class FakeFTP:
             raise OSError("connexion perdue")
         return "200 OK"
 
+    def delete(self, filename: str) -> None:
+        key = self._resolve(filename)
+        if key in self.delete_fail_files:
+            raise ftplib.error_perm("550 Permission refusée")
+        if key not in self.stored:
+            raise ftplib.error_perm(f"550 {filename}: No such file")
+        self.stored.remove(key)
+
+    def mlsd(self, path: str = ""):
+        if not self.supports_mlsd:
+            raise ftplib.error_perm("502 Command not implemented")
+        base = self.cwd_path if not path else (path if path.startswith("/") else self._resolve(path))
+        seen_dirs: set[str] = set()
+        for d in self.dirs:
+            if d == base:
+                continue
+            parent = d.rsplit("/", 1)[0] or "/"
+            if parent != base:
+                continue
+            name = d.rsplit("/", 1)[1]
+            if name and name not in seen_dirs:
+                seen_dirs.add(name)
+                yield name, {"type": "dir"}
+        for f in self.stored:
+            parent = f.rsplit("/", 1)[0] or "/"
+            if parent == base:
+                yield f.rsplit("/", 1)[1], {"type": "file"}
+
 
 def _make_ftp_factory():
     created: list[FakeFTP] = []
@@ -93,6 +123,19 @@ def _make_ftp_factory():
 
     factory.created = created
     return factory
+
+
+def _seed_remote(instance: FakeFTP, absolute_paths: list[str]) -> None:
+    """Pre-populates a FakeFTP with files (and their parent directories)
+    already "on the server", to simulate leftovers from a previous
+    publish that the current local build no longer contains."""
+    for path in absolute_paths:
+        instance.stored.append(path)
+        parts = [p for p in path.split("/") if p][:-1]
+        prefix = ""
+        for part in parts:
+            prefix = f"{prefix}/{part}"
+            instance.dirs.add(prefix)
 
 
 def _config(**overrides) -> FtpConfig:
@@ -223,3 +266,152 @@ def test_publish_raises_when_local_dir_is_empty(tmp_path):
     empty.mkdir()
     with pytest.raises(FtpPublishError, match="aucun fichier"):
         publish_directory(empty, _config())
+
+
+# -- stale remote file detection / deletion ----------------------------------
+
+
+def test_detect_stale_files_finds_remote_leftovers_not_in_the_local_build(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+
+    def factory_with_leftovers(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        _seed_remote(instance, ["/www/old-post/index.html", "/www/billets/premier/stray.jpg"])
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_leftovers)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config(), detect_stale_files=True)
+
+    assert result.ok is True
+    assert result.stale_remote_error is None
+    assert sorted(result.stale_remote) == ["billets/premier/stray.jpg", "old-post/index.html"]
+
+
+def test_detect_stale_files_is_empty_when_remote_matches_local(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config(), detect_stale_files=True)
+
+    assert result.stale_remote == []
+    assert result.stale_remote_error is None
+
+
+def test_detect_stale_files_is_skipped_by_default(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+
+    def factory_with_leftovers(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        _seed_remote(instance, ["/www/old-post/index.html"])
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_leftovers)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config())  # detect_stale_files defaults to False
+
+    assert result.stale_remote == []
+
+
+def test_detect_stale_files_is_skipped_when_the_publish_itself_failed(tmp_path, monkeypatch):
+    factory_calls: list[FakeFTP] = []
+
+    def factory(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        instance.fail_files.add("/www/index.html")
+        _seed_remote(instance, ["/www/old-post/index.html"])
+        factory_calls.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config(), detect_stale_files=True)
+
+    assert result.ok is False
+    # An incomplete transfer is not a trustworthy basis for "what's stale".
+    assert result.stale_remote == []
+    assert result.stale_remote_error is None
+
+
+def test_detect_stale_files_reports_when_the_server_lacks_mlsd_support(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+
+    def factory_no_mlsd(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        instance.supports_mlsd = False
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_no_mlsd)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config(), detect_stale_files=True)
+
+    assert result.ok is True  # the publish itself still succeeded
+    assert result.stale_remote == []
+    assert result.stale_remote_error is not None
+
+
+def test_delete_remote_files_removes_the_given_paths(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+
+    def factory_with_leftovers(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        _seed_remote(instance, ["/www/old-post/index.html", "/www/stray.jpg"])
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_leftovers)
+
+    result = delete_remote_files(_config(), ["old-post/index.html", "stray.jpg"])
+
+    assert result.ok is True
+    assert sorted(result.deleted) == ["old-post/index.html", "stray.jpg"]
+    assert factory.created[0].stored == []
+
+
+def test_delete_remote_files_reports_a_failure_without_aborting_the_rest(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+
+    def factory_with_leftovers(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        _seed_remote(instance, ["/www/old-post/index.html", "/www/stray.jpg"])
+        instance.delete_fail_files.add("/www/stray.jpg")
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_leftovers)
+
+    result = delete_remote_files(_config(), ["old-post/index.html", "stray.jpg"])
+
+    assert result.ok is False
+    assert result.deleted == ["old-post/index.html"]
+    assert len(result.failed) == 1
+    assert result.failed[0].relative_path == "stray.jpg"
+
+
+def test_delete_remote_files_with_empty_list_does_not_connect(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    result = delete_remote_files(_config(), [])
+
+    assert result == module.DeleteResult()
+    assert factory.created == []
+
+
+def test_delete_remote_files_raises_on_connection_failure(monkeypatch):
+    class FailingLoginFTP(FakeFTP):
+        def login(self, user, password):
+            raise ftplib.error_perm("530 Login incorrect")
+
+    monkeypatch.setattr(module.ftplib, "FTP", FailingLoginFTP)
+
+    with pytest.raises(FtpPublishError, match="Connexion FTP impossible"):
+        delete_remote_files(_config(), ["stray.jpg"])

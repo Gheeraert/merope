@@ -13,7 +13,13 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from bloggen.config.models import FtpConfig
-from bloggen.publish.ftp_publisher import FtpPublishError, PublishResult, publish_directory
+from bloggen.publish.ftp_publisher import (
+    DeleteResult,
+    FtpPublishError,
+    PublishResult,
+    delete_remote_files,
+    publish_directory,
+)
 from bloggen.ui.tooltip import add_tooltip
 
 
@@ -38,6 +44,8 @@ class FtpPublishDialog(tk.Toplevel):
         self._queue: queue.Queue[tuple] = queue.Queue()
         self._worker: threading.Thread | None = None
         self._cancel_event = threading.Event()
+        self._last_config: FtpConfig | None = None
+        self._pending_open_site_count = 0
 
         self.host_var = tk.StringVar(value=ftp_config.host)
         self.port_var = tk.StringVar(value=str(ftp_config.port or 21))
@@ -59,7 +67,12 @@ class FtpPublishDialog(tk.Toplevel):
             ("Hôte FTP", self.host_var, "Adresse du serveur FTP, ex. ftp.monsite.fr"),
             ("Port", self.port_var, "Port de connexion (21 par défaut)."),
             ("Utilisateur", self.username_var, "Identifiant de connexion FTP."),
-            ("Mot de passe", self.password_var, "Mot de passe FTP (enregistré en clair dans le fichier de configuration local)."),
+            (
+                "Mot de passe",
+                self.password_var,
+                "Mot de passe FTP (enregistré dans le gestionnaire d'identifiants de Windows, "
+                "jamais dans le fichier de configuration du projet).",
+            ),
             ("Dossier distant", self.remote_dir_var, "Dossier distant dans lequel transférer le site, ex. /www ou public_html/monsite."),
             ("URL du site publié", self.site_url_var, "Adresse à ouvrir une fois la publication terminée, ex. https://monsite.fr"),
         ]
@@ -136,6 +149,7 @@ class FtpPublishDialog(tk.Toplevel):
         if config is None:
             return
         self._on_config_changed(config)
+        self._last_config = config
 
         self._set_inputs_enabled(False)
         self._cancel_event.clear()
@@ -157,6 +171,7 @@ class FtpPublishDialog(tk.Toplevel):
                     config,
                     progress=progress_callback,
                     should_cancel=should_cancel,
+                    detect_stale_files=True,
                 )
                 self._queue.put(("done", result))
             except FtpPublishError as exc:
@@ -189,6 +204,28 @@ class FtpPublishDialog(tk.Toplevel):
             pass
         self.after(100, self._poll_queue)
 
+    def _poll_delete_queue(self) -> None:
+        try:
+            while True:
+                message = self._queue.get_nowait()
+                kind = message[0]
+                if kind == "progress":
+                    _, done, total, relative_path = message
+                    self.progress.configure(maximum=max(total, 1), value=done)
+                    self.status_var.set(f"Suppression : {relative_path} ({done}/{total})")
+                elif kind == "delete_done":
+                    self._on_stale_cleanup_finished(message[1])
+                    return
+                elif kind == "error":
+                    self._set_inputs_enabled(True)
+                    self._cancel_button.pack_forget()
+                    self._publish_button.pack(side="right", padx=(6, 0))
+                    messagebox.showerror("Suppression échouée", message[1], parent=self)
+                    return
+        except queue.Empty:
+            pass
+        self.after(100, self._poll_delete_queue)
+
     def _on_publish_finished(self, result: PublishResult) -> None:
         self._set_inputs_enabled(True)
         self._cancel_button.pack_forget()
@@ -215,6 +252,36 @@ class FtpPublishDialog(tk.Toplevel):
             return
 
         self.status_var.set(f"Publication terminée : {file_count} fichier(s) transféré(s).")
+
+        if result.stale_remote_error:
+            messagebox.showinfo(
+                "Publication terminée",
+                f"{file_count} fichier(s) transféré(s) avec succès.\n\n"
+                "Impossible de vérifier la présence de fichiers obsolètes sur le serveur "
+                f"(le serveur ne répond pas à la commande de listing) :\n{result.stale_remote_error}",
+                parent=self,
+            )
+        elif result.stale_remote and self._confirm_stale_cleanup(result.stale_remote):
+            self._pending_open_site_count = file_count
+            self._start_stale_cleanup(result.stale_remote)
+            return
+
+        self._offer_to_open_site(file_count)
+
+    def _confirm_stale_cleanup(self, stale_remote: list[str]) -> bool:
+        shown = stale_remote[:20]
+        details = "\n".join(f"- {path}" for path in shown)
+        if len(stale_remote) > len(shown):
+            details += f"\n… et {len(stale_remote) - len(shown)} de plus."
+        return messagebox.askyesno(
+            "Fichiers obsolètes détectés",
+            f"{len(stale_remote)} fichier(s) présents sur le serveur ne correspondent plus à "
+            f"ce site (billets/pages supprimés ou renommés) :\n\n{details}\n\n"
+            "Les supprimer du serveur maintenant ?",
+            parent=self,
+        )
+
+    def _offer_to_open_site(self, file_count: int) -> None:
         site_url = self.site_url_var.get().strip()
         if site_url and messagebox.askyesno(
             "Publication terminée",
@@ -226,6 +293,50 @@ class FtpPublishDialog(tk.Toplevel):
             messagebox.showinfo(
                 "Publication terminée", f"{file_count} fichier(s) transféré(s) avec succès.", parent=self
             )
+
+    def _start_stale_cleanup(self, stale_remote: list[str]) -> None:
+        config = self._last_config
+        assert config is not None  # only reachable right after a successful publish
+
+        self._set_inputs_enabled(False)
+        self.progress.configure(mode="determinate", maximum=100, value=0)
+        self.status_var.set("Suppression des fichiers obsolètes...")
+
+        def progress_callback(done: int, total: int, relative_path: str) -> None:
+            self._queue.put(("progress", done, total, relative_path))
+
+        def run() -> None:
+            try:
+                result = delete_remote_files(config, stale_remote, progress=progress_callback)
+                self._queue.put(("delete_done", result))
+            except FtpPublishError as exc:
+                self._queue.put(("error", str(exc)))
+
+        self._worker = threading.Thread(target=run, daemon=True)
+        self._worker.start()
+        self.after(100, self._poll_delete_queue)
+
+    def _on_stale_cleanup_finished(self, result: DeleteResult) -> None:
+        self._set_inputs_enabled(True)
+        self._cancel_button.pack_forget()
+        self._publish_button.pack(side="right", padx=(6, 0))
+
+        if result.ok:
+            self.status_var.set(f"{len(result.deleted)} fichier(s) obsolète(s) supprimé(s).")
+        else:
+            self.status_var.set(
+                f"Suppression partielle : {len(result.deleted)} supprimé(s), "
+                f"{len(result.failed)} échec(s)."
+            )
+            details = "\n".join(f"- {item.relative_path} : {item.message}" for item in result.failed[:20])
+            messagebox.showwarning(
+                "Suppression incomplète",
+                f"{len(result.deleted)} fichier(s) supprimé(s), {len(result.failed)} en échec :\n\n"
+                f"{details}",
+                parent=self,
+            )
+
+        self._offer_to_open_site(self._pending_open_site_count)
 
     def _on_publish_failed(self, error_message: str) -> None:
         was_cancelled = self._cancel_event.is_set()
