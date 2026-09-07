@@ -14,12 +14,15 @@ it never touches the real Markdown -> TEI -> HTML build pipeline.
 from __future__ import annotations
 
 import base64
+import ipaddress
 import os
 import re
+import socket
 import urllib.request
 import uuid
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlparse
 
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
@@ -49,6 +52,18 @@ _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _BLOCK_TAGS = _HEADING_TAGS | {"p", "li", "blockquote", "ul", "ol"}
 _LIST_TAGS = {"ul", "ol"}
 _IMAGE_FETCH_TIMEOUT = 5
+# A pasted <img src> pointing at an oversized file must not be read
+# entirely into memory (and onto disk) before we notice — 25 MB is
+# generous for a genuine image and still bounded.
+_MAX_IMAGE_BYTES = 25 * 1024 * 1024
+_IMAGE_CONTENT_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+    "image/svg+xml": "svg",
+}
 _WHITESPACE_RE = re.compile(r"\s+")
 _BOLD_WEIGHTS = {"bold", "bolder", "600", "700", "800", "900"}
 
@@ -375,14 +390,64 @@ def _save_data_uri_image(data_uri: str, images_dir: Path, doc_dir: Path) -> str 
     return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{extension}", images_dir, doc_dir)
 
 
-def _download_image(url: str, images_dir: Path, doc_dir: Path) -> str | None:
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuses to follow any redirect. A same-request hostname check (see
+    ``_is_safe_remote_host``) is trivially bypassed by a 30x response
+    pointing at an internal address — following redirects at all would
+    defeat the point of that check."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _build_image_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _is_safe_remote_host(hostname: str | None) -> bool:
+    """Rejects a hostname that resolves to a loopback/private/link-local/
+    reserved address. Pasted HTML (from a web page, a Google Docs export,
+    or anything else copied into the editor) can embed an ``<img src>``
+    pointing at the machine's own network — a cloud metadata endpoint, a
+    router's admin page, another local service — and blindly fetching it
+    would both leak that content into the published site and let pasted
+    content probe the local network.
+    """
+    if not hostname:
+        return False
     try:
-        with urllib.request.urlopen(url, timeout=_IMAGE_FETCH_TIMEOUT) as response:
-            data = response.read()
+        resolved = socket.getaddrinfo(hostname, None)
+    except OSError:
+        return False
+    if not resolved:
+        return False
+    for info in resolved:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if not ip.is_global:
+            return False
+    return True
+
+
+def _download_image(url: str, images_dir: Path, doc_dir: Path) -> str | None:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not _is_safe_remote_host(parsed.hostname):
+        return None
+
+    try:
+        with _build_image_opener().open(url, timeout=_IMAGE_FETCH_TIMEOUT) as response:
+            extension = _IMAGE_CONTENT_TYPES.get(response.headers.get_content_type())
+            if extension is None:
+                return None
+            data = response.read(_MAX_IMAGE_BYTES + 1)
+            if len(data) > _MAX_IMAGE_BYTES:
+                return None
     except (OSError, ValueError):
         return None
-    suffix = Path(url.split("?", 1)[0]).suffix.lstrip(".") or "jpg"
-    return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{suffix}", images_dir, doc_dir)
+
+    return _write_image_bytes(data, f"collage-{uuid.uuid4().hex[:8]}.{extension}", images_dir, doc_dir)
 
 
 def _write_image_bytes(data: bytes, filename: str, images_dir: Path, doc_dir: Path) -> str:

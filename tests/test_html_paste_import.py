@@ -211,27 +211,55 @@ def test_data_uri_image_src_is_relative_to_doc_dir_not_images_dir(tmp_path: Path
     assert result.startswith("![Une image](../../assets/images/collage-")
 
 
+class _FakeHeaders:
+    def __init__(self, content_type: str) -> None:
+        self._content_type = content_type
+
+    def get_content_type(self) -> str:
+        return self._content_type
+
+
+class _FakeResponse:
+    def __init__(self, data: bytes, content_type: str = "image/jpeg") -> None:
+        self._data = data
+        self.headers = _FakeHeaders(content_type)
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            return self._data
+        return self._data[:size]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+class _FakeOpener:
+    def __init__(self, response=None, error: Exception | None = None) -> None:
+        self._response = response
+        self._error = error
+        self.opened_url: str | None = None
+
+    def open(self, url, timeout=None):
+        self.opened_url = url
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
 def test_http_image_is_downloaded_and_saved(tmp_path: Path, monkeypatch):
-    import io
     from bloggen.markdown import html_paste_import as module
 
-    class _FakeResponse(io.BytesIO):
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc_info):
-            return False
-
-    def fake_urlopen(url, timeout=None):
-        assert url == "https://example.org/photo.jpg"
-        return _FakeResponse(b"fake-image-bytes")
-
-    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+    opener = _FakeOpener(response=_FakeResponse(b"fake-image-bytes", "image/jpeg"))
+    monkeypatch.setattr(module, "_build_image_opener", lambda: opener)
 
     images_dir = tmp_path / "assets" / "images"
     html = '<p><img src="https://example.org/photo.jpg" alt="Distante"></p>'
     result = _export(html, images_dir=images_dir, doc_dir=images_dir)
 
+    assert opener.opened_url == "https://example.org/photo.jpg"
     assert result.startswith("![Distante](collage-")
     saved = list(images_dir.glob("*.jpg"))
     assert len(saved) == 1
@@ -241,14 +269,79 @@ def test_http_image_is_downloaded_and_saved(tmp_path: Path, monkeypatch):
 def test_http_image_download_failure_falls_back_to_alt_text(tmp_path: Path, monkeypatch):
     from bloggen.markdown import html_paste_import as module
 
-    def fake_urlopen(url, timeout=None):
-        raise OSError("network unavailable")
-
-    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        module, "_build_image_opener", lambda: _FakeOpener(error=OSError("network unavailable"))
+    )
 
     images_dir = tmp_path / "assets" / "images"
     html = '<p><img src="https://example.org/photo.jpg" alt="Distante"></p>'
     assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: Distante\\]\n"
+
+
+def test_http_image_over_the_size_cap_falls_back_to_alt_text(tmp_path: Path, monkeypatch):
+    from bloggen.markdown import html_paste_import as module
+
+    oversized = b"x" * (module._MAX_IMAGE_BYTES + 1)
+    opener = _FakeOpener(response=_FakeResponse(oversized, "image/jpeg"))
+    monkeypatch.setattr(module, "_build_image_opener", lambda: opener)
+
+    images_dir = tmp_path / "assets" / "images"
+    html = '<p><img src="https://example.org/huge.jpg" alt="Enorme"></p>'
+    assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: Enorme\\]\n"
+    assert list(images_dir.glob("*")) == []
+
+
+def test_http_image_with_a_non_image_content_type_falls_back_to_alt_text(tmp_path: Path, monkeypatch):
+    from bloggen.markdown import html_paste_import as module
+
+    opener = _FakeOpener(response=_FakeResponse(b"<html>not an image</html>", "text/html"))
+    monkeypatch.setattr(module, "_build_image_opener", lambda: opener)
+
+    images_dir = tmp_path / "assets" / "images"
+    html = '<p><img src="https://example.org/page.jpg" alt="FauxFormat"></p>'
+    assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: FauxFormat\\]\n"
+    assert list(images_dir.glob("*")) == []
+
+
+def test_http_image_pointing_at_a_local_address_is_never_fetched(tmp_path: Path, monkeypatch):
+    """A pasted <img src> targeting a loopback/private/link-local address
+    (e.g. a cloud metadata endpoint, or a local admin page) must be
+    rejected before any connection is attempted — the classic SSRF
+    surface a same-request hostname check exists to close."""
+    from bloggen.markdown import html_paste_import as module
+
+    opener = _FakeOpener(response=_FakeResponse(b"secret-local-content", "image/jpeg"))
+    monkeypatch.setattr(module, "_build_image_opener", lambda: opener)
+
+    images_dir = tmp_path / "assets" / "images"
+    for url in (
+        "http://127.0.0.1/img.jpg",
+        "http://localhost/img.jpg",
+        "http://169.254.169.254/latest/meta-data/img.jpg",
+        "http://[::1]/img.jpg",
+    ):
+        html = f'<p><img src="{url}" alt="Locale"></p>'
+        assert _export(html, images_dir=images_dir) == f"\\[Image{NBSP}: Locale\\]\n"
+
+    assert opener.opened_url is None  # never even attempted a connection
+    assert list(images_dir.glob("*")) == []
+
+
+def test_no_redirect_handler_refuses_every_redirect():
+    from bloggen.markdown.html_paste_import import _NoRedirectHandler
+
+    handler = _NoRedirectHandler()
+    assert (
+        handler.redirect_request(
+            req=object(),
+            fp=None,
+            code=302,
+            msg="Found",
+            headers={},
+            newurl="http://169.254.169.254/img.jpg",
+        )
+        is None
+    )
 
 
 def test_image_without_images_dir_falls_back_to_alt_text():
