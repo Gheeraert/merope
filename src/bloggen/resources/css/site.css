@@ -825,6 +825,31 @@ button:focus-visible {
   margin-left: -1.2rem;
 }
 
+.archive-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+}
+
+.archive-pagination-prev,
+.archive-pagination-next {
+  font-weight: 700;
+}
+
+.archive-pagination-disabled {
+  color: var(--muted);
+}
+
+.archive-pagination-status {
+  color: var(--muted);
+}
+
 .home-recent-posts h1 {
   margin-top: 0;
 }

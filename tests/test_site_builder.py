@@ -838,3 +838,131 @@ def test_site_builder_allows_a_normal_output_dir_nested_under_project_root():
     # actually clean the stale file.
     assert not any("Dossier de sortie dangereux" in error for error in report.errors)
     assert not (project / "site" / "stale.html").exists()
+
+
+def _build_project_with_n_posts(name: str, count: int):
+    project = RUNTIME_ROOT / f"{name}_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    for i in range(1, count + 1):
+        (project / f"content/posts/billet-{i:02d}.md").write_text(
+            f'---\ntitle: "Billet {i}"\nslug: "billet-{i}"\ntype: "post"\n'
+            f'date: "2026-01-{i:02d}"\n---\n\n# Billet {i}\n',
+            encoding="utf-8",
+        )
+    return project
+
+
+def _config_for_pagination(project: Path, posts_per_page: int):
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.blog.posts_per_page = posts_per_page
+    return config
+
+
+def _fake_convert(input_path, output_path, **_kwargs):
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(TEI_SAMPLE, encoding="utf-8")
+    return MarkdownToTeiResult(
+        source_file=Path(input_path),
+        tei_file=out,
+        command=["pandoc"],
+        success=True,
+        message="ok",
+        validation=TeiValidationResult(valid=True),
+    )
+
+
+def test_archive_pagination_splits_posts_across_several_pages(monkeypatch):
+    """"Billets par page" (config.blog.posts_per_page) was displayed in the
+    UI but never applied — the archive always listed every post on a
+    single page. 5 posts with posts_per_page=2 must produce 3 pages."""
+    project = _build_project_with_n_posts("archive_pagination", 5)
+    config = _config_for_pagination(project, posts_per_page=2)
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    page1 = (project / "site/billets/index.html").read_text(encoding="utf-8")
+    page2 = (project / "site/billets/page/2/index.html").read_text(encoding="utf-8")
+    page3 = (project / "site/billets/page/3/index.html").read_text(encoding="utf-8")
+    assert not (project / "site/billets/page/4/index.html").exists()
+
+    # Most recent first (sort_descending_by_date, the default): billet-05,
+    # billet-04 on page 1; billet-03, billet-02 on page 2; billet-01 alone
+    # on page 3.
+    assert "Billet 5" in page1 and "Billet 4" in page1
+    assert "Billet 3" not in page1
+    assert "Billet 3" in page2 and "Billet 2" in page2
+    assert "Billet 5" not in page2
+    assert "Billet 1" in page3
+    assert "Billet 2" not in page3
+
+    assert "Page 1 / 3" in page1
+    assert "Page 2 / 3" in page2
+    assert "Page 3 / 3" in page3
+
+    # page 1 has no "previous" page; page 3 has no "next" page.
+    assert "archive-pagination-prev archive-pagination-disabled" in page1
+    assert 'href="page/2/index.html"' in page1
+    assert 'href="../../index.html"' in page2  # page 2's "previous" is page 1
+    assert 'href="../3/index.html"' in page2
+    assert "archive-pagination-next archive-pagination-disabled" in page3
+
+
+def test_archive_pagination_shows_everything_on_one_page_when_posts_per_page_is_zero(monkeypatch):
+    project = _build_project_with_n_posts("archive_no_pagination", 5)
+    config = _config_for_pagination(project, posts_per_page=0)
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    assert not (project / "site/billets/page/2/index.html").exists()
+    page1 = (project / "site/billets/index.html").read_text(encoding="utf-8")
+    for i in range(1, 6):
+        assert f"Billet {i}" in page1
+    assert "archive-pagination" not in page1  # a single page needs no pager
+
+
+def test_archive_pagination_urls_are_all_listed_in_the_sitemap(monkeypatch):
+    project = _build_project_with_n_posts("archive_pagination_sitemap", 5)
+    config = _config_for_pagination(project, posts_per_page=2)
+    config.site.base_url = "https://example.org"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    sitemap = (project / "site/sitemap.xml").read_text(encoding="utf-8")
+    assert "<loc>https://example.org/billets/index.html</loc>" in sitemap
+    assert "<loc>https://example.org/billets/page/2/index.html</loc>" in sitemap
+    assert "<loc>https://example.org/billets/page/3/index.html</loc>" in sitemap

@@ -201,7 +201,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             output_root=output_root,
             report=report,
         )
-        _generate_archive_page(
+        archive_sitemap_entries = _generate_archive_page(
             generated_posts,
             config=runtime_config,
             project_root=project_root,
@@ -212,6 +212,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         _generate_feed_and_sitemap(
             generated_pages,
             generated_posts,
+            archive_sitemap_entries,
             config=runtime_config,
             output_root=output_root,
             report=report,
@@ -531,6 +532,20 @@ def _generate_home_page(
     report.generated_html.append(index_path)
 
 
+def _archive_page_url(archive_path: str, page_number: int) -> str:
+    if page_number <= 1:
+        return f"/{archive_path}/index.html"
+    return f"/{archive_path}/page/{page_number}/index.html"
+
+
+def _paginate_posts(posts: list[GeneratedItem], per_page: int) -> list[list[GeneratedItem]]:
+    if not posts:
+        return [[]]
+    if per_page <= 0:
+        return [posts]
+    return [posts[i : i + per_page] for i in range(0, len(posts), per_page)]
+
+
 def _generate_archive_page(
     posts: list[GeneratedItem],
     *,
@@ -538,37 +553,59 @@ def _generate_archive_page(
     project_root: Path,
     output_root: Path,
     report: BuildReport,
-) -> None:
+) -> list[tuple[str, str | None]]:
+    """Renders the paginated archive ("Billets par page" in the Blog tab —
+    previously displayed but never actually applied: the archive always
+    listed every post on a single page regardless of this setting).
+
+    Returns each generated page's (url, lastmod) for the sitemap.
+    """
     if not config.blog.enabled or not config.blog.generate_archive_page:
-        return
+        return []
 
     archive_path = config.blog.archive_path.strip("/") or "billets"
-    archive_links = [(item.title, item.url, item.date) for item in posts]
-    archive_fragment = render_archive_fragment(
-        config.blog.archive_title,
-        archive_links,
-        current_path=f"/{archive_path}/index.html",
-    )
-
-    archive_file = output_root / archive_path / "index.html"
+    pages = _paginate_posts(posts, config.blog.posts_per_page)
+    total_pages = len(pages)
+    latest_date = posts[0].date if posts else None
     custom_template = load_custom_template(project_root, config, config.render.html_template)
-    html = render_page_document(
-        config=config,
-        title=config.blog.archive_title,
-        content_html=archive_fragment,
-        current_path=f"/{archive_path}/index.html",
-        asset_prefix=_relative_path(archive_file.parent, output_root),
-        custom_template=custom_template,
-    )
 
-    archive_file.parent.mkdir(parents=True, exist_ok=True)
-    archive_file.write_text(html, encoding="utf-8")
-    report.generated_html.append(archive_file)
+    sitemap_entries: list[tuple[str, str | None]] = []
+    for page_number, page_posts in enumerate(pages, start=1):
+        current_path = _archive_page_url(archive_path, page_number)
+        archive_links = [(item.title, item.url, item.date) for item in page_posts]
+        title = config.blog.archive_title if page_number == 1 else f"{config.blog.archive_title} (page {page_number})"
+        archive_fragment = render_archive_fragment(
+            title,
+            archive_links,
+            current_path=current_path,
+            page_number=page_number,
+            total_pages=total_pages,
+            prev_url=_archive_page_url(archive_path, page_number - 1) if page_number > 1 else None,
+            next_url=_archive_page_url(archive_path, page_number + 1) if page_number < total_pages else None,
+        )
+
+        archive_file = output_root / current_path.lstrip("/")
+        html = render_page_document(
+            config=config,
+            title=title,
+            content_html=archive_fragment,
+            current_path=current_path,
+            asset_prefix=_relative_path(archive_file.parent, output_root),
+            custom_template=custom_template,
+        )
+
+        archive_file.parent.mkdir(parents=True, exist_ok=True)
+        archive_file.write_text(html, encoding="utf-8")
+        report.generated_html.append(archive_file)
+        sitemap_entries.append((current_path, latest_date))
+
+    return sitemap_entries
 
 
 def _generate_feed_and_sitemap(
     pages: list[GeneratedItem],
     posts: list[GeneratedItem],
+    archive_sitemap_entries: list[tuple[str, str | None]],
     *,
     config: ProjectConfig,
     output_root: Path,
@@ -612,10 +649,7 @@ def _generate_feed_and_sitemap(
         urls: list[tuple[str, str | None]] = []
         home_lastmod = posts[0].date if posts else None
         urls.append(("/index.html", home_lastmod))
-        if config.blog.enabled and config.blog.generate_archive_page:
-            archive_path = config.blog.archive_path.strip("/") or "billets"
-            archive_lastmod = posts[0].date if posts else None
-            urls.append((f"/{archive_path}/index.html", archive_lastmod))
+        urls.extend(archive_sitemap_entries)
         urls.extend((item.url, item.date) for item in pages)
         urls.extend((item.url, item.date) for item in posts)
 

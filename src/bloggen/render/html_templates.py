@@ -167,6 +167,10 @@ def render_archive_fragment(
     items: list[tuple[str, str] | tuple[str, str, str | None]],
     *,
     current_path: str,
+    page_number: int = 1,
+    total_pages: int = 1,
+    prev_url: str | None = None,
+    next_url: str | None = None,
 ) -> str:
     if items:
         entries_parts: list[str] = []
@@ -187,11 +191,50 @@ def render_archive_fragment(
     else:
         entries = '<li class="archive-empty">Aucun billet publié.</li>'
 
+    pagination_html = _render_archive_pagination(
+        current_path=current_path,
+        page_number=page_number,
+        total_pages=total_pages,
+        prev_url=prev_url,
+        next_url=next_url,
+    )
+
     return (
         '<article class="archive-page">'
         f"<h1>{escape(title)}</h1>"
         f'<ul class="archive-list">{entries}</ul>'
+        f"{pagination_html}"
         "</article>"
+    )
+
+
+def _render_archive_pagination(
+    *,
+    current_path: str,
+    page_number: int,
+    total_pages: int,
+    prev_url: str | None,
+    next_url: str | None,
+) -> str:
+    if total_pages <= 1:
+        return ""
+
+    prev_html = (
+        f'<a class="archive-pagination-prev" href="{escape(resolve_navigation_href(prev_url, current_path=current_path))}">« Précédent</a>'
+        if prev_url
+        else '<span class="archive-pagination-prev archive-pagination-disabled">« Précédent</span>'
+    )
+    next_html = (
+        f'<a class="archive-pagination-next" href="{escape(resolve_navigation_href(next_url, current_path=current_path))}">Suivant »</a>'
+        if next_url
+        else '<span class="archive-pagination-next archive-pagination-disabled">Suivant »</span>'
+    )
+    return (
+        '<nav class="archive-pagination" aria-label="Pagination">'
+        f"{prev_html}"
+        f'<span class="archive-pagination-status">Page {page_number} / {total_pages}</span>'
+        f"{next_html}"
+        "</nav>"
     )
 
 
