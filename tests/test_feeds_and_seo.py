@@ -140,8 +140,10 @@ def test_build_site_generates_feed_sitemap_and_seo_meta(monkeypatch):
     assert '<meta property="og:title" content="Premier">' in post_html
     assert '<meta property="og:type" content="article">' in post_html
     assert '<meta property="article:published_time" content="2026-04-23T00:00:00Z">' in post_html
-    assert '"@type": "Article"' in post_html
-    assert '<meta name="twitter:card" content="summary_large_image">' in post_html
+    assert '"@type": "BlogPosting"' in post_html
+    # summary, not summary_large_image: no banner image is configured in
+    # this test, so claiming a large image would be misleading.
+    assert '<meta name="twitter:card" content="summary">' in post_html
 
     accueil_html = (project / "site/accueil/index.html").read_text(encoding="utf-8")
     assert '<meta name="robots" content="noindex,follow">' in accueil_html

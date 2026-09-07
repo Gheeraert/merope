@@ -32,6 +32,8 @@ def render_page_document(
     description: str | None = None,
     custom_template: str | None = None,
     noindex: bool = False,
+    author: str | None = None,
+    modified_date: str | None = None,
 ) -> str:
     banner_html = _render_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
@@ -52,6 +54,8 @@ def render_page_document(
         is_article=bool(article_date),
         published_date=article_date,
         noindex=noindex,
+        item_author=author,
+        modified_date=modified_date,
     )
     # Only when feed.xml is actually generated (build_site skips it
     # without a configured base_url — see _generate_feed_and_sitemap):
@@ -359,6 +363,24 @@ def _render_search_box(config: ProjectConfig, *, asset_prefix: str) -> str:
     )
 
 
+def _og_locale(language: str) -> str | None:
+    """Best-effort og:locale from the 2-letter site.language code — a
+    real region-qualified locale isn't tracked anywhere in the config,
+    so this follows the common xx_XX convention (fr -> fr_FR) used as a
+    default by the vast majority of sites that don't track one either;
+    a value that already looks region-qualified (fr-CA, fr_CA) is kept
+    as given (dashes normalized to underscores, the OG-standard form).
+    """
+    value = (language or "").strip()
+    if not value:
+        return None
+    if "-" in value or "_" in value:
+        return value.replace("-", "_")
+    if len(value) == 2:
+        return f"{value.lower()}_{value.upper()}"
+    return value
+
+
 def _render_seo_meta(
     config: ProjectConfig,
     *,
@@ -368,11 +390,13 @@ def _render_seo_meta(
     is_article: bool = False,
     published_date: str | None = None,
     noindex: bool = False,
+    item_author: str | None = None,
+    modified_date: str | None = None,
 ) -> str:
     meta_description = (description or config.site.description or "").strip()
     base_url = (config.site.base_url or "").strip()
     canonical_url = f"{base_url.rstrip('/')}{current_path}" if base_url else None
-    author = (config.site.author or "").strip()
+    author = (item_author or config.site.author or "").strip()
 
     lines: list[str] = []
     if noindex:
@@ -386,6 +410,11 @@ def _render_seo_meta(
 
     lines.append(f'    <meta property="og:title" content="{escape(title)}">')
     lines.append(f'    <meta property="og:type" content="{"article" if is_article else "website"}">')
+    if config.site.title:
+        lines.append(f'    <meta property="og:site_name" content="{escape(config.site.title)}">')
+    og_locale = _og_locale(config.site.language)
+    if og_locale:
+        lines.append(f'    <meta property="og:locale" content="{escape(og_locale)}">')
     if meta_description:
         lines.append(f'    <meta property="og:description" content="{escape(meta_description)}">')
     if canonical_url:
@@ -393,6 +422,10 @@ def _render_seo_meta(
     if is_article and published_date:
         lines.append(
             f'    <meta property="article:published_time" content="{escape(published_date)}T00:00:00Z">'
+        )
+    if is_article and modified_date:
+        lines.append(
+            f'    <meta property="article:modified_time" content="{escape(modified_date)}T00:00:00Z">'
         )
     if is_article and author:
         lines.append(f'    <meta property="article:author" content="{escape(author)}">')
@@ -402,8 +435,15 @@ def _render_seo_meta(
     if base_url and image and not (_URI_SCHEME_RE.match(image) or image.startswith("//")):
         image_url = f"{base_url.rstrip('/')}/{image.lstrip('/')}"
         lines.append(f'    <meta property="og:image" content="{escape(image_url)}">')
+        image_alt = (config.banner.alt or "").strip()
+        if image_alt:
+            lines.append(f'    <meta property="og:image:alt" content="{escape(image_alt)}">')
 
-    lines.append('    <meta name="twitter:card" content="summary_large_image">')
+    # summary_large_image only makes sense once there's actually an
+    # image to show large — otherwise it's a misleading claim.
+    lines.append(
+        f'    <meta name="twitter:card" content="{"summary_large_image" if image_url else "summary"}">'
+    )
     lines.append(f'    <meta name="twitter:title" content="{escape(title)}">')
     if meta_description:
         lines.append(f'    <meta name="twitter:description" content="{escape(meta_description)}">')
@@ -418,6 +458,7 @@ def _render_seo_meta(
         current_path=current_path,
         is_article=is_article,
         published_date=published_date,
+        modified_date=modified_date,
         author=author,
     )
     if json_ld:
@@ -437,21 +478,32 @@ def _render_json_ld(
     current_path: str,
     is_article: bool,
     published_date: str | None,
+    modified_date: str | None,
     author: str,
 ) -> str:
+    language = (config.site.language or "").strip()
     if is_article and canonical_url:
         data: dict[str, object] = {
             "@context": "https://schema.org",
-            "@type": "Article",
+            # A billet is a blog entry, not a generic Article — BlogPosting
+            # is the more specific, more accurate schema.org type.
+            "@type": "BlogPosting",
             "headline": title,
             "url": canonical_url,
+            "mainEntityOfPage": {"@type": "WebPage", "@id": canonical_url},
         }
         if meta_description:
             data["description"] = meta_description
         if published_date:
             data["datePublished"] = f"{published_date}T00:00:00Z"
+        if modified_date:
+            data["dateModified"] = f"{modified_date}T00:00:00Z"
         if author:
             data["author"] = {"@type": "Person", "name": author}
+        if config.site.title:
+            data["publisher"] = {"@type": "Organization", "name": config.site.title}
+        if language:
+            data["inLanguage"] = language
     elif current_path == "/index.html" and canonical_url:
         data = {
             "@context": "https://schema.org",
@@ -461,6 +513,8 @@ def _render_json_ld(
         }
         if meta_description:
             data["description"] = meta_description
+        if language:
+            data["inLanguage"] = language
     else:
         return ""
 

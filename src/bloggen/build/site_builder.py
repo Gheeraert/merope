@@ -477,6 +477,8 @@ def _build_single_item(
     if item.kind != "post":
         article_date = None
 
+    lastmod = _source_lastmod(item.source_path) or item.metadata.date
+
     template_name = config.render.post_template if item.kind == "post" else config.render.html_template
     custom_template = load_custom_template(project_root, config, template_name)
 
@@ -492,6 +494,8 @@ def _build_single_item(
         description=item.metadata.description,
         custom_template=custom_template,
         noindex=noindex,
+        author=item.metadata.author,
+        modified_date=lastmod if article_date else None,
     )
     html_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_text(html_document, encoding="utf-8")
@@ -508,7 +512,7 @@ def _build_single_item(
         content_html=fragment,
         description=item.metadata.description,
         noindex=noindex,
-        lastmod=_source_lastmod(item.source_path) or item.metadata.date,
+        lastmod=lastmod,
     )
 
 
