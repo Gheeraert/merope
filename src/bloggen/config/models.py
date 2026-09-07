@@ -165,6 +165,7 @@ class BuildConfig:
     generate_robots_txt: bool = True
     check_broken_links: bool = True
     fail_on_broken_links: bool = False
+    generate_redirects: bool = True
 
 
 @dataclass(slots=True)

@@ -1072,3 +1072,118 @@ def test_broken_link_check_can_be_disabled(monkeypatch):
 
     assert report.success is True
     assert not any("slug-renomme" in warning for warning in report.warnings)
+
+
+def test_renaming_a_post_slug_generates_a_redirect_from_the_old_url(monkeypatch):
+    """The scenario the audit flagged: renaming a slug just makes the old
+    URL 404 forever, with no mechanism to redirect old bookmarks/backlinks
+    to the new address. A slug edit does not rename the .md file itself
+    (see content/writer.py), so the same file, rebuilt with a new slug,
+    must produce a redirect stub at its old URL."""
+    project = RUNTIME_ROOT / f"redirect_rename_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    post_path = project / "content/posts/premier.md"
+    post_path.write_text(
+        '---\ntitle: "Premier"\nslug: "ancien-slug"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+    assert (project / "site/billets/ancien-slug/index.html").exists()
+    assert not (project / "site/billets/nouveau-slug/index.html").exists()
+
+    # Rename the slug — same file (premier.md), new URL.
+    post_path.write_text(
+        '---\ntitle: "Premier"\nslug: "nouveau-slug"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    second_report = build_site(config, config_path=config_path)
+    assert second_report.success is True
+
+    # New URL has the real content; old URL now redirects to it.
+    new_page = (project / "site/billets/nouveau-slug/index.html").read_text(encoding="utf-8")
+    assert "Premier" in new_page
+
+    redirect_stub = project / "site/billets/ancien-slug/index.html"
+    assert redirect_stub.exists()
+    redirect_html = redirect_stub.read_text(encoding="utf-8")
+    assert 'meta http-equiv="refresh" content="0; url=../nouveau-slug/index.html"' in redirect_html
+    assert 'name="robots" content="noindex"' in redirect_html
+
+    assert any("Redirections générées" in warning for warning in second_report.warnings)
+
+    # The history file persisted across the two builds.
+    history_path = project / ".merope-redirects.json"
+    assert history_path.exists()
+    import json
+
+    history = json.loads(history_path.read_text(encoding="utf-8"))
+    assert history["content/posts/premier.md"] == [
+        "/billets/ancien-slug/index.html",
+        "/billets/nouveau-slug/index.html",
+    ]
+
+
+def test_redirect_generation_can_be_disabled(monkeypatch):
+    project = RUNTIME_ROOT / f"redirect_disabled_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    post_path = project / "content/posts/premier.md"
+    post_path.write_text(
+        '---\ntitle: "Premier"\nslug: "ancien-slug"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.build.generate_redirects = False
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    build_site(config, config_path=config_path)
+
+    post_path.write_text(
+        '---\ntitle: "Premier"\nslug: "nouveau-slug"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert not (project / "site/billets/ancien-slug/index.html").exists()
+    assert not (project / ".merope-redirects.json").exists()

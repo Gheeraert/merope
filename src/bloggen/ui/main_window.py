@@ -419,6 +419,7 @@ class MainWindow(tk.Tk):
                 ("fail_on_invalid_config", "Échouer si config invalide", True),
                 ("check_broken_links", "Vérifier les liens/médias internes", True),
                 ("fail_on_broken_links", "Échouer si liens/médias internes cassés", False),
+                ("generate_redirects", "Générer des redirections sur changement de slug", True),
                 ("search_enabled", "Activer la recherche sur le site", True),
             ],
             intro=(
@@ -458,6 +459,12 @@ class MainWindow(tk.Tk):
                     "Si activé (et « Vérifier les liens/médias internes » aussi), la "
                     "génération s'arrête en erreur au moindre lien ou média interne cassé. "
                     "Si désactivé, un avertissement est affiché mais la génération continue."
+                ),
+                "generate_redirects": (
+                    "Si activé, renommer le slug d'une page ou d'un billet génère "
+                    "automatiquement une page de redirection à son ancienne adresse, pour "
+                    "que les liens/favoris existants continuent de fonctionner au lieu de "
+                    "tomber en erreur 404."
                 ),
                 "search_enabled": (
                     "Si activé, un index de recherche (JSON) est généré et une case de "

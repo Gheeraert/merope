@@ -18,6 +18,13 @@ from bloggen.build.assets import (
     copy_theme_resources,
 )
 from bloggen.build.link_checker import check_broken_links
+from bloggen.build.redirects import (
+    load_url_history,
+    plan_redirects,
+    render_redirect_html,
+    save_url_history,
+    update_history,
+)
 from bloggen.build.reports import BuildReport
 from bloggen.config.models import MenuLink, ProjectConfig, SideMenuSection, SideMenuSubSection
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
@@ -240,6 +247,16 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             report=report,
         )
 
+        redirect_history_path = project_root / ".merope-redirects.json"
+        pending_redirect_history = _generate_redirects(
+            generated_pages,
+            generated_posts,
+            config=runtime_config,
+            project_root=project_root,
+            output_root=output_root,
+            report=report,
+        )
+
         copied_assets = 0
         if runtime_config.build.copy_assets:
             copied_assets = copy_project_assets(project_root, runtime_config.paths.assets_dir, output_root)
@@ -266,6 +283,13 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
                     report.warnings.append(message)
 
         report.success = len(report.errors) == 0
+
+        if report.success and pending_redirect_history is not None:
+            # Only recorded once the build actually succeeded — an
+            # aborted build's "current" URLs are incomplete (some pages
+            # may never have rendered), and persisting it would plant
+            # wrong redirect targets for the next, successful build.
+            save_url_history(redirect_history_path, pending_redirect_history)
 
         if staging_root is not None and report.success:
             _replace_directory(staging_root, final_output_root)
@@ -743,6 +767,56 @@ def _generate_search_index(
     index_path.write_text(index_json, encoding="utf-8")
     report.generated_html.append(index_path)
     report.warnings.append(f"Index de recherche généré ({len(entries)} pages).")
+
+
+def _source_history_key(source_path: Path, project_root: Path) -> str:
+    resolved = source_path.resolve()
+    try:
+        return resolved.relative_to(project_root).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
+def _generate_redirects(
+    pages: list[GeneratedItem],
+    posts: list[GeneratedItem],
+    *,
+    config: ProjectConfig,
+    project_root: Path,
+    output_root: Path,
+    report: BuildReport,
+) -> dict[str, list[str]] | None:
+    """Writes a meta-refresh stub at every URL a still-existing page/post
+    used to have (see build/redirects.py). Returns the updated history
+    to persist — the caller only actually writes it to disk once the
+    whole build has succeeded.
+    """
+    if not config.build.generate_redirects:
+        return None
+
+    history_path = project_root / ".merope-redirects.json"
+    history = load_url_history(history_path)
+
+    current = {
+        _source_history_key(item.source, project_root): item.url for item in (*pages, *posts)
+    }
+    updated_history = update_history(history, current)
+    plans = plan_redirects(updated_history, current)
+
+    for plan in plans:
+        stale_file = output_root / plan.stale_url.lstrip("/")
+        target_file = output_root / plan.target_url.lstrip("/")
+        href = _relative_path(stale_file.parent, target_file)
+        stale_file.parent.mkdir(parents=True, exist_ok=True)
+        stale_file.write_text(render_redirect_html(href), encoding="utf-8")
+        report.generated_html.append(stale_file)
+
+    if plans:
+        report.warnings.append(
+            f"Redirections générées pour {len(plans)} ancienne(s) URL (changement de slug)."
+        )
+
+    return updated_history
 
 
 def resolve_project_root(config: ProjectConfig, config_path: Path | None) -> Path:
