@@ -1504,6 +1504,45 @@ def test_archive_pagination_urls_are_all_listed_in_the_sitemap(monkeypatch):
     assert "<loc>https://example.org/billets/page/3/index.html</loc>" in sitemap
 
 
+def test_a_post_with_no_incoming_link_anywhere_is_reported_orphan(monkeypatch):
+    """The archive page normally links every post — with it disabled, and
+    the home page not featuring recent posts either, a real post is
+    generated but genuinely unreachable by browsing the site."""
+    project = RUNTIME_ROOT / f"orphan_post_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.home.mode = "page"
+    config.blog.generate_archive_page = False
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert any("orphelines" in warning and "premier" in warning for warning in report.warnings)
+
+
 def _project_with_stale_menu_link(name: str) -> Path:
     from bloggen.config.models import MenuLink
 

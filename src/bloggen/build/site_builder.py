@@ -17,7 +17,12 @@ from bloggen.build.assets import (
     copy_project_assets,
     copy_theme_resources,
 )
-from bloggen.build.link_checker import check_broken_links
+from bloggen.build.link_checker import (
+    check_broken_links,
+    check_canonical_links,
+    check_structured_data,
+    find_orphan_pages,
+)
 from bloggen.build.redirects import (
     load_url_history,
     plan_redirects,
@@ -409,6 +414,42 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
                 message += "".join(f"\n  - {item}" for item in shown)
                 if len(broken_links) > len(shown):
                     message += f"\n  … et {len(broken_links) - len(shown)} de plus."
+                if runtime_config.build.fail_on_broken_links:
+                    report.errors.append(message)
+                else:
+                    report.warnings.append(message)
+
+            orphan_pages = find_orphan_pages(output_root)
+            if orphan_pages:
+                message = f"Pages orphelines, sans lien interne entrant ({len(orphan_pages)}) :"
+                shown = orphan_pages[:20]
+                message += "".join(f"\n  - {item}" for item in shown)
+                if len(orphan_pages) > len(shown):
+                    message += f"\n  … et {len(orphan_pages) - len(shown)} de plus."
+                if runtime_config.build.fail_on_broken_links:
+                    report.errors.append(message)
+                else:
+                    report.warnings.append(message)
+
+            canonical_issues = check_canonical_links(output_root, runtime_config.site.base_url)
+            if canonical_issues:
+                message = f"Liens canoniques invalides ({len(canonical_issues)}) :"
+                shown = canonical_issues[:20]
+                message += "".join(f"\n  - {item}" for item in shown)
+                if len(canonical_issues) > len(shown):
+                    message += f"\n  … et {len(canonical_issues) - len(shown)} de plus."
+                if runtime_config.build.fail_on_broken_links:
+                    report.errors.append(message)
+                else:
+                    report.warnings.append(message)
+
+            structured_data_issues = check_structured_data(output_root)
+            if structured_data_issues:
+                message = f"Données structurées (JSON-LD) invalides ({len(structured_data_issues)}) :"
+                shown = structured_data_issues[:20]
+                message += "".join(f"\n  - {item}" for item in shown)
+                if len(structured_data_issues) > len(shown):
+                    message += f"\n  … et {len(structured_data_issues) - len(shown)} de plus."
                 if runtime_config.build.fail_on_broken_links:
                     report.errors.append(message)
                 else:

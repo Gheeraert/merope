@@ -417,8 +417,12 @@ class MainWindow(tk.Tk):
                 ("copy_assets", "Copier assets", True),
                 ("fail_on_missing_assets", "Échouer si assets manquants", False),
                 ("fail_on_invalid_config", "Échouer si config invalide", True),
-                ("check_broken_links", "Vérifier les liens/médias internes", True),
-                ("fail_on_broken_links", "Échouer si liens/médias internes cassés", False),
+                (
+                    "check_broken_links",
+                    "Vérifier liens/médias, pages orphelines, canoniques et données structurées",
+                    True,
+                ),
+                ("fail_on_broken_links", "Échouer si l'une de ces vérifications signale un problème", False),
                 ("generate_redirects", "Générer des redirections sur changement de slug", True),
                 ("search_enabled", "Activer la recherche sur le site", True),
             ],
@@ -451,13 +455,17 @@ class MainWindow(tk.Tk):
                     "des erreurs de validation (voir les messages d'erreur affichés)."
                 ),
                 "check_broken_links": (
-                    "Si activé, chaque génération vérifie que tous les liens et images "
+                    "Si activé, chaque génération vérifie : que tous les liens et images "
                     "internes du site produit pointent vers un fichier réellement présent "
-                    "(détecte par exemple un menu resté pointé sur un ancien slug renommé)."
+                    "(détecte par exemple un menu resté pointé sur un ancien slug renommé) ; "
+                    "qu'aucune page générée n'est orpheline (sans lien interne entrant) ; que "
+                    "les liens canoniques correspondent bien à site.base_url et à une page "
+                    "existante ; et que les données structurées (JSON-LD) sont valides et "
+                    "complètes."
                 ),
                 "fail_on_broken_links": (
-                    "Si activé (et « Vérifier les liens/médias internes » aussi), la "
-                    "génération s'arrête en erreur au moindre lien ou média interne cassé. "
+                    "Si activé (et la vérification ci-dessus aussi), la génération s'arrête "
+                    "en erreur au moindre problème détecté par l'une de ces vérifications. "
                     "Si désactivé, un avertissement est affiché mais la génération continue."
                 ),
                 "generate_redirects": (

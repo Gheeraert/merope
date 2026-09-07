@@ -10,7 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 import uuid
 
-from bloggen.build.link_checker import check_broken_links
+from bloggen.build.link_checker import (
+    check_broken_links,
+    check_canonical_links,
+    check_structured_data,
+    find_orphan_pages,
+)
 
 RUNTIME_ROOT = Path("tests/.runtime")
 RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
@@ -116,3 +121,161 @@ def test_scans_every_html_file_recursively():
     broken = check_broken_links(site)
     assert len(broken) == 1
     assert broken[0].source_file == site / "billets" / "un-billet" / "index.html"
+
+
+# -- orphan pages -------------------------------------------------------
+
+
+def test_a_page_with_no_incoming_link_is_reported_as_orphan():
+    site = _site("orphan")
+    (site / "billets" / "isole").mkdir(parents=True)
+    (site / "index.html").write_text("<html><body>Accueil, sans lien vers le billet.</body></html>", encoding="utf-8")
+    (site / "billets" / "isole" / "index.html").write_text("<html><body>Billet isolé.</body></html>", encoding="utf-8")
+
+    orphans = find_orphan_pages(site)
+    assert orphans == [site / "billets" / "isole" / "index.html"]
+
+
+def test_a_page_linked_from_anywhere_is_not_orphan():
+    site = _site("not_orphan")
+    (site / "billets" / "lie").mkdir(parents=True)
+    (site / "index.html").write_text(
+        '<html><body><a href="billets/lie/index.html">Un billet</a></body></html>', encoding="utf-8"
+    )
+    (site / "billets" / "lie" / "index.html").write_text("<html><body>Contenu.</body></html>", encoding="utf-8")
+
+    assert find_orphan_pages(site) == []
+
+
+def test_the_home_page_itself_is_never_considered_orphan():
+    site = _site("home_exempt")
+    site.mkdir(parents=True, exist_ok=True)
+    (site / "index.html").write_text("<html><body>Accueil.</body></html>", encoding="utf-8")
+
+    assert find_orphan_pages(site) == []
+
+
+def test_a_noindexed_page_is_never_considered_orphan():
+    """The home.source page duplicated onto /index.html when
+    home.mode == "page" is deliberately never linked to at its own URL
+    (its canonical points at /index.html instead, and it's marked
+    noindex) — that's by design, not a stray page to flag."""
+    site = _site("noindex_exempt")
+    (site / "accueil").mkdir(parents=True)
+    (site / "index.html").write_text("<html><body>Accueil (dupliqué ici).</body></html>", encoding="utf-8")
+    (site / "accueil" / "index.html").write_text(
+        '<html><head><meta name="robots" content="noindex,follow"></head>'
+        "<body>Accueil (page source, jamais liée directement).</body></html>",
+        encoding="utf-8",
+    )
+
+    assert find_orphan_pages(site) == []
+
+
+# -- canonical links ------------------------------------------------------
+
+
+def test_canonical_link_matching_base_url_and_an_existing_page_is_fine():
+    site = _site("canonical_ok")
+    (site / "billets" / "un-billet").mkdir(parents=True)
+    (site / "billets" / "un-billet" / "index.html").write_text(
+        '<html><head><link rel="canonical" href="https://exemple.fr/billets/un-billet/index.html"></head>'
+        "<body></body></html>",
+        encoding="utf-8",
+    )
+
+    assert check_canonical_links(site, "https://exemple.fr") == []
+
+
+def test_canonical_link_pointing_at_a_missing_page_is_reported():
+    site = _site("canonical_missing")
+    (site / "index.html").write_text(
+        '<html><head><link rel="canonical" href="https://exemple.fr/introuvable/index.html"></head>'
+        "<body></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_canonical_links(site, "https://exemple.fr")
+    assert len(issues) == 1
+    assert "introuvable" in issues[0].reason
+
+
+def test_canonical_link_with_a_mismatched_base_url_is_reported():
+    site = _site("canonical_mismatch")
+    (site / "index.html").write_text(
+        '<html><head><link rel="canonical" href="https://autre-domaine.example/index.html"></head>'
+        "<body></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_canonical_links(site, "https://exemple.fr")
+    assert len(issues) == 1
+    assert "base_url" in issues[0].reason
+
+
+def test_canonical_check_is_skipped_entirely_without_a_configured_base_url():
+    site = _site("canonical_no_base_url")
+    (site / "index.html").write_text(
+        '<html><head><link rel="canonical" href="https://exemple.fr/introuvable/index.html"></head>'
+        "<body></body></html>",
+        encoding="utf-8",
+    )
+
+    assert check_canonical_links(site, "") == []
+
+
+# -- structured data (JSON-LD) --------------------------------------------
+
+
+def test_valid_and_complete_json_ld_is_fine():
+    site = _site("jsonld_ok")
+    (site / "index.html").write_text(
+        '<html><head><script type="application/ld+json">'
+        '{"@context": "https://schema.org", "@type": "WebSite", '
+        '"name": "Mon Site", "url": "https://exemple.fr/index.html"}'
+        "</script></head><body></body></html>",
+        encoding="utf-8",
+    )
+
+    assert check_structured_data(site) == []
+
+
+def test_malformed_json_ld_is_reported():
+    site = _site("jsonld_malformed")
+    (site / "index.html").write_text(
+        '<html><head><script type="application/ld+json">{ceci n\'est pas du JSON</script></head>'
+        "<body></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_structured_data(site)
+    assert len(issues) == 1
+    assert "JSON invalide" in issues[0].reason
+
+
+def test_json_ld_missing_a_required_field_for_its_type_is_reported():
+    site = _site("jsonld_incomplete")
+    (site / "billets" / "un-billet").mkdir(parents=True)
+    (site / "billets" / "un-billet" / "index.html").write_text(
+        '<html><head><script type="application/ld+json">'
+        '{"@context": "https://schema.org", "@type": "BlogPosting", '
+        '"url": "https://exemple.fr/billets/un-billet/index.html"}'
+        "</script></head><body></body></html>",
+        encoding="utf-8",
+    )
+
+    issues = check_structured_data(site)
+    assert len(issues) == 1
+    assert "headline" in issues[0].reason
+
+
+def test_an_unrecognized_json_ld_type_has_no_required_fields_checked():
+    site = _site("jsonld_unknown_type")
+    (site / "index.html").write_text(
+        '<html><head><script type="application/ld+json">'
+        '{"@context": "https://schema.org", "@type": "Organization"}'
+        "</script></head><body></body></html>",
+        encoding="utf-8",
+    )
+
+    assert check_structured_data(site) == []
