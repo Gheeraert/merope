@@ -10,6 +10,19 @@ DEFAULT_XSLT_PATH = (
     Path(__file__).resolve().parent.parent / "resources" / "xslt" / "tei_to_html.xsl"
 )
 
+# Applied to both the TEI input and the XSLT stylesheet itself. lxml's
+# defaults already block *network* entity/DTD fetches (no_network=True),
+# but still resolve a DOCTYPE-declared entity pointing at a *local* file
+# (classic XXE) — resolve_entities=False turns those into inert,
+# unresolved nodes instead. A theme's XSLT is exactly the kind of input
+# that can come from a third party (see the audit note this fixes).
+_SAFE_XML_PARSER = etree.XMLParser(
+    resolve_entities=False,
+    no_network=True,
+    load_dtd=False,
+    dtd_validation=False,
+)
+
 
 def render_tei_xml_to_html_fragment(
     tei_xml: str,
@@ -20,7 +33,7 @@ def render_tei_xml_to_html_fragment(
     transform = _load_transform(xslt_path)
 
     try:
-        source_xml = etree.fromstring(tei_xml.encode("utf-8"))
+        source_xml = etree.fromstring(tei_xml.encode("utf-8"), parser=_SAFE_XML_PARSER)
     except etree.XMLSyntaxError as exc:
         raise ValueError(f"XML TEI invalide: {exc}") from exc
 
@@ -49,12 +62,17 @@ def _load_transform(xslt_path: Path | None) -> etree.XSLT:
         raise FileNotFoundError(f"Feuille XSLT introuvable: {stylesheet_path}")
 
     try:
-        xslt_tree = etree.parse(str(stylesheet_path))
+        xslt_tree = etree.parse(str(stylesheet_path), parser=_SAFE_XML_PARSER)
     except (OSError, etree.XMLSyntaxError) as exc:
         raise ValueError(f"Feuille XSLT invalide: {exc}") from exc
 
     try:
-        return etree.XSLT(xslt_tree)
+        # DENY_ALL: the bundled stylesheet has no legitimate reason to call
+        # document()/read a file/hit the network from inside the transform
+        # — a third-party theme's XSLT doing so is exactly the case this
+        # closes (exfiltrating a local file's content into every page it
+        # renders, as document('secret.txt') otherwise would).
+        return etree.XSLT(xslt_tree, access_control=etree.XSLTAccessControl.DENY_ALL)
     except etree.XSLTParseError as exc:
         raise ValueError(f"Compilation XSLT impossible: {exc}") from exc
 

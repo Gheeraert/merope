@@ -174,3 +174,78 @@ def test_transform_from_file():
     tei_path.write_text(_tei_body("<p>Depuis fichier</p>"), encoding="utf-8")
     html = render_tei_file_to_html_fragment(tei_path)
     assert "<p>Depuis fichier</p>" in html
+
+
+# -- hardening: a theme's XSLT (or, less plausibly, the TEI itself) can
+# come from a third party — see the external audit's XXE/document() note.
+
+
+def test_xslt_document_function_cannot_read_a_local_file():
+    """The classic way a malicious stylesheet exfiltrates a local file
+    into every page it renders: document('secret.txt') resolved relative
+    to the stylesheet's own directory. Confirmed exploitable before this
+    fix (reproduced manually with a hardcoded etree.XSLT(), no
+    access_control) — must now raise instead of leaking the content.
+    """
+    workdir = RUNTIME_DIR / f"xslt_xxe_{uuid.uuid4().hex}"
+    workdir.mkdir(parents=True)
+    secret = workdir / "secret.txt"
+    secret.write_text("TOP-SECRET-CONTENT", encoding="utf-8")
+
+    malicious_xsl = workdir / "malicious.xsl"
+    malicious_xsl.write_text(
+        '<?xml version="1.0"?>'
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="/"><xsl:value-of select="document(\'secret.txt\')"/></xsl:template>'
+        "</xsl:stylesheet>",
+        encoding="utf-8",
+    )
+
+    from lxml import etree
+
+    with pytest.raises(etree.XSLTApplyError):
+        render_tei_xml_to_html_fragment("<root/>", xslt_path=malicious_xsl)
+
+
+def test_doctype_entity_cannot_read_a_local_file_into_the_tei_input():
+    """A DOCTYPE-declared external entity (classic XXE) in the TEI input
+    must not be resolved. This particular lxml/libxml2 build already
+    refused to load external SYSTEM entities by default (verified before
+    this fix too) — resolve_entities=False is still applied explicitly
+    for defense in depth, not left to an implicit/version-dependent
+    default. Only the document() vector below was actually exploitable
+    beforehand."""
+    workdir = RUNTIME_DIR / f"tei_xxe_{uuid.uuid4().hex}"
+    workdir.mkdir(parents=True)
+    secret = workdir / "secret.txt"
+    secret.write_text("TOP-SECRET-CONTENT", encoding="utf-8")
+
+    malicious_tei = (
+        "<?xml version=\"1.0\"?>"
+        f'<!DOCTYPE TEI [<!ENTITY xxe SYSTEM "{secret.as_posix()}">]>'
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><div><p>&xxe;</p></div></body></text></TEI>"
+    )
+
+    html = render_tei_xml_to_html_fragment(malicious_tei)
+    assert "TOP-SECRET-CONTENT" not in html
+
+
+def test_doctype_entity_in_the_xslt_stylesheet_itself_is_not_resolved():
+    workdir = RUNTIME_DIR / f"xslt_doctype_xxe_{uuid.uuid4().hex}"
+    workdir.mkdir(parents=True)
+    secret = workdir / "secret.txt"
+    secret.write_text("TOP-SECRET-CONTENT", encoding="utf-8")
+
+    malicious_xsl = workdir / "malicious.xsl"
+    malicious_xsl.write_text(
+        "<?xml version=\"1.0\"?>"
+        f'<!DOCTYPE xsl:stylesheet [<!ENTITY xxe SYSTEM "{secret.as_posix()}">]>'
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="/"><result>&xxe;</result></xsl:template>'
+        "</xsl:stylesheet>",
+        encoding="utf-8",
+    )
+
+    html = render_tei_xml_to_html_fragment("<root/>", xslt_path=malicious_xsl)
+    assert "TOP-SECRET-CONTENT" not in html
