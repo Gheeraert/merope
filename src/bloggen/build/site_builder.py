@@ -666,6 +666,11 @@ def _build_single_item(
         noindex=noindex,
         author=item.metadata.author,
         modified_date=lastmod if article_date else None,
+        # Currently the only reason a page is noindexed at all: it's the
+        # home.source page, whose content is duplicated onto /index.html
+        # (see _generate_home_page) — that's the preferred URL, not this
+        # one, so the canonical must point there instead of at itself.
+        canonical_path="/index.html" if noindex else None,
     )
     html_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_text(html_document, encoding="utf-8")
@@ -884,7 +889,10 @@ def _generate_search_index(
 
     excerpt_length = max(config.search.excerpt_length, 0)
     entries: list[SearchEntry] = []
-    for item in [*pages, *posts]:
+    # Same reasoning as the sitemap exclusion: a noindexed page (the
+    # home.source page duplicated onto /index.html) shouldn't turn up as
+    # its own, separate on-site search result either.
+    for item in [*(p for p in pages if not p.noindex), *posts]:
         text = extract_plain_text(item.content_html)
         entries.append(
             SearchEntry(

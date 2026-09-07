@@ -147,6 +147,11 @@ def test_build_site_generates_feed_sitemap_and_seo_meta(monkeypatch):
 
     accueil_html = (project / "site/accueil/index.html").read_text(encoding="utf-8")
     assert '<meta name="robots" content="noindex,follow">' in accueil_html
+    # A third external audit finding: noindex alone left a self-
+    # referencing canonical on the duplicate page — a contradictory
+    # signal. It must point at the preferred URL instead.
+    assert '<link rel="canonical" href="https://exemple.fr/index.html">' in accueil_html
+    assert '<link rel="canonical" href="https://exemple.fr/accueil/index.html">' not in accueil_html
 
     index_html = (project / "site/index.html").read_text(encoding="utf-8")
     assert '<meta property="og:type" content="website">' in index_html

@@ -107,7 +107,10 @@ def test_site_builder_generates_illustrated_site(monkeypatch):
     import json
 
     index_entries = json.loads((project / "site/search-index.json").read_text(encoding="utf-8"))
-    assert len(index_entries) == 2  # accueil (page) + premier-billet (home/archive pages are not indexed)
+    # premier-billet only: accueil is the home.source page, duplicated
+    # onto /index.html and excluded from the on-site search index the
+    # same way it's excluded from the sitemap (see noindex handling).
+    assert len(index_entries) == 1
     urls = {entry["url"] for entry in index_entries}
     assert "/billets/premier-billet/index.html" in urls
 
@@ -244,6 +247,48 @@ def test_site_builder_skips_search_index_when_disabled(monkeypatch):
     assert not (project / "site/search-index.json").exists()
     home_html = (project / "site/accueil/index.html").read_text(encoding="utf-8")
     assert "site-search" not in home_html
+
+
+def test_noindexed_home_source_page_is_excluded_from_the_search_index(monkeypatch):
+    """Third external audit finding: the home.source page (duplicated
+    onto /index.html, marked noindex, excluded from the sitemap) still
+    turned up as its own separate result in the on-site search index."""
+    project = RUNTIME_ROOT / f"search_index_noindex_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/pages/autre.md").write_text(
+        '---\ntitle: "Autre page"\nslug: "autre"\ntype: "page"\n---\n\n# Autre page\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    import json
+
+    index_entries = json.loads((project / "site/search-index.json").read_text(encoding="utf-8"))
+    urls = {entry["url"] for entry in index_entries}
+    assert "/accueil/index.html" not in urls
+    assert "/autre/index.html" in urls  # an ordinary, non-noindexed page stays indexed
 
 
 def test_site_builder_generates_iframe_page_for_external_menu_link(monkeypatch):

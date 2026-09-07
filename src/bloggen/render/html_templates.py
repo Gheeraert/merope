@@ -34,6 +34,7 @@ def render_page_document(
     noindex: bool = False,
     author: str | None = None,
     modified_date: str | None = None,
+    canonical_path: str | None = None,
 ) -> str:
     banner_html = _render_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
@@ -56,6 +57,7 @@ def render_page_document(
         noindex=noindex,
         item_author=author,
         modified_date=modified_date,
+        canonical_path=canonical_path,
     )
     # Only when feed.xml is actually generated (build_site skips it
     # without a configured base_url — see _generate_feed_and_sitemap):
@@ -392,10 +394,16 @@ def _render_seo_meta(
     noindex: bool = False,
     item_author: str | None = None,
     modified_date: str | None = None,
+    canonical_path: str | None = None,
 ) -> str:
     meta_description = (description or config.site.description or "").strip()
     base_url = (config.site.base_url or "").strip()
-    canonical_url = f"{base_url.rstrip('/')}{current_path}" if base_url else None
+    # canonical_path lets a page that duplicates another URL's content
+    # (currently: the page reused as home.source content, see
+    # _build_single_item) point its canonical at the preferred version
+    # instead of at itself — self-referencing while also carrying
+    # noindex is a contradictory signal to crawlers.
+    canonical_url = f"{base_url.rstrip('/')}{canonical_path or current_path}" if base_url else None
     author = (item_author or config.site.author or "").strip()
 
     lines: list[str] = []
