@@ -38,14 +38,19 @@ def format_image_attributes(attrs: dict[str, str]) -> str:
     return "{" + " ".join(parts) + "}"
 
 
-def strip_image_attributes(markdown_text: str) -> tuple[str, dict[str, dict[str, str]]]:
+def strip_image_attributes(markdown_text: str) -> tuple[str, dict[str, list[dict[str, str]]]]:
     """Remove ``{...}`` attribute suffixes from image references.
 
     Returns the cleaned text (plain ``![alt](src)``, safe for Pandoc) and a
-    mapping from image ``src`` to its parsed attributes, for later re-injection
-    into the generated TEI.
+    mapping from image ``src`` to a *list* of its parsed attributes, one
+    entry per occurrence in document order, for later re-injection into the
+    generated TEI. A list (not a single dict) because the same ``src`` can
+    legitimately appear more than once (the same file inserted twice, each
+    time with its own size/alignment) — collapsing them to one entry per
+    ``src`` would let the last occurrence's attributes silently overwrite
+    an earlier one's.
     """
-    attrs_by_src: dict[str, dict[str, str]] = {}
+    attrs_by_src: dict[str, list[dict[str, str]]] = {}
 
     def _replace(match: re.Match[str]) -> str:
         image_markdown, attr_text = match.group(1), match.group(2)
@@ -53,7 +58,7 @@ def strip_image_attributes(markdown_text: str) -> tuple[str, dict[str, dict[str,
         if src_match:
             attrs = parse_image_attributes(attr_text)
             if attrs:
-                attrs_by_src[src_match.group(1)] = attrs
+                attrs_by_src.setdefault(src_match.group(1), []).append(attrs)
         return image_markdown
 
     cleaned = _IMAGE_WITH_ATTRS_RE.sub(_replace, markdown_text)

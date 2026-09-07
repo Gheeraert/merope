@@ -33,7 +33,7 @@ def test_strip_image_attributes_removes_suffix_and_collects_mapping():
     text = "Voir ![Alt](assets/images/x.jpg){width=300 height=200} et texte."
     cleaned, mapping = strip_image_attributes(text)
     assert cleaned == "Voir ![Alt](assets/images/x.jpg) et texte."
-    assert mapping == {"assets/images/x.jpg": {"width": "300", "height": "200"}}
+    assert mapping == {"assets/images/x.jpg": [{"width": "300", "height": "200"}]}
 
 
 def test_strip_image_attributes_leaves_plain_images_untouched():
@@ -47,4 +47,15 @@ def test_strip_image_attributes_multiple_images():
     text = "![A](a.jpg){width=100} et ![B](b.jpg){align=right}"
     cleaned, mapping = strip_image_attributes(text)
     assert cleaned == "![A](a.jpg) et ![B](b.jpg)"
-    assert mapping == {"a.jpg": {"width": "100"}, "b.jpg": {"align": "right"}}
+    assert mapping == {"a.jpg": [{"width": "100"}], "b.jpg": [{"align": "right"}]}
+
+
+def test_strip_image_attributes_same_src_twice_keeps_both_occurrences():
+    """Regression: the same image inserted twice, each with its own size,
+    used to collapse into a single dict entry keyed by src — the second
+    occurrence's attributes silently overwrote the first's.
+    """
+    text = "![A](x.jpg){width=100} puis ![A encore](x.jpg){width=400 align=center}"
+    cleaned, mapping = strip_image_attributes(text)
+    assert cleaned == "![A](x.jpg) puis ![A encore](x.jpg)"
+    assert mapping == {"x.jpg": [{"width": "100"}, {"width": "400", "align": "center"}]}

@@ -94,10 +94,18 @@ def rewrite_graphic_urls_in_tei_file(tei_path: Path, replacements: dict[str, str
     return True
 
 
-def apply_image_attributes_in_tei_xml(tei_xml: str, attributes_by_src: dict[str, dict[str, str]]) -> str:
+def apply_image_attributes_in_tei_xml(tei_xml: str, attributes_by_src: dict[str, list[dict[str, str]]]) -> str:
     """Set ``@width``/``@height``/``@rend`` on ``<graphic>`` elements matching
     a source in ``attributes_by_src`` (keyed by the same ``src`` as in the
     Markdown, see :func:`bloggen.markdown.image_attributes.strip_image_attributes`).
+
+    ``attributes_by_src`` maps each ``src`` to a *list* of attribute sets,
+    one per occurrence in the original Markdown, in document order — the
+    same ``src`` can appear more than once (the same file inserted twice
+    with different sizes), and ``<graphic>`` elements are walked in that
+    same document order here, consuming one entry per match so each
+    occurrence gets its own attributes instead of every occurrence
+    collapsing onto whichever one was recorded last.
 
     Pandoc's TEI writer does not carry Markdown image attribute suffixes
     through, so this re-applies them after conversion, the same way
@@ -118,9 +126,10 @@ def apply_image_attributes_in_tei_xml(tei_xml: str, attributes_by_src: dict[str,
         current = (element.get("url") or "").strip()
         if not current:
             continue
-        attrs = _find_replacement(current, attributes_by_src)
-        if attrs is None:
+        queue = _find_replacement(current, attributes_by_src)
+        if not queue:
             continue
+        attrs = queue.pop(0)
         if attrs.get("width"):
             element.set("width", attrs["width"])
             changed = True
@@ -139,7 +148,7 @@ def apply_image_attributes_in_tei_xml(tei_xml: str, attributes_by_src: dict[str,
     return ET.tostring(root, encoding="unicode") + "\n"
 
 
-def apply_image_attributes_in_tei_file(tei_path: Path, attributes_by_src: dict[str, dict[str, str]]) -> bool:
+def apply_image_attributes_in_tei_file(tei_path: Path, attributes_by_src: dict[str, list[dict[str, str]]]) -> bool:
     if not attributes_by_src:
         return False
 

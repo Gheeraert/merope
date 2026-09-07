@@ -48,7 +48,7 @@ def test_apply_image_attributes_sets_width_height_and_rend():
         "</TEI>"
     )
     rewritten = apply_image_attributes_in_tei_xml(
-        raw, {"media/a.jpg": {"width": "300", "height": "200", "align": "left"}}
+        raw, {"media/a.jpg": [{"width": "300", "height": "200", "align": "left"}]}
     )
     assert 'width="300"' in rewritten
     assert 'height="200"' in rewritten
@@ -61,7 +61,7 @@ def test_apply_image_attributes_partial_attrs():
         "<text><body><figure><graphic url=\"media/a.jpg\"/></figure></body></text>"
         "</TEI>"
     )
-    rewritten = apply_image_attributes_in_tei_xml(raw, {"media/a.jpg": {"width": "300"}})
+    rewritten = apply_image_attributes_in_tei_xml(raw, {"media/a.jpg": [{"width": "300"}]})
     assert 'width="300"' in rewritten
     assert "height=" not in rewritten
     assert "rend=" not in rewritten
@@ -78,7 +78,32 @@ def test_apply_image_attributes_noop_when_no_matching_graphic():
         "<text><body><figure><graphic url=\"media/other.jpg\"/></figure></body></text>"
         "</TEI>"
     )
-    assert apply_image_attributes_in_tei_xml(raw, {"media/a.jpg": {"width": "300"}}) == raw
+    assert apply_image_attributes_in_tei_xml(raw, {"media/a.jpg": [{"width": "300"}]}) == raw
+
+
+def test_apply_image_attributes_same_src_twice_applies_positionally():
+    """Regression: two <graphic> elements sharing the same url used to both
+    receive whichever attributes were recorded last for that src. Each
+    occurrence must now get its own entry, in document order.
+    """
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body>"
+        '<figure><graphic url="media/a.jpg"/></figure>'
+        '<figure><graphic url="media/a.jpg"/></figure>'
+        "</body></text>"
+        "</TEI>"
+    )
+    rewritten = apply_image_attributes_in_tei_xml(
+        raw,
+        {"media/a.jpg": [{"width": "100"}, {"width": "400", "align": "center"}]},
+    )
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(rewritten)
+    graphics = root.findall(".//{http://www.tei-c.org/ns/1.0}graphic")
+    assert [g.get("width") for g in graphics] == ["100", "400"]
+    assert [g.get("rend") for g in graphics] == [None, "align-center"]
 
 
 def test_apply_paragraph_alignment_strips_marker_and_sets_rend():
