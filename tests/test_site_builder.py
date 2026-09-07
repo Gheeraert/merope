@@ -701,6 +701,54 @@ def test_site_builder_refuses_an_output_dir_outside_the_project_via_traversal():
     assert unrelated.exists()
 
 
+def test_site_builder_disabling_blog_stops_post_generation_entirely():
+    """The "Activer blog" checkbox's own tooltip promises "aucune page de
+    blog ni d'archive n'est générée" when off — not just the archive/RSS —
+    so individual posts must not be rendered, indexed for search, or
+    listed in the sitemap either when blog.enabled is False."""
+    project = RUNTIME_ROOT / f"site_builder_blog_disabled_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier-billet"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.blog.enabled = False
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert (project / "site/accueil/index.html").exists()
+    assert not (project / "site/billets/premier-billet/index.html").exists()
+    assert not (project / "site/billets/index.html").exists()
+    assert not (project / "build/tei/posts/premier-billet.xml").exists()
+
+    import json
+
+    index_entries = json.loads((project / "site/search-index.json").read_text(encoding="utf-8"))
+    urls = {entry["url"] for entry in index_entries}
+    assert "/billets/premier-billet/index.html" not in urls
+
+
 def test_site_builder_preserves_last_good_site_when_a_later_build_fails():
     """Reproduces the scenario flagged by the external audit: a build that
     fails partway through must not destroy the previously published site —

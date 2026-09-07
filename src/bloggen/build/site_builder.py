@@ -177,14 +177,21 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             tei_root=tei_root,
             report=report,
         )
-        generated_posts = _generate_posts(
-            loaded,
-            config=runtime_config,
-            project_root=project_root,
-            output_root=output_root,
-            tei_root=tei_root,
-            report=report,
-        )
+        if runtime_config.blog.enabled:
+            generated_posts = _generate_posts(
+                loaded,
+                config=runtime_config,
+                project_root=project_root,
+                output_root=output_root,
+                tei_root=tei_root,
+                report=report,
+            )
+        else:
+            # "Activer blog" off means no blog content anywhere (its own
+            # tooltip: "aucune page de blog ni d'archive n'est générée") —
+            # not just no archive/RSS page, so posts must not be rendered,
+            # indexed for search, or listed in the sitemap either.
+            generated_posts = []
 
         _generate_home_page(
             generated_pages,
