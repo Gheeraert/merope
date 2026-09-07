@@ -77,7 +77,22 @@ def _ensure_output_dir_is_safe_to_clean(output_root: Path, project_root: Path, c
     ``content_dir``) would otherwise silently delete the whole project —
     or its source content — the next time "Générer le site" runs with
     "Nettoyer le dossier de sortie" enabled.
+
+    It must also stay *inside* the project: ``project_root / output_dir``
+    silently discards ``project_root`` when ``output_dir`` is an absolute
+    path (e.g. ``C:/Users/alice/Documents``), and an ``output_dir`` such as
+    ``../../Documents`` escapes via ``..`` — either way an unrelated,
+    possibly non-empty folder outside the project would be wiped out
+    without warning.
     """
+    if output_root != project_root and project_root not in output_root.parents:
+        raise ValueError(
+            f"Dossier de sortie dangereux : « {config.paths.output_dir} » "
+            f"({output_root}) est situé hors du projet ({project_root}). "
+            "Utilisez un chemin relatif contenu dans le dossier du projet "
+            "(ex. « site ») dans l'onglet Chemins avant de régénérer le site."
+        )
+
     for label, path in _critical_project_dirs(config, project_root).items():
         if output_root == path or output_root in path.parents:
             raise ValueError(

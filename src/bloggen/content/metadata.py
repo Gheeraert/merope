@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from bloggen.content.slugify import is_valid_slug_format
+
 
 @dataclass(slots=True)
 class ContentMetadata:
@@ -39,6 +41,12 @@ def build_content_metadata(
         raise ContentMetadataError(f"Champ obligatoire manquant: title{context}.")
     if not slug:
         raise ContentMetadataError(f"Champ obligatoire manquant: slug{context}.")
+    if not is_valid_slug_format(slug):
+        raise ContentMetadataError(
+            f"Slug invalide '{slug}'{context} : seuls les lettres minuscules, "
+            "chiffres et tirets simples sont autorisés (ex. « mon-article »), "
+            "sans « / », « . » ni nom réservé Windows."
+        )
     if not declared_type:
         raise ContentMetadataError(f"Champ obligatoire manquant: type{context}.")
     if declared_type not in {"page", "post"}:

@@ -87,6 +87,13 @@ def test_load_content_accepts_valid_post_yaml_with_date():
         ('---\ntitle: "T"\ntype: "page"\n---\n', "Champ obligatoire manquant: slug"),
         ('---\ntitle: "T"\nslug: "t"\n---\n', "Champ obligatoire manquant: type"),
         ('---\ntitle: "T"\nslug: "t"\ntype: "article"\n---\n', "Valeur invalide pour type"),
+        ('---\ntitle: "T"\nslug: "../../evil"\ntype: "page"\n---\n', "Slug invalide"),
+        ('---\ntitle: "T"\nslug: "a/b"\ntype: "page"\n---\n', "Slug invalide"),
+        ('---\ntitle: "T"\nslug: "C:\\\\Windows"\ntype: "page"\n---\n', "Slug invalide"),
+        ('---\ntitle: "T"\nslug: "Mon-Titre"\ntype: "page"\n---\n', "Slug invalide"),
+        ('---\ntitle: "T"\nslug: "-leading-hyphen"\ntype: "page"\n---\n', "Slug invalide"),
+        ('---\ntitle: "T"\nslug: "double--hyphen"\ntype: "page"\n---\n', "Slug invalide"),
+        ('---\ntitle: "T"\nslug: "con"\ntype: "page"\n---\n', "Slug invalide"),
     ],
 )
 def test_load_content_rejects_invalid_page_metadata(markdown: str, expected_message: str):

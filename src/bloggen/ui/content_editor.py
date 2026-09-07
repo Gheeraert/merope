@@ -20,6 +20,7 @@ from tkinter import font as tkfont, messagebox, filedialog, simpledialog, ttk
 import tkinter as tk
 
 from bloggen.content.metadata import is_valid_iso_date
+from bloggen.content.slugify import is_valid_slug_format
 from bloggen.content.writer import (
     default_filename,
     read_content_file,
@@ -198,6 +199,14 @@ class ContentMetadataDialog(simpledialog.Dialog):
         slug = self.slug_var.get().strip()
         if not slug:
             messagebox.showerror("Métadonnées", "Le slug est obligatoire.", parent=self)
+            return False
+        if not is_valid_slug_format(slug):
+            messagebox.showerror(
+                "Métadonnées",
+                f"Slug invalide « {slug} » : utilisez uniquement des lettres minuscules, "
+                "des chiffres et des tirets simples (ex. « mon-article »).",
+                parent=self,
+            )
             return False
         others = self.existing_slugs - {self.initial.get("slug", "")}
         if slug in others:

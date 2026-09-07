@@ -638,6 +638,69 @@ def test_site_builder_refuses_to_clean_an_output_dir_that_is_content_dir():
     assert marker.exists()
 
 
+def test_site_builder_refuses_an_output_dir_outside_the_project_via_absolute_path():
+    project = RUNTIME_ROOT / f"site_builder_dangerous_output_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    outside = RUNTIME_ROOT / f"site_builder_outside_target_{uuid.uuid4().hex}"
+    outside.mkdir(parents=True)
+    unrelated = outside / "important-document.txt"
+    unrelated.write_text("ne pas supprimer", encoding="utf-8")
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    # dangerous: an absolute path silently discards project_root when
+    # joined (Path(project_root) / "C:/..." == "C:/...").
+    config.paths.output_dir = str(outside.resolve())
+    config.paths.tei_dir = "build/tei"
+    config.build.clean_output_dir = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Dossier de sortie dangereux" in error for error in report.errors)
+    assert unrelated.exists()  # the folder outside the project must survive
+
+
+def test_site_builder_refuses_an_output_dir_outside_the_project_via_traversal():
+    project = RUNTIME_ROOT / f"site_builder_dangerous_output_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+
+    unrelated = RUNTIME_ROOT / "escaped-via-dotdot.txt"
+    unrelated.write_text("ne pas supprimer", encoding="utf-8")
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    # dangerous: ".." climbs back out of the project root entirely.
+    config.paths.output_dir = ".."
+    config.paths.tei_dir = "build/tei"
+    config.build.clean_output_dir = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Dossier de sortie dangereux" in error for error in report.errors)
+    assert unrelated.exists()
+
+
 def test_site_builder_allows_a_normal_output_dir_nested_under_project_root():
     """The default/typical layout (output_dir a plain subfolder of the
     project) must not be flagged by the new guard."""
