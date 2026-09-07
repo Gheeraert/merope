@@ -76,6 +76,45 @@ def test_og_image_alt_present_only_alongside_an_actual_image():
     assert '<meta property="og:image:alt" content="Bannière du site">' in html
 
 
+def test_og_image_uses_a_remote_banner_url_directly():
+    """A banner image hosted elsewhere (config.banner.image set to a
+    full http(s) URL rather than a local asset path) previously never
+    became og:image at all — only a local path did."""
+    config = _base_config()
+    config.banner.image = "https://cdn.example.org/banniere.jpg"
+    config.banner.alt = "Bannière distante"
+    html = _render_post(config)
+    assert '<meta property="og:image" content="https://cdn.example.org/banniere.jpg">' in html
+    assert '<meta property="og:image:alt" content="Bannière distante">' in html
+
+
+def test_og_image_resolves_a_protocol_relative_banner_url():
+    config = _base_config()
+    config.banner.image = "//cdn.example.org/banniere.jpg"
+    html = _render_post(config)
+    assert '<meta property="og:image" content="https://cdn.example.org/banniere.jpg">' in html
+
+
+def test_og_locale_for_english_is_a_real_open_graph_value():
+    """og:locale previously doubled any bare 2-letter code the same way
+    (xx -> xx_XX), which produced "en_EN" for English — not a value
+    Open Graph/Facebook actually recognizes (en_US, en_GB, en_UD)."""
+    config = _base_config()
+    config.site.language = "en"
+    html = _render_post(config)
+    assert '<meta property="og:locale" content="en_US">' in html
+    assert "en_EN" not in html
+
+
+def test_og_locale_is_omitted_for_a_language_with_no_established_default():
+    """Rather than guess a region for a language this doesn't have a
+    confident default for, the tag is simply left out."""
+    config = _base_config()
+    config.site.language = "eu"  # Basque: multiple plausible regions, no single default
+    html = _render_post(config)
+    assert "og:locale" not in html
+
+
 def test_no_og_image_alt_without_an_image():
     html = _render_post(_base_config())
     assert "og:image" not in html
@@ -119,6 +158,35 @@ def test_json_ld_omits_date_modified_when_not_provided():
     html = _render_post(_base_config(), modified_date=None)
     data = _json_ld(html)
     assert "dateModified" not in data
+
+
+def test_document_title_is_not_duplicated_when_page_title_equals_site_title():
+    """The home page in "recent_posts" mode has no more specific title
+    than the site's own (see _generate_home_page) — appending "· {site
+    title}" to it then previously produced a literally duplicated
+    <title>Mon Site · Mon Site</title> instead of just "Mon Site"."""
+    config = _base_config()
+    html = render_page_document(
+        config=config,
+        title=config.site.title,
+        content_html="<article><p>Bienvenue.</p></article>",
+        current_path="/index.html",
+        asset_prefix=".",
+    )
+    assert "<title>Mon Site</title>" in html
+    assert "Mon Site · Mon Site" not in html
+
+
+def test_document_title_still_combines_page_and_site_title_when_different():
+    config = _base_config()
+    html = render_page_document(
+        config=config,
+        title="À propos",
+        content_html="<article><p>Contenu.</p></article>",
+        current_path="/a-propos/index.html",
+        asset_prefix=".",
+    )
+    assert "<title>À propos · Mon Site</title>" in html
 
 
 def test_home_page_json_ld_website_also_gets_in_language():

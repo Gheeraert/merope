@@ -110,13 +110,18 @@ def render_page_document(
             scripts="\n".join(scripts),
         )
 
+    # The home page in "recent_posts" mode passes the site's own title as
+    # its page title (there's no more specific one) — appending "· {site
+    # title}" to it then would render a literally duplicated <title>
+    # ("Mon Carnet · Mon Carnet") instead of the intended "Page · Site".
+    document_title = escape(title) if title == config.site.title else f"{escape(title)} · {escape(config.site.title)}"
     return (
         "<!doctype html>\n"
         f"<html lang=\"{escape(config.site.language)}\">\n"
         "  <head>\n"
         "    <meta charset=\"utf-8\">\n"
         "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        f"    <title>{escape(title)} · {escape(config.site.title)}</title>\n"
+        f"    <title>{document_title}</title>\n"
         f"{seo_html}"
         "    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
         "    <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n"
@@ -370,22 +375,46 @@ def _render_search_box(config: ProjectConfig, *, asset_prefix: str) -> str:
     )
 
 
+# A bare 2-letter site.language code is ambiguous about region (French
+# alone doesn't say France vs. Québec vs. Belgium vs. Switzerland), so
+# this only covers codes with one well-established, widely used default
+# — never a blind "double the code" guess (see _og_locale below: that
+# previously produced en_EN for "en", which isn't even a real Open
+# Graph locale value).
+_OG_LOCALE_DEFAULTS = {
+    "fr": "fr_FR",
+    "en": "en_US",
+    "de": "de_DE",
+    "es": "es_ES",
+    "it": "it_IT",
+    "pt": "pt_PT",
+    "nl": "nl_NL",
+}
+
+
 def _og_locale(language: str) -> str | None:
-    """Best-effort og:locale from the 2-letter site.language code — a
-    real region-qualified locale isn't tracked anywhere in the config,
-    so this follows the common xx_XX convention (fr -> fr_FR) used as a
-    default by the vast majority of sites that don't track one either;
-    a value that already looks region-qualified (fr-CA, fr_CA) is kept
-    as given (dashes normalized to underscores, the OG-standard form).
+    """Best-effort og:locale from site.language.
+
+    A value that already looks region-qualified (fr-CA, fr_CA) is kept
+    as given (dashes normalized to underscores, the OG-standard form) —
+    that's how to get a locale other than the default below for a
+    language spoken in more than one region (Canadian/Belgian/Swiss
+    French, for instance): enter "fr-CA" rather than "fr" in the Langue
+    field.
+
+    A bare 2-letter code only gets a value when it has an established
+    single default (see _OG_LOCALE_DEFAULTS) — anything else is left out
+    of the page entirely rather than guessed, since a wrong guess (like
+    the previous fr->fr_FR-style doubling applied to every language,
+    which produced the invalid "en_EN" for English) is worse than no
+    og:locale tag at all.
     """
     value = (language or "").strip()
     if not value:
         return None
     if "-" in value or "_" in value:
         return value.replace("-", "_")
-    if len(value) == 2:
-        return f"{value.lower()}_{value.upper()}"
-    return value
+    return _OG_LOCALE_DEFAULTS.get(value.lower())
 
 
 def _render_seo_meta(
@@ -445,8 +474,19 @@ def _render_seo_meta(
 
     image_url = None
     image = (config.banner.image or "").strip()
-    if base_url and image and not (_URI_SCHEME_RE.match(image) or image.startswith("//")):
-        image_url = f"{base_url.rstrip('/')}/{image.lstrip('/')}"
+    if image:
+        if _URI_SCHEME_RE.match(image):
+            # Already a fully-qualified URL (a remote banner) — og:image
+            # requires an absolute URL, which this already is.
+            image_url = image
+        elif image.startswith("//"):
+            # Protocol-relative ("//cdn.example.org/banner.jpg") — valid
+            # in an <img src>, but og:image needs a scheme to be a real
+            # absolute URL.
+            image_url = f"https:{image}"
+        elif base_url:
+            image_url = f"{base_url.rstrip('/')}/{image.lstrip('/')}"
+    if image_url:
         lines.append(f'    <meta property="og:image" content="{escape(image_url)}">')
         image_alt = (config.banner.alt or "").strip()
         if image_alt:
