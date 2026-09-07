@@ -119,7 +119,14 @@ def _load_items_from_dir(
             warnings.append(f"Brouillon ignoré: {path}")
             continue
 
+        original_slug = metadata.slug
         metadata.slug = ensure_unique_slug(metadata.slug, used_slugs)
+        if metadata.slug != original_slug:
+            warnings.append(
+                f"Slug « {original_slug} » déjà utilisé, renommé en « {metadata.slug} » "
+                f"pour {path} — vérifiez qu'aucune page/billet ne pointe encore vers "
+                f"l'ancienne URL."
+            )
 
         linked_assets = collect_linked_assets(path, normalized, project_root=project_root)
         for linked in linked_assets:

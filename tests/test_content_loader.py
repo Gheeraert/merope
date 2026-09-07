@@ -133,3 +133,43 @@ def test_load_content_skips_draft_items():
 
     assert [item.metadata.slug for item in loaded.posts] == ["publie"]
     assert any("Brouillon ignoré" in warning for warning in loaded.warnings)
+
+
+def test_load_content_warns_and_renames_on_slug_collision_between_page_and_post():
+    project = _prepare_project("loader_slug_collision")
+    (project / "content/pages/a-propos.md").write_text(
+        '---\ntitle: "A propos"\nslug: "meme-slug"\ntype: "page"\n---\n\n# A propos\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/billet.md").write_text(
+        '---\ntitle: "Un billet"\nslug: "meme-slug"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Billet\n',
+        encoding="utf-8",
+    )
+
+    loaded = load_content(project, _build_runtime_config(project))
+
+    # Pages are loaded before posts (see load_content), so the page keeps
+    # the requested slug and the post — silently renamed before this fix —
+    # is the one that collides and gets bumped.
+    assert loaded.pages[0].metadata.slug == "meme-slug"
+    assert loaded.posts[0].metadata.slug == "meme-slug-2"
+    assert any(
+        "meme-slug" in warning and "meme-slug-2" in warning and "renommé" in warning
+        for warning in loaded.warnings
+    )
+
+
+def test_load_content_does_not_warn_when_slugs_are_all_unique():
+    project = _prepare_project("loader_slug_unique")
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/billet.md").write_text(
+        '---\ntitle: "Un billet"\nslug: "un-billet"\ntype: "post"\ndate: "2026-04-23"\n---\n\n# Billet\n',
+        encoding="utf-8",
+    )
+
+    loaded = load_content(project, _build_runtime_config(project))
+
+    assert not any("renommé" in warning for warning in loaded.warnings)
