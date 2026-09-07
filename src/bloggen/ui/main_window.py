@@ -853,6 +853,7 @@ class MainWindow(tk.Tk):
             posts_dir=posts_dir,
             images_dir=images_dir,
             slugify_mode=slugify_mode,
+            project_root=project_root,
         )
 
     def stub_open_output(self) -> None:
