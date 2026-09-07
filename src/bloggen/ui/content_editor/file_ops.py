@@ -24,11 +24,14 @@ from .dialogs import ContentMetadataDialog
 # archives the previous on-disk version before overwriting it.
 _VERSIONS_DIRNAME = ".versions"
 _VERSION_FILENAME_RE_TEMPLATE = r"^{stem}\.v(\d+){suffix}$"
-# Unbounded otherwise: every save added one more file to .versions/,
-# forever, for the life of a document that might be saved hundreds of
-# times over months — the oldest versions beyond this cap are pruned
-# each time a new one is archived.
+# .versions/ grows by one file per save, for the life of a document —
+# every _VERSION_PURGE_PROMPT_INTERVAL saves, the user is offered the
+# choice to prune the oldest ones down to _MAX_VERSIONS_PER_DOCUMENT.
+# Never automatic: a user who wants every single version kept forever
+# can simply decline every time, indefinitely — this only ever deletes
+# on an explicit "yes".
 _MAX_VERSIONS_PER_DOCUMENT = 20
+_VERSION_PURGE_PROMPT_INTERVAL = 50
 
 
 class FileOpsMixin:
@@ -273,9 +276,10 @@ class FileOpsMixin:
         recoverable. No-op the first time a file is saved (nothing to
         archive yet).
 
-        Once archived, prunes the oldest versions beyond
-        ``_MAX_VERSIONS_PER_DOCUMENT`` — otherwise this folder grows by one
-        file per save, forever, for the life of the document.
+        Every ``_VERSION_PURGE_PROMPT_INTERVAL`` archived versions, offers
+        the user the choice to prune the oldest ones down to
+        ``_MAX_VERSIONS_PER_DOCUMENT`` — never automatic, so a user who
+        wants every version kept forever can simply decline each time.
         """
         if not path.exists():
             return
@@ -287,8 +291,26 @@ class FileOpsMixin:
         version_path.write_bytes(path.read_bytes())
 
         existing_versions.append((next_number, version_path))
+        if len(existing_versions) % _VERSION_PURGE_PROMPT_INTERVAL == 0:
+            self._offer_version_purge(path, existing_versions)
+
+    def _offer_version_purge(self, path: Path, existing_versions: list[tuple[int, Path]]) -> None:
+        """Ask the user whether to prune the oldest archived versions of
+        ``path`` down to ``_MAX_VERSIONS_PER_DOCUMENT``. Declining leaves
+        every version on disk untouched."""
         overflow = len(existing_versions) - _MAX_VERSIONS_PER_DOCUMENT
-        for _, old_path in existing_versions[: max(overflow, 0)]:
+        if overflow <= 0:
+            return
+        to_delete = existing_versions[:overflow]
+        if not messagebox.askyesno(
+            "Versions archivées",
+            f"{path.name} compte désormais {len(existing_versions)} versions archivées.\n\n"
+            f"Supprimer les {len(to_delete)} versions les plus anciennes pour n'en "
+            f"conserver que {_MAX_VERSIONS_PER_DOCUMENT} ?\n\n"
+            "Vous pouvez refuser pour conserver l'ensemble des versions archivées.",
+        ):
+            return
+        for _, old_path in to_delete:
             old_path.unlink(missing_ok=True)
 
     def _save(self) -> None:

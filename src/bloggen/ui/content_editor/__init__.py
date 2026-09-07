@@ -16,7 +16,7 @@ from tkinter import filedialog, messagebox
 from bloggen.markdown.html_paste_import import html_to_blocks
 
 from .dialogs import ContentMetadataDialog, FindReplaceDialog
-from .file_ops import _MAX_VERSIONS_PER_DOCUMENT
+from .file_ops import _MAX_VERSIONS_PER_DOCUMENT, _VERSION_PURGE_PROMPT_INTERVAL
 from .undo_redo import _MAX_UNDO_HISTORY
 from .window import ContentEditorWindow
 
