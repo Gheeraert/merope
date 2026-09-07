@@ -28,6 +28,9 @@ def test_search_box_present_when_enabled():
     assert 'data-index-href="search-index.json"' in html
     assert 'data-asset-prefix="."' in html
     assert "static/js/search.js" in html
+    # Dynamically-inserted results (no page reload) must be announced to
+    # screen readers, not just visible sighted users.
+    assert '<ul class="site-search-results" aria-live="polite" hidden></ul>' in html
 
 
 def test_search_box_absent_when_disabled():

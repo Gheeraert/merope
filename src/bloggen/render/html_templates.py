@@ -370,7 +370,7 @@ def _render_search_box(config: ProjectConfig, *, asset_prefix: str) -> str:
         f'data-asset-prefix="{escape(prefix)}">'
         '<input type="search" class="site-search-input" placeholder="Rechercher…" '
         'aria-label="Rechercher sur le site">'
-        '<ul class="site-search-results" hidden></ul>'
+        '<ul class="site-search-results" aria-live="polite" hidden></ul>'
         "</div>"
     )
 

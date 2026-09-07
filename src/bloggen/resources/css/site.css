@@ -245,14 +245,17 @@ button:focus-visible {
   font-weight: 700;
 }
 
-.site-search-error {
+.site-search-error,
+.site-search-empty {
   color: var(--muted);
   font-style: italic;
   cursor: default;
 }
 
 .site-search-error:hover,
-.site-search-error:focus-within {
+.site-search-error:focus-within,
+.site-search-empty:hover,
+.site-search-empty:focus-within {
   background: none;
 }
 

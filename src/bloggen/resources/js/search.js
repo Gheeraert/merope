@@ -205,10 +205,28 @@
     return fragment;
   }
 
+  function renderNoResults() {
+    resultsList.innerHTML = "";
+    var item = document.createElement("li");
+    item.className = "site-search-result site-search-empty";
+    item.textContent = "Aucun résultat.";
+    resultsList.appendChild(item);
+    resultsList.hidden = false;
+  }
+
   function renderResults(matches, tokens) {
     resultsList.innerHTML = "";
     if (!matches.length) {
-      resultsList.hidden = true;
+      // Distinguishes "nothing typed yet" (list simply stays hidden) from
+      // "typed something, found nothing" (previously indistinguishable —
+      // the results list was just silently hidden either way, leaving a
+      // visitor who searched for something with no results at all with no
+      // feedback that their search actually ran).
+      if (tokens && tokens.length) {
+        renderNoResults();
+      } else {
+        resultsList.hidden = true;
+      }
       return;
     }
     matches.slice(0, MAX_RESULTS).forEach(function (entry) {
