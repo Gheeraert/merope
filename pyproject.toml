@@ -8,9 +8,22 @@ version = "0.1.0"
 description = "Générateur statique académique Markdown → TEI → HTML"
 readme = "README.md"
 requires-python = ">=3.11"
+# Version floors audited against the OSV.dev vulnerability database
+# (https://osv.dev, PyPI ecosystem) on 2026-09-07 — each floor below is the
+# lowest version with every publicly disclosed vulnerability affecting an
+# older release already fixed, not just "whatever worked at the time":
+#   - lxml     : GHSA-vfmq-68hx-4jfw (XXE via iterparse()/ETCompatXMLParser
+#                default config) fixed in 6.1.0; 5.0 itself was vulnerable.
+#   - Pillow   : dozens of disclosed issues (buffer overflows, DoS via
+#                decompression bombs, OOB read/write...) between 10.0 and
+#                12.3.0; 10.0 itself was vulnerable to several.
+#   - keyring  : 24.0 already clear of every disclosed advisory.
+# Re-run this audit periodically — e.g. `pip install pip-audit && pip-audit`
+# from the project's venv, or query https://api.osv.dev/v1/querybatch with
+# the installed package/version pairs from `pip list`.
 dependencies = [
-    "lxml>=5.0",
-    "Pillow>=10.0",
+    "lxml>=6.1.0",
+    "Pillow>=12.3.0",
     "keyring>=24.0",
 ]
 
@@ -19,7 +32,10 @@ bloggen = "bloggen.cli:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
+    # GHSA-6w46-j5rx-g56g (pytest <=9.0.2 on UNIX: predictable
+    # /tmp/pytest-of-{user} directory name, local DoS/privilege risk) fixed
+    # in 9.0.3 — dev-only dependency, never shipped with the generated site.
+    "pytest>=9.0.3",
 ]
 
 [tool.pytest.ini_options]
