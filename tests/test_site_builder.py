@@ -667,7 +667,7 @@ def test_site_builder_refuses_an_output_dir_outside_the_project_via_absolute_pat
     report = build_site(config, config_path=config_path)
 
     assert report.success is False
-    assert any("Dossier de sortie dangereux" in error for error in report.errors)
+    assert any("Chemin dangereux" in error for error in report.errors)
     assert unrelated.exists()  # the folder outside the project must survive
 
 
@@ -697,8 +697,187 @@ def test_site_builder_refuses_an_output_dir_outside_the_project_via_traversal():
     report = build_site(config, config_path=config_path)
 
     assert report.success is False
-    assert any("Dossier de sortie dangereux" in error for error in report.errors)
+    assert any("Chemin dangereux" in error for error in report.errors)
     assert unrelated.exists()
+
+
+def test_site_builder_refuses_a_not_yet_existing_external_output_dir():
+    """Third external audit finding: the containment check only ran when
+    clean_output_dir was on AND the directory already existed — a first
+    build to a not-yet-created external path was never checked.
+    Confirmed exploitable before this fix."""
+    project = RUNTIME_ROOT / f"site_builder_ext_nonexistent_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    external_target = RUNTIME_ROOT.resolve() / f"external_target_{uuid.uuid4().hex}"
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = str(external_target)
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.build.clean_output_dir = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Chemin dangereux" in error for error in report.errors)
+    assert not external_target.exists()
+
+
+def test_site_builder_refuses_an_external_output_dir_even_with_clean_output_dir_off():
+    """Fourth finding: with clean_output_dir=False the containment check
+    was never called at all, regardless of whether the directory existed.
+    Confirmed exploitable before this fix."""
+    project = RUNTIME_ROOT / f"site_builder_ext_noclean_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    external_target = RUNTIME_ROOT.resolve() / f"external_target_noclean_{uuid.uuid4().hex}"
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = str(external_target)
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.build.clean_output_dir = False
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Chemin dangereux" in error for error in report.errors)
+    assert not external_target.exists()
+
+
+def test_site_builder_refuses_an_external_assets_dir():
+    """assets_dir pointed outside the project would have
+    copy_project_assets publish an unrelated folder's contents into the
+    generated site."""
+    project = RUNTIME_ROOT / f"site_builder_ext_assets_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    outside_assets = RUNTIME_ROOT.resolve() / f"outside_assets_{uuid.uuid4().hex}"
+    outside_assets.mkdir(parents=True)
+    (outside_assets / "private.txt").write_text("confidentiel", encoding="utf-8")
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = str(outside_assets)
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Chemin dangereux" in error for error in report.errors)
+    assert not (project / "site").exists()
+
+
+def test_blog_archive_path_traversal_is_rejected():
+    """blog.archive_path is joined straight into an output path and was
+    never passed through slugify() — confirmed exploitable before this
+    fix: a build with archive_path="../../../escaped" actually wrote a
+    file outside the project."""
+    project = RUNTIME_ROOT / f"archive_path_traversal_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.blog.archive_path = "../../../escaped-via-archive-path"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Chemin d'archive dangereux" in error for error in report.errors)
+    escaped = project.resolve().parent.parent / "escaped-via-archive-path"
+    assert not escaped.exists()
+
+
+def test_blog_archive_path_allows_multiple_safe_segments(monkeypatch):
+    project = RUNTIME_ROOT / f"archive_path_multi_segment_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.blog.archive_path = "archives/billets"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    assert (project / "site/archives/billets/premier/index.html").exists()
 
 
 def test_site_builder_disabling_blog_stops_post_generation_entirely():

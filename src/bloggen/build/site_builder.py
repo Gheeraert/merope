@@ -28,7 +28,7 @@ from bloggen.build.redirects import (
 from bloggen.build.reports import BuildReport
 from bloggen.config.models import MenuLink, ProjectConfig, SideMenuSection, SideMenuSubSection
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
-from bloggen.content.slugify import ensure_unique_slug, slugify
+from bloggen.content.slugify import ensure_unique_slug, is_valid_slug_format, slugify
 from bloggen.render.feeds import FeedItem, render_robots_txt, render_rss_feed, render_sitemap
 from bloggen.render.html_templates import (
     render_archive_fragment,
@@ -99,6 +99,27 @@ def _critical_project_dirs(config: ProjectConfig, project_root: Path) -> dict[st
     return {label: (project_root / relative).resolve() for label, relative in relative_by_label.items()}
 
 
+def _ensure_path_is_within_project(
+    resolved: Path, project_root: Path, *, field_label: str, configured_value: str
+) -> None:
+    """A configured ``paths.*`` field must resolve inside ``project_root``
+    — checked unconditionally, for every such field, before the build
+    reads or writes through it (see callers). Without this, a value that
+    is an absolute path (``project_root / value`` then silently discards
+    ``project_root``) or escapes via ``..`` lets the build touch an
+    arbitrary location outside the project: read and publish an
+    unrelated folder's contents (``assets_dir`` feeding
+    ``copy_project_assets``), or write generated files outside the
+    output directory entirely (``blog.archive_path``, ``output_dir``).
+    """
+    if resolved != project_root and project_root not in resolved.parents:
+        raise ValueError(
+            f"Chemin dangereux : « {field_label} » = « {configured_value} » "
+            f"({resolved}) est situé hors du projet ({project_root}). "
+            "Utilisez un chemin relatif contenu dans le dossier du projet."
+        )
+
+
 def _ensure_output_dir_is_safe_to_clean(output_root: Path, project_root: Path, config: ProjectConfig) -> None:
     """Refuse to ``shutil.rmtree`` a directory that *is*, or *contains*,
     the project root or any of its source directories.
@@ -107,23 +128,12 @@ def _ensure_output_dir_is_safe_to_clean(output_root: Path, project_root: Path, c
     tab; a careless value (``.``, ``..``, or simply the same folder as
     ``content_dir``) would otherwise silently delete the whole project —
     or its source content — the next time "Générer le site" runs with
-    "Nettoyer le dossier de sortie" enabled.
-
-    It must also stay *inside* the project: ``project_root / output_dir``
-    silently discards ``project_root`` when ``output_dir`` is an absolute
-    path (e.g. ``C:/Users/alice/Documents``), and an ``output_dir`` such as
-    ``../../Documents`` escapes via ``..`` — either way an unrelated,
-    possibly non-empty folder outside the project would be wiped out
-    without warning.
+    "Nettoyer le dossier de sortie" enabled. (Containment inside the
+    project itself is checked unconditionally elsewhere — see
+    ``_ensure_path_is_within_project`` — this only covers the
+    *additional*, rmtree-specific danger of an in-project ``output_dir``
+    that is or contains a directory the build reads from.)
     """
-    if output_root != project_root and project_root not in output_root.parents:
-        raise ValueError(
-            f"Dossier de sortie dangereux : « {config.paths.output_dir} » "
-            f"({output_root}) est situé hors du projet ({project_root}). "
-            "Utilisez un chemin relatif contenu dans le dossier du projet "
-            "(ex. « site ») dans l'onglet Chemins avant de régénérer le site."
-        )
-
     for label, path in _critical_project_dirs(config, project_root).items():
         if output_root == path or output_root in path.parents:
             raise ValueError(
@@ -184,6 +194,63 @@ def _replace_directory(staging: Path, final: Path, *, attempts: int = 5) -> None
     shutil.rmtree(backup, ignore_errors=True)
 
 
+_PROJECT_PATH_FIELDS: tuple[tuple[str, str], ...] = (
+    ("output_dir", "Dossier sortie"),
+    ("tei_dir", "Dossier TEI"),
+    ("pages_dir", "Dossier des pages"),
+    ("posts_dir", "Dossier des billets"),
+    ("assets_dir", "Dossier assets"),
+    ("theme_dir", "Dossier thème"),
+    ("templates_dir", "Dossier templates"),
+    ("xslt_dir", "Dossier XSLT"),
+    ("content_dir", "Dossier contenu"),
+)
+
+
+def _ensure_all_project_paths_are_contained(config: ProjectConfig, project_root: Path) -> None:
+    """Every ``paths.*`` field is checked, unconditionally, before the
+    build reads or writes through any of them — not just ``output_dir``
+    (previously only checked when ``clean_output_dir`` was on *and* the
+    directory already existed, missing a first build to a not-yet-created
+    external path, and skipped entirely with ``clean_output_dir`` off),
+    and not just for the rmtree danger: ``assets_dir`` pointed outside
+    the project would have ``copy_project_assets`` publish an unrelated
+    folder's contents, and ``blog.archive_path`` (checked separately —
+    it isn't a ``paths.*`` field) confirmed a build can be made to write
+    generated files outside the project entirely via ``..``.
+    """
+    for attr, label in _PROJECT_PATH_FIELDS:
+        configured_value = getattr(config.paths, attr)
+        resolved = (project_root / configured_value).resolve()
+        _ensure_path_is_within_project(
+            resolved, project_root, field_label=label, configured_value=configured_value
+        )
+
+
+def _ensure_archive_path_is_safe(archive_path: str) -> None:
+    """``blog.archive_path`` is joined straight into an output path
+    (``output_root / archive_path / slug / ...``) — unlike a slug, it
+    never goes through ``slugify()``, so a value such as
+    ``../../ailleurs`` reaches the filesystem as-is. Confirmed
+    exploitable: a build with this set actually wrote a file outside the
+    project. Enforced here unconditionally (not only when
+    ``config/validator.py``'s structural check runs — that's opt-out via
+    ``build.fail_on_invalid_config``, and a caller can hand ``build_site``
+    a ``ProjectConfig`` that was never validated at all).
+    """
+    stripped = archive_path.strip("/")
+    if not stripped:
+        return  # falls back to the "billets" default
+    segments = stripped.split("/")
+    if any(not is_valid_slug_format(segment) for segment in segments):
+        raise ValueError(
+            f"Chemin d'archive dangereux : « {archive_path} » contient un segment "
+            "invalide. Seuls des segments en minuscules alphanumériques séparés par "
+            "des tirets sont autorisés (ex. « billets » ou « archives/billets »), "
+            "sans « .. » ni chemin absolu. Corrigez « Chemin archive » dans l'onglet Blog."
+        )
+
+
 def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> BuildReport:
     project_root = resolve_project_root(config, config_path)
     runtime_config = copy.deepcopy(config)
@@ -206,6 +273,9 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
     tei_staging_root: Path | None = None
 
     try:
+        _ensure_all_project_paths_are_contained(config, project_root)
+        _ensure_archive_path_is_safe(config.blog.archive_path)
+
         if config.build.clean_output_dir:
             if final_output_root.exists():
                 _ensure_output_dir_is_safe_to_clean(final_output_root, project_root, config)

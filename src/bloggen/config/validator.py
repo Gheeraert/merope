@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from bloggen.config.models import ProjectConfig
+from bloggen.content.slugify import is_valid_slug_format
 
 
 REQUIRED_ROOT_KEYS = (
@@ -98,6 +99,7 @@ def validate_config_dict(data: Any) -> list[str]:
     _validate_number_fields(data, errors)
     _validate_home_mode(data, errors)
     _validate_ftp_site_url(data, errors)
+    _validate_blog_archive_path(data, errors)
     return errors
 
 
@@ -163,6 +165,36 @@ def _validate_home_mode(data: dict[str, Any], errors: list[str]) -> None:
     mode = home.get("mode")
     if mode is not None and mode not in HOME_MODES:
         errors.append(f"'home.mode' doit être l'une de {HOME_MODES}, reçu {mode!r}.")
+
+
+def _validate_blog_archive_path(data: dict[str, Any], errors: list[str]) -> None:
+    """archive_path is joined straight into an output path
+    (site_builder.py: ``output_root / archive_path / slug / ...``) —
+    unlike a slug, it was never passed through slugify(), so a value
+    such as ``../../ailleurs`` reaches the filesystem as-is. Confirmed
+    exploitable: a build with this set actually wrote a file outside
+    the project. Each ``/``-separated segment must be as safe as a
+    slug; multiple segments (e.g. ``archives/billets``) stay allowed.
+    """
+    blog = data.get("blog")
+    if not isinstance(blog, dict):
+        return
+    archive_path = blog.get("archive_path")
+    if archive_path is None:
+        return
+    if not isinstance(archive_path, str):
+        errors.append("'blog.archive_path' doit être une chaîne.")
+        return
+    stripped = archive_path.strip("/")
+    if not stripped:
+        return  # falls back to the "billets" default — nothing to check
+    segments = stripped.split("/")
+    if any(not is_valid_slug_format(segment) for segment in segments):
+        errors.append(
+            f"'blog.archive_path' contient un segment invalide ({archive_path!r}) : "
+            "seuls des segments en minuscules alphanumériques séparés par des tirets "
+            "sont autorisés (ex. 'billets' ou 'archives/billets'), sans '..' ni chemin absolu."
+        )
 
 
 def _validate_number_fields(data: dict[str, Any], errors: list[str]) -> None:

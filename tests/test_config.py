@@ -259,6 +259,36 @@ def test_ftp_port_in_range_is_accepted():
     assert config.ftp.port == 2121
 
 
+@pytest.mark.parametrize(
+    "bad_archive_path",
+    ["../../ailleurs", "..", "billets/../../ailleurs", "Billets", "billets_", "billets/CON"],
+)
+def test_blog_archive_path_rejects_unsafe_segments(bad_archive_path):
+    """A second external audit found archive_path was never passed
+    through slugify() like a content slug is — joined straight into an
+    output path, a value like ../../ailleurs escapes the site entirely
+    (confirmed by an actual build writing a file outside the project)."""
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["blog"]["archive_path"] = bad_archive_path
+    with pytest.raises(ConfigValidationError, match="archive_path"):
+        parse_config(raw)
+
+
+def test_blog_archive_path_allows_multiple_safe_segments():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["blog"]["archive_path"] = "archives/billets"
+    config = parse_config(raw)
+    assert config.blog.archive_path == "archives/billets"
+
+
+def test_blog_archive_path_empty_string_is_allowed():
+    """Falls back to the "billets" default at build time."""
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["blog"]["archive_path"] = ""
+    config = parse_config(raw)
+    assert config.blog.archive_path == ""
+
+
 def test_two_path_fields_pointing_at_the_same_folder_are_rejected():
     """A collision means one role silently overwrites/reads the other
     (e.g. output_dir == assets_dir would wipe assets on every clean)."""
