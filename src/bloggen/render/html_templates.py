@@ -500,20 +500,33 @@ def _inject_article_date(content_html: str, article_date: str) -> str:
     return f"{meta_html}{content_html}"
 
 
-def _inject_article_title(content_html: str, title: str) -> str:
-    """Show the billet/page title (from its metadata) as a heading in the body.
+_HEADING_TAG_RE = re.compile(r"<(/?)h([123])(?=[\s>])", flags=re.IGNORECASE)
 
-    Rendered as H2 by default. If the content already has its own H1 (a
-    top-level TEI div heading, per the XSLT's div-nesting-to-heading-level
-    mapping), using H2 for the title would rank it below that internal
-    heading — so the title takes H1 instead in that case, leaving the
-    internal heading levels untouched.
+
+def _shift_headings_down_one_level(content_html: str) -> str:
+    """h1->h2, h2->h3, h3->h4 (the XSLT's div-nesting-to-heading mapping
+    never goes past h3, so h4 never collides with anything else already
+    in the content) — used when injecting the page's own <h1> title, so
+    the content's internal structure can never end up with its own h1
+    competing with, or replacing, the real page title.
+    """
+    return _HEADING_TAG_RE.sub(lambda m: f"<{m.group(1)}h{int(m.group(2)) + 1}", content_html)
+
+
+def _inject_article_title(content_html: str, title: str) -> str:
+    """Show the billet/page title (from its metadata) as the page's own
+    <h1> — previously rendered as h2 unless the content already had an
+    h1 of its own (a top-level TEI div heading), in which case *that*
+    became h1 instead of the actual title, and a page whose content had
+    no headings at all ended up with none: a page could have zero or two
+    h1 elements depending on its content structure, never a guaranteed
+    single, correct one.
     """
     title_value = (title or "").strip()
     if not title_value:
         return content_html
-    heading_tag = "h1" if re.search(r"<h1[\s>]", content_html, flags=re.IGNORECASE) else "h2"
-    title_html = f'<{heading_tag} class="article-title">{escape(title_value)}</{heading_tag}>'
+    content_html = _shift_headings_down_one_level(content_html)
+    title_html = f'<h1 class="article-title">{escape(title_value)}</h1>'
     article_open = re.compile(r"(<article\b[^>]*>)", flags=re.IGNORECASE)
     if article_open.search(content_html):
         return article_open.sub(rf"\1{title_html}", content_html, count=1)
