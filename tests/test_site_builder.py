@@ -808,6 +808,213 @@ def test_site_builder_preserves_last_good_site_when_a_later_build_fails():
     assert leftovers == []
 
 
+def test_site_builder_survives_a_non_permission_error_during_the_final_swap(monkeypatch):
+    """A second external audit flagged that the swap wasn't actually
+    atomic: the old rmtree-then-rename approach only retried
+    PermissionError, so any other rename failure (a stray external
+    delete, a same-volume race, ...) after the old site was already
+    deleted left nothing in its place — confirmed exploitable before
+    this fix by forcing exactly that failure mode."""
+    project = RUNTIME_ROOT / f"site_builder_swap_failure_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "site").mkdir(parents=True)
+    (project / "site" / "old.html").write_text("ancien site valide", encoding="utf-8")
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.blog.enabled = False
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    original_rename = Path.rename
+
+    def failing_rename(self, target):
+        if ".building-" in self.name:
+            raise OSError("simulated non-permission rename failure")
+        return original_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", failing_rename)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    # The old site must survive intact — not silently deleted with
+    # nothing to replace it.
+    assert (project / "site").exists()
+    assert (project / "site" / "old.html").read_text(encoding="utf-8") == "ancien site valide"
+
+
+def test_site_builder_does_not_leak_partial_tei_when_a_later_post_fails(monkeypatch):
+    """Second external audit finding: build/tei (the "Conserver TEI"
+    output) sat outside the staging/swap protection given to the HTML
+    site — a post that failed to convert after an earlier one succeeded
+    left that earlier post's .xml sitting in build/tei despite the
+    overall build failing. Confirmed exploitable before this fix."""
+    project = RUNTIME_ROOT / f"tei_staging_partial_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/second.md").write_text(
+        '---\ntitle: "Second"\nslug: "second"\ntype: "post"\ndate: "2026-01-02"\n---\n\n# Second\n',
+        encoding="utf-8",
+    )
+
+    def flaky_convert(input_path, output_path, **_kwargs):
+        if "second" in str(input_path):
+            return MarkdownToTeiResult(
+                source_file=Path(input_path),
+                tei_file=Path(output_path),
+                command=["pandoc"],
+                success=False,
+                message="echec pandoc simule",
+                validation=TeiValidationResult(valid=False),
+            )
+        return _fake_convert(input_path, output_path, **_kwargs)
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.render.generate_tei_files = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", flaky_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert not (project / "build/tei").exists()
+
+
+def test_site_builder_does_not_leak_a_sidecar_xml_when_a_later_post_fails(monkeypatch):
+    """Third finding from the second external audit: the permanent
+    content/*.xml copy kept next to each Markdown source (independent of
+    "Conserver TEI") was written immediately, per item, regardless of
+    whether the overall build later failed — a successfully-converted
+    post's sidecar .xml still landed in the content/ source directory
+    even though the build as a whole never succeeded. Confirmed
+    exploitable before this fix."""
+    project = RUNTIME_ROOT / f"sidecar_xml_partial_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/second.md").write_text(
+        '---\ntitle: "Second"\nslug: "second"\ntype: "post"\ndate: "2026-01-02"\n---\n\n# Second\n',
+        encoding="utf-8",
+    )
+
+    def flaky_convert(input_path, output_path, **_kwargs):
+        if "second" in str(input_path):
+            return MarkdownToTeiResult(
+                source_file=Path(input_path),
+                tei_file=Path(output_path),
+                command=["pandoc"],
+                success=False,
+                message="echec pandoc simule",
+                validation=TeiValidationResult(valid=False),
+            )
+        return _fake_convert(input_path, output_path, **_kwargs)
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", flaky_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert not (project / "content/posts/premier.xml").exists()
+    assert not (project / "content/pages/accueil.xml").exists()
+
+
+def test_site_builder_preserves_a_good_tei_dir_when_a_later_build_fails(monkeypatch):
+    project = RUNTIME_ROOT / f"tei_staging_preserve_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n# Premier\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.render.generate_tei_files = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", _fake_convert)
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+    good_tei = (project / "build/tei/posts/premier.xml").read_text(encoding="utf-8")
+
+    (project / "content/posts/second.md").write_text(
+        '---\nslug: "second"\ntype: "post"\ndate: "2026-01-02"\n---\n\n# Sans titre\n',
+        encoding="utf-8",
+    )
+
+    second_report = build_site(config, config_path=config_path)
+    assert second_report.success is False
+
+    assert (project / "build/tei/posts/premier.xml").read_text(encoding="utf-8") == good_tei
+
+
 def test_site_builder_allows_a_normal_output_dir_nested_under_project_root():
     """The default/typical layout (output_dir a plain subfolder of the
     project) must not be flagged by the new guard."""

@@ -71,6 +71,14 @@ class GeneratedItem:
     # rendered again at /index.html, which stays the one canonical,
     # indexable copy.
     noindex: bool = False
+    # (destination path, TEI bytes) for the permanent sidecar copy next
+    # to this item's Markdown source — captured here rather than
+    # written immediately so it can be flushed to disk only once the
+    # whole build has succeeded (see build_site): content/ is a source
+    # directory, not something the staging/swap protection given to
+    # output_root and the TEI dir covers, so a mid-build failure must
+    # not still leave it modified. None when nothing to write.
+    pending_sidecar: tuple[Path, bytes] | None = None
 
 
 def _critical_project_dirs(config: ProjectConfig, project_root: Path) -> dict[str, Path]:
@@ -126,28 +134,54 @@ def _ensure_output_dir_is_safe_to_clean(output_root: Path, project_root: Path, c
             )
 
 
-def _replace_directory(staging: Path, final: Path, *, attempts: int = 5) -> None:
-    """Swap ``staging`` in for ``final``, retrying briefly on Windows.
-
-    A directory that was just written to can be transiently locked by
-    Windows Defender / the search indexer scanning the new files, which
-    makes ``shutil.rmtree``/``Path.rename`` fail with ``PermissionError``
-    (WinError 5) even though nothing is actually still using the files a
-    moment later — observed intermittently in practice, not just in
-    theory.
+def _rename_with_retry(src: Path, dst: Path, *, attempts: int) -> None:
+    """Retries briefly on Windows: a directory that was just written to
+    can be transiently locked by Windows Defender / the search indexer
+    scanning the new files, which makes ``Path.rename`` fail with
+    ``PermissionError`` (WinError 5) even though nothing is actually
+    still using the files a moment later — observed intermittently in
+    practice, not just in theory.
     """
     delay = 0.1
     for attempt in range(attempts):
         try:
-            if final.exists():
-                shutil.rmtree(final)
-            staging.rename(final)
+            src.rename(dst)
             return
         except PermissionError:
             if attempt == attempts - 1:
                 raise
             time.sleep(delay)
             delay *= 2
+
+
+def _replace_directory(staging: Path, final: Path, *, attempts: int = 5) -> None:
+    """Swaps ``staging`` in for ``final`` without ever deleting ``final``
+    before ``staging`` has actually taken its place.
+
+    The previous approach — ``shutil.rmtree(final)`` then
+    ``staging.rename(final)`` — was two separate steps with no way back
+    between them: any failure in the second (not just the transient
+    PermissionError above; a stray external delete, a same-volume race,
+    anything) left ``final`` deleted with nothing to replace it, i.e.
+    exactly the data loss the staging/swap scheme exists to prevent.
+    Renaming ``final`` itself out of the way first keeps it fully
+    intact and restorable until ``staging`` has successfully replaced
+    it — each individual rename is a single atomic filesystem
+    operation, so a failure at any point is either a clean no-op or an
+    explicit, undone-if-possible rollback, never a silent deletion.
+    """
+    if not final.exists():
+        _rename_with_retry(staging, final, attempts=attempts)
+        return
+
+    backup = final.parent / f".{final.name}.previous-{uuid.uuid4().hex}"
+    _rename_with_retry(final, backup, attempts=attempts)
+    try:
+        _rename_with_retry(staging, final, attempts=attempts)
+    except Exception:
+        _rename_with_retry(backup, final, attempts=attempts)
+        raise
+    shutil.rmtree(backup, ignore_errors=True)
 
 
 def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> BuildReport:
@@ -164,6 +198,12 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
     # last good site the instant a later page/post failed to render,
     # leaving nothing publishable until the next successful build.
     staging_root: Path | None = None
+    # Same reasoning applies to the "Conserver TEI" output: without its
+    # own staging directory, a failed build still leaves whatever pages
+    # rendered before the failure sitting in build/tei — a second
+    # external audit flagged this as escaping the transactional
+    # protection above.
+    tei_staging_root: Path | None = None
 
     try:
         if config.build.clean_output_dir:
@@ -184,7 +224,14 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         )
 
         temporary_tei_root = output_root / "_tmp_tei_runtime"
-        tei_root = requested_tei_root if runtime_config.render.generate_tei_files else temporary_tei_root
+        if runtime_config.render.generate_tei_files:
+            tei_staging_root = requested_tei_root.parent / (
+                f".{requested_tei_root.name}.building-{uuid.uuid4().hex}"
+            )
+            tei_staging_root.mkdir(parents=True, exist_ok=True)
+            tei_root = tei_staging_root
+        else:
+            tei_root = temporary_tei_root
         tei_root.mkdir(parents=True, exist_ok=True)
 
         loaded = load_content(project_root, runtime_config)
@@ -284,6 +331,12 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
 
         report.success = len(report.errors) == 0
 
+        if report.success:
+            for generated_item in (*generated_pages, *generated_posts):
+                if generated_item.pending_sidecar is not None:
+                    sidecar_path, sidecar_bytes = generated_item.pending_sidecar
+                    sidecar_path.write_bytes(sidecar_bytes)
+
         if report.success and pending_redirect_history is not None:
             # Only recorded once the build actually succeeded — an
             # aborted build's "current" URLs are incomplete (some pages
@@ -294,6 +347,10 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         if staging_root is not None and report.success:
             _replace_directory(staging_root, final_output_root)
             staging_root = None
+
+        if tei_staging_root is not None and report.success:
+            _replace_directory(tei_staging_root, requested_tei_root)
+            tei_staging_root = None
 
         return report
 
@@ -327,6 +384,8 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         # the failed attempt must never leak into the project directory.
         if staging_root is not None:
             shutil.rmtree(staging_root, ignore_errors=True)
+        if tei_staging_root is not None:
+            shutil.rmtree(tei_staging_root, ignore_errors=True)
 
 
 def _generate_pages(
@@ -463,13 +522,16 @@ def _build_single_item(
 
     report.generated_tei.append(tei_path)
 
-    # Keep a permanent, "usable" copy of the generated TEI (full document,
-    # own teiHeader — not just the fragment rendered into the page) next to
-    # its Markdown source, so it can be versioned/archived alongside it.
-    # Independent of the "Conserver TEI" (generate_tei_files) setting, which
-    # only controls the separate build/tei staging directory.
+    # A permanent, "usable" copy of the generated TEI (full document,
+    # own teiHeader — not just the fragment rendered into the page) is
+    # kept next to its Markdown source, independent of the "Conserver
+    # TEI" (generate_tei_files) setting, which only controls the
+    # separate build/tei staging directory. Captured here, not written
+    # yet — build_site only flushes every item's pending_sidecar once
+    # the whole build has succeeded (content/ is a source directory,
+    # not something a failed build gets to leave modified).
     content_tei_path = item.source_path.with_suffix(".xml")
-    shutil.copyfile(tei_path, content_tei_path)
+    pending_sidecar = (content_tei_path, tei_path.read_bytes())
 
     fragment = render_tei_file_to_html_fragment(
         tei_path,
@@ -551,6 +613,7 @@ def _build_single_item(
         description=item.metadata.description,
         noindex=noindex,
         lastmod=lastmod,
+        pending_sidecar=pending_sidecar,
     )
 
 
