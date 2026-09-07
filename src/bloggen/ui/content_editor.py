@@ -1147,7 +1147,15 @@ class ContentEditorWindow(tk.Toplevel):
         self.footnote_definitions[note_id] = self._extract_note_runs(widget)
 
     def _delete_footnote(self, note_id: str) -> None:
+        # Drop the widget/row entries too, not just the model: otherwise
+        # _refresh_notes_panel's leading _sync_footnote_widgets_to_model()
+        # call reads this note's (still-alive, not-yet-destroyed) Text
+        # widget and writes it straight back into footnote_definitions,
+        # silently undoing the deletion — most visible on an empty note,
+        # where "deleting" it just brings back an identical empty row.
         self.footnote_definitions.pop(note_id, None)
+        self._footnote_text_widgets.pop(note_id, None)
+        self._footnote_rows.pop(note_id, None)
         self._refresh_notes_panel()
 
     def _focus_footnote_row(self, note_id: str) -> None:
@@ -2220,6 +2228,65 @@ class ContentEditorWindow(tk.Toplevel):
         self.text.tag_bind(tag, "<Button-1>", lambda _e, nid=note_id: self._focus_footnote_row(nid))
         return end
 
+    def _renumber_footnotes(self) -> None:
+        """Renumber every footnote to match its order of appearance in the
+        text (1, 2, 3, ...), called right before save.
+
+        Note ids are otherwise just "first free integer at the moment the
+        note was created" (see :meth:`_register_new_footnote`), which
+        drifts out of reading order the moment a human editor reorders
+        paragraphs, deletes a note in the middle, or pastes a note-bearing
+        paragraph somewhere else — exactly the kind of free-form editing
+        this is meant to support. A definition with no marker left in the
+        text (its "[n]" call was deleted by hand rather than through the
+        notes panel) is kept, not silently dropped, but pushed after every
+        referenced note so it never disturbs the reading-order numbering.
+        """
+        self._sync_footnote_widgets_to_model()
+
+        seen: list[str] = []
+        for key, value, _index in self.text.dump("1.0", "end-1c", tag=True):
+            if key == "tagon" and value in self.footnote_ref_data:
+                note_id = self.footnote_ref_data[value]
+                if note_id not in seen:
+                    seen.append(note_id)
+
+        orphans = sorted((nid for nid in self.footnote_definitions if nid not in seen), key=int)
+        ordered_old_ids = seen + orphans
+        mapping = {old: str(i + 1) for i, old in enumerate(ordered_old_ids)}
+
+        if all(old == new for old, new in mapping.items()):
+            return
+
+        def sort_key(index: str) -> tuple[int, int]:
+            line, col = index.split(".")
+            return (int(line), int(col))
+
+        changed_ranges: list[tuple[str, str, str, str]] = []  # (old_tag, start, end, new_id)
+        for tag, old_id in self.footnote_ref_data.items():
+            new_id = mapping.get(old_id)
+            if new_id is None or new_id == old_id:
+                continue
+            tag_ranges = self.text.tag_ranges(tag)
+            for i in range(0, len(tag_ranges), 2):
+                changed_ranges.append((tag, str(tag_ranges[i]), str(tag_ranges[i + 1]), new_id))
+
+        # Rewrite from the last marker to the first: a renumbered marker's
+        # text can change length (e.g. "[10]" -> "[3]"), which would shift
+        # every index further on in the document out from under a
+        # not-yet-processed range.
+        changed_ranges.sort(key=lambda r: sort_key(r[1]), reverse=True)
+        for old_tag, start, end, new_id in changed_ranges:
+            self.text.delete(start, end)
+            self._insert_footnote_marker(start, new_id)
+            self.text.tag_delete(old_tag)
+            self.footnote_ref_data.pop(old_tag, None)
+
+        self.footnote_definitions = {
+            mapping[old_id]: runs for old_id, runs in self.footnote_definitions.items() if old_id in mapping
+        }
+        self._refresh_notes_panel()
+
     # -- extraction (Text widget -> Block model) ---------------------------
 
     def _line_block_type(self, line: int) -> str:
@@ -2517,6 +2584,7 @@ class ContentEditorWindow(tk.Toplevel):
         kind = self.current_kind or "page"
         directory = self.pages_dir if kind == "page" else self.posts_dir
 
+        self._renumber_footnotes()
         blocks = self.extract_blocks()
         body = blocks_to_markdown(blocks)
 
