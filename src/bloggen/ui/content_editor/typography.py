@@ -42,6 +42,7 @@ class TypographyMixin:
 
     def _on_key_release(self, event: tk.Event) -> None:
         self._update_toolbar_char_state()
+        self._update_toolbar_block_state()
         if self._current_line_is_raw():
             return
         char = event.char

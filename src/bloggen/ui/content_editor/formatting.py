@@ -101,6 +101,26 @@ class FormattingMixin:
         tag = f"h{level}"
         self._toggle_line_tag(tag)
 
+    def _activate_block_format(self, tag: str) -> None:
+        """Toolbar checkbutton command for H1-H4/citation. ``_toggle_line_tag``
+        already resyncs every such checkbutton's pressed state to the
+        line's real tag afterwards (the click already flipped this one's
+        own ``BooleanVar`` optimistically, which is wrong e.g. when the
+        line was some other heading level and just switched to this one).
+        """
+        self._toggle_line_tag(tag)
+
+    def _update_toolbar_block_state(self, _event: tk.Event | None = None) -> None:
+        """Light up the H1-H4/citation toolbar button matching the block
+        tag on the line the cursor sits on, mirroring
+        :meth:`_update_toolbar_char_state` for character formatting.
+        """
+        if not self._block_format_vars:
+            return
+        tags = set(self.text.tag_names(f"{self._current_line()}.0"))
+        for tag, var in self._block_format_vars.items():
+            var.set(tag in tags)
+
     def _toggle_line_tag(self, tag: str) -> None:
         start_line, end_line = self._selected_lines()
         changes: list[tuple[str, str, set[str], set[str]]] = []
@@ -124,6 +144,7 @@ class FormattingMixin:
                 after = {tag}
             changes.append((line_start, line_end, before, after))
         self._push_line_tag_undo(_BLOCK_LINE_TAGS, changes)
+        self._update_toolbar_block_state()
 
     def _list_marker_text(self, tag: str, ordinal: int) -> str:
         return "•  " if tag == "bullet_item" else f"{ordinal}.  "
@@ -167,6 +188,7 @@ class FormattingMixin:
                 self.text.tag_remove(existing, line_start, line_end)
             changes.append((line_start, line_end, before, set()))
         self._push_line_tag_undo(_BLOCK_LINE_TAGS, changes)
+        self._update_toolbar_block_state()
 
     def _push_line_tag_undo(
         self, tag_universe: set[str] | tuple[str, ...], changes: list[tuple[str, str, set[str], set[str]]]

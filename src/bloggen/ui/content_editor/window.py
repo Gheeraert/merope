@@ -102,6 +102,7 @@ class ContentEditorWindow(
         self._toolbar_icon_refs: list[tk.PhotoImage] = []
         self._toolbar_fonts: list[tkfont.Font] = []
         self._char_format_vars: dict[str, tk.BooleanVar] = {}
+        self._block_format_vars: dict[str, tk.BooleanVar] = {}
         self._find_dialog: FindReplaceDialog | None = None
 
         # -- unified undo/redo (see _on_text_modified / _perform_undo) -----
@@ -270,8 +271,19 @@ class ContentEditorWindow(
         ttk.Separator(toolbar_row1, orient="vertical").pack(side="left", fill="y", padx=4)
 
         for level in range(1, 5):
-            b = ttk.Button(
-                toolbar_row1, text=f"H{level}", width=3, command=lambda lv=level: self._toggle_heading(lv)
+            tag = f"h{level}"
+            var = tk.BooleanVar(value=False)
+            self._block_format_vars[tag] = var
+            # Checkbutton like the char-format buttons above, so it lights
+            # up when the cursor sits on a line already at that heading
+            # level — kept in sync by :meth:`_update_toolbar_block_state`.
+            b = ttk.Checkbutton(
+                toolbar_row1,
+                text=f"H{level}",
+                width=3,
+                style="Toolbutton",
+                variable=var,
+                command=lambda t=tag: self._activate_block_format(t),
             )
             b.pack(side="left", padx=1)
             add_tooltip(b, f"Titre de niveau {level} pour la ligne courante.")
@@ -287,12 +299,21 @@ class ContentEditorWindow(
 
         ttk.Separator(toolbar_row1, orient="vertical").pack(side="left", fill="y", padx=4)
 
-        block_buttons = [
-            (
-                toolbar_icons.icon_blockquote(),
-                lambda: self._toggle_line_tag("blockquote"),
-                "Citation : transforme la ligne en citation.",
-            ),
+        blockquote_icon = toolbar_icons.icon_blockquote()
+        self._toolbar_icon_refs.append(blockquote_icon)
+        blockquote_var = tk.BooleanVar(value=False)
+        self._block_format_vars["blockquote"] = blockquote_var
+        blockquote_button = ttk.Checkbutton(
+            toolbar_row1,
+            image=blockquote_icon,
+            style="Toolbutton",
+            variable=blockquote_var,
+            command=lambda: self._activate_block_format("blockquote"),
+        )
+        blockquote_button.pack(side="left", padx=1)
+        add_tooltip(blockquote_button, "Citation : transforme la ligne en citation.")
+
+        list_buttons = [
             (
                 toolbar_icons.icon_bullet_list(),
                 lambda: self._toggle_line_tag("bullet_item"),
@@ -304,7 +325,7 @@ class ContentEditorWindow(
                 "Liste numérotée : transforme la ligne en élément de liste numérotée.",
             ),
         ]
-        for icon, command, tip in block_buttons:
+        for icon, command, tip in list_buttons:
             self._toolbar_icon_refs.append(icon)
             b = ttk.Button(toolbar_row1, image=icon, command=command)
             b.pack(side="left", padx=1)
@@ -474,6 +495,7 @@ class ContentEditorWindow(
         self.text.bind("<<Paste>>", self._on_paste)
         self.text.bind("<Control-Shift-V>", self._shortcut_paste_plain)
         self.text.bind("<ButtonRelease-1>", self._update_toolbar_char_state, add="+")
+        self.text.bind("<ButtonRelease-1>", self._update_toolbar_block_state, add="+")
         self.text.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
         self.text.bind("<Control-b>", self._shortcut_bold)
         self.text.bind("<Control-i>", self._shortcut_italic)
