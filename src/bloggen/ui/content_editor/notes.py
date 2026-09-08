@@ -196,12 +196,19 @@ class NotesMixin:
             "Insérer un lien", "URL ou chemin interne (ex. /billets/index.html) :", parent=self
         )
         if not href:
+            widget.focus_set()
             return
         tag = self._new_tag("note_link")
         self._note_link_data[tag] = href
         widget.tag_add(tag, start, end)
         widget.tag_add("link_style", start, end)
         self.footnote_definitions[note_id] = self._extract_note_runs(widget)
+        # The dialog just closing hands focus back to the editor's main
+        # Toplevel (see window.py's _on_toplevel_focus_in), which would
+        # otherwise redirect it to the main text widget — this note's own
+        # editor is where the user was actually working and where editing
+        # should resume.
+        widget.focus_set()
 
     def _delete_footnote(self, note_id: str) -> None:
         # Drop the widget/row entries too, not just the model: otherwise

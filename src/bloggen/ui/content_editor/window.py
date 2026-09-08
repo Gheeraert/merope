@@ -128,6 +128,29 @@ class ContentEditorWindow(
         self._offer_crash_recovery()
         self._schedule_autosave()
 
+        # Every stdlib dialog this editor opens (simpledialog.askstring,
+        # messagebox, filedialog, ContentMetadataDialog — all built on
+        # tkinter.simpledialog.Dialog) hands keyboard focus back to
+        # *this* Toplevel when it closes: Dialog.cancel() calls
+        # ``self.parent.focus_set()``, and the parent passed everywhere
+        # is this window, never ``self.text`` itself. Tk then has no
+        # focused text widget at all, so the blinking insertion caret
+        # simply stops being drawn anywhere — it looks like the cursor
+        # vanished, "randomly" from the user's point of view since it's
+        # only ever noticed a moment after closing some unrelated dialog
+        # (insert link/image/note, metadata, an error popup...). Catch
+        # that hand-back and redirect it to the text widget, which is
+        # where editing resumes in the vast majority of cases; call
+        # sites that want a different widget focused (e.g. a footnote's
+        # own editor) explicitly focus_set() it afterwards, which wins
+        # since it runs after this redirect.
+        self.bind("<FocusIn>", self._on_toplevel_focus_in)
+        self.text.focus_set()
+
+    def _on_toplevel_focus_in(self, event: tk.Event) -> None:
+        if event.widget is self:
+            self.text.focus_set()
+
     # -- autosave / crash recovery ------------------------------------------
 
     def _build_ui(self) -> None:
