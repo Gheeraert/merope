@@ -284,6 +284,35 @@ def _ensure_archive_path_is_safe(archive_path: str) -> None:
 
 
 def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> BuildReport:
+    """Generates the whole site into a staging directory, then swaps it
+    (and the "Conserver TEI" output, if enabled) into place — never
+    touching the real output/TEI directories until generation has fully
+    succeeded (see the staging_root/tei_staging_root comments below, and
+    the swap coordination further down: if the TEI swap fails right
+    after the site swap already succeeded, the site swap is undone too,
+    so a reported failure never leaves the new site paired with the
+    previous build's TEI).
+
+    That transactional guarantee covers exactly those two directories,
+    not everything a successful build touches. Once both swaps have
+    landed, this function still writes each item's permanent sidecar
+    TEI copy next to its Markdown source (content/*.xml) and the
+    redirect history file (.merope-redirects.json) — deliberately
+    ordered last so they only run once the swaps they describe are
+    known-consistent, but neither is itself wrapped in the same
+    rollback: if one of those writes raises (a full disk, a permissions
+    change mid-build...), the site and TEI directories stay correctly
+    swapped and consistent with each other, while the report is marked
+    a failure and the sidecar/history write is simply left half-done.
+    The next successful build's own sidecar/history writes overwrite
+    whatever was left, so this doesn't compound across runs — but a
+    build that reports failure this way did, in fact, already publish a
+    new site. This is a known, accepted gap (an external audit's
+    "transactionnalité multi-artefacts" finding), not an oversight:
+    making these two writes fail together with the swaps above would
+    need a real multi-resource commit protocol, disproportionate to a
+    single-user static site generator's actual failure modes.
+    """
     project_root = resolve_project_root(config, config_path)
     runtime_config = copy.deepcopy(config)
     final_output_root = (project_root / config.paths.output_dir).resolve()
