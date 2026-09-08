@@ -43,6 +43,7 @@ class PasteMixin:
         """
         if self._current_line_is_raw(self.text):
             return None
+        self._before_delete_selection()
         if self._paste_image_from_clipboard():
             return "break"
         html = read_html_clipboard()

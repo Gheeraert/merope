@@ -168,27 +168,59 @@ class FormattingMixin:
         if marker_range and self.text.compare(marker_range[0], "==", line_start):
             self.text.delete(*marker_range)
 
+    def _tag_ranges_in(self, tag: str, start: str, end: str) -> list[tuple[str, str]]:
+        """All non-overlapping ranges carrying ``tag`` within [start, end)."""
+        ranges = []
+        pos = start
+        while True:
+            found = self.text.tag_nextrange(tag, pos, end)
+            if not found:
+                break
+            ranges.append(found)
+            pos = found[1]
+        return ranges
+
     def _set_paragraph_normal(self) -> None:
-        """Clear the block-level formatting (heading/citation/liste) of the
+        """Clear the block-level formatting (heading/citation/liste) *and*
+        the character-level formatting (gras/italique/barré/exposant) of the
         selected (or current) lines, back to a plain paragraph — the
-        counterpart to the H1-H4/citation/liste buttons, none of which can
-        otherwise be turned back off once applied.
+        counterpart to the H1-H4/citation/liste/gras/italique/... buttons,
+        none of which can otherwise be turned back off once applied.
         """
         start_line, end_line = self._selected_lines()
-        changes: list[tuple[str, str, set[str], set[str]]] = []
+        line_changes: list[tuple[str, str, set[str], set[str]]] = []
+        char_changes: list[tuple[tuple[str, str], str]] = []
         for line in range(start_line, end_line + 1):
             line_start = f"{line}.0"
             before = set(self.text.tag_names(line_start)) & _BLOCK_LINE_TAGS
-            if not before:
-                continue
-            if before & _LIST_LINE_TAGS:
-                self._strip_list_marker(line)
+            if before:
+                if before & _LIST_LINE_TAGS:
+                    self._strip_list_marker(line)
+                line_end = f"{line}.end"
+                for existing in _BLOCK_LINE_TAGS:
+                    self.text.tag_remove(existing, line_start, line_end)
+                line_changes.append((line_start, line_end, before, set()))
             line_end = f"{line}.end"
-            for existing in _BLOCK_LINE_TAGS:
-                self.text.tag_remove(existing, line_start, line_end)
-            changes.append((line_start, line_end, before, set()))
-        self._push_line_tag_undo(_BLOCK_LINE_TAGS, changes)
+            for tag in self._char_format_vars:
+                for range_start, range_end in self._tag_ranges_in(tag, line_start, line_end):
+                    char_changes.append((self._mark_range(range_start, range_end), tag))
+                    self.text.tag_remove(tag, range_start, range_end)
+        self._push_line_tag_undo(_BLOCK_LINE_TAGS, line_changes)
+        if char_changes:
+
+            def apply_char_changes(restore: bool) -> None:
+                for (mark_start, mark_end), tag in char_changes:
+                    if restore:
+                        self.text.tag_add(tag, mark_start, mark_end)
+                    else:
+                        self.text.tag_remove(tag, mark_start, mark_end)
+
+            self._push_format_undo(
+                lambda: apply_char_changes(True),
+                lambda: apply_char_changes(False),
+            )
         self._update_toolbar_block_state()
+        self._update_toolbar_char_state()
 
     def _push_line_tag_undo(
         self, tag_universe: set[str] | tuple[str, ...], changes: list[tuple[str, str, set[str], set[str]]]

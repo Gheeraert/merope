@@ -120,6 +120,12 @@ class ContentEditorWindow(
         self._current_edit_kind: str | None = None
         self._last_char_count = 0
         self._suppress_undo_tracking = False
+        # In-progress capture of the tags carried by text about to be
+        # deleted (see _capture_before_delete) — Tk's own undo/redo only
+        # remembers characters, never tag_add/tag_remove, so without this a
+        # cut/backspace/typed-over-selection followed by Ctrl+Z would bring
+        # the text back stripped of its gras/italique/... formatting.
+        self._pending_delete: dict | None = None
         self._dirty = False
         self._autosave_after_id: str | None = None
         self._init_preview(get_config)
@@ -509,6 +515,12 @@ class ContentEditorWindow(
         self.text.bind("<Control-z>", self._shortcut_undo)
         self.text.bind("<Control-y>", self._shortcut_redo)
         self.text.bind("<Control-Shift-Z>", self._shortcut_redo)
+        # Snapshot formatting tags just before Tk actually removes text, so
+        # a later Ctrl+Z can restore them (see _capture_before_delete).
+        self.text.bind("<BackSpace>", self._before_delete_backspace, add="+")
+        self.text.bind("<Delete>", self._before_delete_forward, add="+")
+        self.text.bind("<<Cut>>", self._before_delete_selection, add="+")
+        self.text.bind("<Key>", self._before_delete_typed, add="+")
         self.bind("<Control-f>", self._shortcut_find)
         self.bind("<Control-h>", self._shortcut_replace)
 
