@@ -415,16 +415,21 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
                 generated_pages, generated_posts
             )
             if commons_publishing_issues:
+                fail_build = runtime_config.build.fail_on_invalid_commons_publishing
                 message = (
                     "TEI non conforme au profil Commons Publishing "
-                    f"({len(commons_publishing_issues)} page(s)/billet(s)) — diagnostic, "
-                    "n'affecte pas le résultat de cette génération :"
+                    f"({len(commons_publishing_issues)} page(s)/billet(s))"
+                    + ("" if fail_build else " — diagnostic, n'affecte pas le résultat de cette génération")
+                    + " :"
                 )
                 shown = commons_publishing_issues[:20]
                 message += "".join(f"\n  - {url}: {issue}" for url, issue in shown)
                 if len(commons_publishing_issues) > len(shown):
                     message += f"\n  … et {len(commons_publishing_issues) - len(shown)} de plus."
-                report.warnings.append(message)
+                if fail_build:
+                    report.errors.append(message)
+                else:
+                    report.warnings.append(message)
 
         if runtime_config.build.check_broken_links:
             broken_links = check_broken_links(output_root)

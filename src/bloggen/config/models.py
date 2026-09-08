@@ -137,11 +137,12 @@ class RenderConfig:
     generate_tei_files: bool = True
     enable_lightbox: bool = True
     lightbox_engine: str = "fancybox"
-    # Diagnostic only — never fails the build (see
-    # bloggen.tei.commons_publishing's module docstring): MEROPE's
-    # Pandoc-based TEI does not conform to the Commons Publishing profile
-    # yet, so this is expected to report issues on every build until that
-    # gap is closed.
+    # Diagnostic by default (see bloggen.tei.commons_publishing's module
+    # docstring) — ordinary editorial content now conforms to the Commons
+    # Publishing profile, but three Markdown constructs still don't (see
+    # that docstring) and are only ever reported as a warning here. Set
+    # build.fail_on_invalid_commons_publishing to turn that warning into
+    # a build failure instead.
     validate_commons_publishing: bool = True
 
 
@@ -187,6 +188,14 @@ class BuildConfig:
     check_broken_links: bool = True
     fail_on_broken_links: bool = False
     generate_redirects: bool = True
+    # Off by default, like fail_on_broken_links above: three Markdown
+    # constructs (fenced code blocks, horizontal rules, Setext headings)
+    # are still known not to be representable in the Commons Publishing
+    # profile at all (see bloggen.tei.commons_publishing's module
+    # docstring) — a project using any of them would otherwise have every
+    # build start failing the moment this is turned on. Meaningless when
+    # render.validate_commons_publishing is off (see build_site).
+    fail_on_invalid_commons_publishing: bool = False
 
 
 @dataclass(slots=True)

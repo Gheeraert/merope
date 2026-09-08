@@ -1875,6 +1875,44 @@ def test_commons_publishing_diagnostic_can_be_disabled():
     assert not any("Commons Publishing" in warning for warning in report.warnings)
 
 
+def test_commons_publishing_can_be_made_to_fail_the_build():
+    """build.fail_on_invalid_commons_publishing (off by default, like
+    fail_on_broken_links) turns the same non-conformance from the two
+    tests above into a build failure instead of a warning."""
+    project = RUNTIME_ROOT / f"commons_publishing_fail_build_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    (project / "content/posts/premier.md").write_text(
+        '---\ntitle: "Premier"\nslug: "premier"\ntype: "post"\ndate: "2026-01-01"\n---\n\n'
+        "# Premier\n\n```\nun bloc de code\n```\n",
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.build.fail_on_invalid_commons_publishing = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is False
+    assert any("Commons Publishing" in error for error in report.errors)
+    assert not any("Commons Publishing" in warning for warning in report.warnings)
+
+
 def test_tei_header_is_enriched_with_author_orcid_license_language_and_dates():
     """Real Pandoc conversion, exercising the full build_site -> _build_single_item
     -> convert_markdown_file_to_tei -> postprocess_tei_file chain (Phase 2

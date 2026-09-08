@@ -453,6 +453,11 @@ class MainWindow(tk.Tk):
                     True,
                 ),
                 ("fail_on_broken_links", "Échouer si l'une de ces vérifications signale un problème", False),
+                (
+                    "fail_on_invalid_commons_publishing",
+                    "Échouer si le TEI généré ne respecte pas le profil Commons Publishing",
+                    False,
+                ),
                 ("generate_redirects", "Générer des redirections sur changement de slug", True),
                 ("search_enabled", "Activer la recherche sur le site", True),
             ],
@@ -498,6 +503,15 @@ class MainWindow(tk.Tk):
                     "Si activé (et la vérification ci-dessus aussi), la génération s'arrête "
                     "en erreur au moindre problème détecté par l'une de ces vérifications. "
                     "Si désactivé, un avertissement est affiché mais la génération continue."
+                ),
+                "fail_on_invalid_commons_publishing": (
+                    "Si activé (et « Diagnostic TEI Commons Publishing » aussi, onglet Rendu), "
+                    "la génération s'arrête en erreur dès qu'une page ou un billet produit un "
+                    "TEI non conforme au profil Commons Publishing. Si désactivé (par défaut), "
+                    "un avertissement est affiché mais la génération continue — utile tant que "
+                    "le contenu du projet peut légitimement contenir l'une des trois "
+                    "constructions encore non représentables dans ce profil (blocs de code, "
+                    "règles horizontales, titres au style Setext)."
                 ),
                 "generate_redirects": (
                     "Si activé, renommer le slug d'une page ou d'un billet génère "
