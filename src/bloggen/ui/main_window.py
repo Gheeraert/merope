@@ -388,11 +388,14 @@ class MainWindow(tk.Tk):
                 ),
                 "validate_commons_publishing": (
                     "Si activé, chaque génération vérifie le TEI produit contre le schéma "
-                    "normatif TEI Commons Publishing et affiche un avertissement s'il ne "
-                    "s'y conforme pas. Purement diagnostique : n'affecte jamais le résultat "
-                    "de la génération. Le pipeline actuel (Pandoc) ne produit pas encore de "
-                    "TEI conforme à ce profil — un avertissement est donc attendu pour "
-                    "l'instant sur chaque billet/page."
+                    "normatif TEI Commons Publishing (grammaire RelaxNG uniquement — les "
+                    "règles Schematron du schéma ne sont pas évaluées) et affiche un "
+                    "avertissement s'il ne s'y conforme pas. Purement diagnostique : "
+                    "n'affecte jamais le résultat de la génération. Un contenu éditorial "
+                    "ordinaire est désormais conforme ; un avertissement reste attendu "
+                    "seulement pour trois cas non représentables dans ce profil : blocs de "
+                    "code, règles horizontales, et titres au style Setext (« Titre » suivi "
+                    "d'une ligne de =, plutôt que « # Titre »)."
                 ),
                 "enable_lightbox": (
                     "Si activé, les images des articles s'ouvrent en grand dans une visionneuse "

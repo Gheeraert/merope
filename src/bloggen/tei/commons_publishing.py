@@ -1,35 +1,41 @@
 """Diagnostic validation of generated TEI against the TEI Commons
 Publishing RelaxNG schema.
 
-This is Phase 1 of adopting Commons Publishing (see the companion
-project Mini-Métopes, C:/mini-metopes /
-https://github.com/Gheeraert/mini-metopes, which already produces
-valid Commons Publishing TEI from DOCX): make the gap between what
-MEROPE's Pandoc-based pipeline currently emits and what the profile
-actually requires visible and measurable, before attempting to close
-it.
+Status, as of the phase 2/3 work (teiHeader enrichment, then replacing
+Pandoc's div/@type="levelN" with the profile's own "sectionN" — see the
+commit history and bloggen.tei.postprocess): ordinary editorial content
+(headings up to 6 levels deep via '#'-style Markdown, paragraphs,
+lists, blockquotes, tables, footnotes, links, figures, inline
+formatting) now validates. Three Markdown constructs remain outside
+what this profile can represent and are known to still fail validation
+when present: fenced code blocks, horizontal rules, and Setext-style
+headings ("Titre\\n===", as opposed to "# Titre") — see
+bloggen.tei.postprocess's module docstring for the first two, and its
+_HEADING_LINE_RE for why the third isn't picked up by the heading-depth
+fixup. None of this is enforced: a page using any of the three still
+builds successfully, with only a warning (see build_site's use of this
+module) — "validate_commons_publishing" is named and worded as a
+diagnostic precisely because it does not gate the build.
 
-Verified directly against a real MEROPE build: Pandoc's own generic
-TEI output does NOT validate against this schema out of the box (its
-<div>/<p> structure doesn't match Commons Publishing's stricter
-abstract model) — so this check is expected to report issues on every
-build for now. That's the point: it never fails the build (see
-build_site's use of this module), only makes the shortfall visible
-instead of the loose well-formedness check in bloggen.tei.validator
-quietly passing everything. Closing the gap for real (Phases 2-4 of
-the roadmap) means enriching the teiHeader and, eventually, replacing
-Pandoc's generic TEI writer with a serializer built from MEROPE's own
-Block/InlineRun model — mirroring Mini-Métopes' own architecture
-(editorial model -> hand-built TEI serializer, never a generic
-converter) — not patching this validator.
+This also validates the RelaxNG grammar only. The bundled schema embeds
+Schematron assertions (<sch:rule>/<sch:assert>) for constraints the
+grammar alone can't express — lxml's etree.RelaxNG does not evaluate
+those, so a document could pass this check while still violating one of
+them. Nothing here currently runs a Schematron pass against the schema.
 
 The schema itself (resources/schemas/commons-publishing/) is copied
-unmodified from Mini-Métopes, under the CeCILL-B license from the
-upstream TEI Commons Publishing project (see LICENSE.txt/
-PROVENANCE.json alongside it) — MEROPE's own code in this module is
-original, written in the same spirit as Mini-Métopes'
-src/mini_metopes/validation.py (lxml RelaxNG, compiled once, no
-network/DTD resolution).
+from the companion project Mini-Métopes (C:/mini-metopes /
+https://github.com/Gheeraert/mini-metopes, which already produces
+valid Commons Publishing TEI from DOCX) under the CeCILL-B license from
+the upstream TEI Commons Publishing project (see LICENSE.txt/
+PROVENANCE.json alongside it) — Mini-Métopes' own copy carries local,
+additive extensions for its own decision 0037 contract (see
+PROVENANCE.json's local_modifications_description); MEROPE's simple
+<text><body> documents never exercise them, but "the bundled schema"
+is accordingly a local variant, not a byte-for-byte copy of the
+upstream release. MEROPE's own code in this module is original, written
+in the same spirit as Mini-Métopes' src/mini_metopes/validation.py
+(lxml RelaxNG, compiled once, no network/DTD resolution).
 """
 
 from __future__ import annotations
@@ -96,9 +102,11 @@ def _issue_from_error(error: etree._LogEntry) -> CommonsPublishingIssue:
 
 def validate_commons_publishing_bytes(data: bytes) -> CommonsPublishingValidationResult:
     """Validates TEI XML bytes against the bundled Commons Publishing
-    RelaxNG schema. A syntax error in the XML itself is reported the
-    same way as a schema violation — either way, "not valid Commons
-    Publishing TEI" — rather than raising."""
+    schema's RelaxNG grammar only (see this module's docstring: the
+    schema's embedded Schematron assertions are not evaluated). A syntax
+    error in the XML itself is reported the same way as a schema
+    violation — either way, "not valid Commons Publishing TEI" — rather
+    than raising."""
     try:
         document = etree.fromstring(data, parser=_xml_parser())
     except etree.XMLSyntaxError as error:
