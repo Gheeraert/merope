@@ -162,6 +162,12 @@ OE_LIGATURE_WORDS = (
     "oesophage",
     "oedeme",
     "manoeuvre",
+    "oeuf",
+    "choeur",
+    "coeliaque",
+    "oenologie",
+    "oecumenique",
+    "oestrogene",
 )
 OE_LIGATURE_TYPED_RE = re.compile(
     r"\b(" + "|".join(OE_LIGATURE_WORDS) + r")$", re.IGNORECASE
