@@ -494,10 +494,13 @@ class MainWindow(tk.Tk):
                     "internes du site produit pointent vers un fichier réellement présent "
                     "(détecte par exemple un menu resté pointé sur un ancien slug renommé) ; "
                     "qu'aucune page générée n'est orpheline (sans lien interne entrant) ; que "
-                    "les liens canoniques correspondent bien à site.base_url et à une page "
-                    "existante ; que les données structurées (JSON-LD) sont valides et "
-                    "complètes ; et que chaque page a bien une balise meta description et un "
-                    "titre <h1> unique."
+                    "chaque balise canonique déjà présente correspond bien à site.base_url et à "
+                    "une page existante ; que chaque bloc de données structurées (JSON-LD) déjà "
+                    "présent est un JSON valide et porte les champs attendus pour son type ; et "
+                    "que chaque page a bien une balise meta description et un titre <h1> "
+                    "unique. Ces trois premiers contrôles valident ce qui est présent, sans "
+                    "détecter une balise canonique ou un bloc JSON-LD totalement absent d'une "
+                    "page qui en attendrait un."
                 ),
                 "fail_on_broken_links": (
                     "Si activé (et la vérification ci-dessus aussi), la génération s'arrête "
