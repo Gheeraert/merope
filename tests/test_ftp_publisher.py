@@ -329,6 +329,72 @@ def test_detect_stale_files_ignores_a_remote_file_never_listed_in_a_merope_manif
     assert result.stale_remote == []
 
 
+def test_a_manifest_containing_an_unsafe_path_is_treated_as_no_baseline(tmp_path, monkeypatch):
+    """A manifest with even one path traversal ("../..."), absolute path,
+    or backslash entry is entirely untrustworthy — not filtered down to
+    just its safe entries. Reached only via a compromised/malicious FTP
+    account or a MITM on unencrypted FTP (this same server round-trips
+    its own manifest), but delete_remote_files performs unconfirmed
+    per-item deletions on this baseline, so nothing here is worth
+    partially trusting."""
+    factory = _make_ftp_factory()
+
+    def factory_with_poisoned_manifest(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        _seed_manifest(
+            instance,
+            "/www",
+            ["index.html", "../../etc/passwd"],
+        )
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_poisoned_manifest)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config(), detect_stale_files=True)
+
+    assert result.ok is True
+    assert result.stale_remote == []
+    assert result.stale_remote_manifest_missing is True
+
+
+@pytest.mark.parametrize(
+    "unsafe_path",
+    [
+        "../outside.html",
+        "/etc/passwd",
+        "a/../../outside.html",
+        "a\\..\\..\\outside.html",
+        "a//b.html",
+        "",
+    ],
+)
+def test_delete_remote_files_refuses_an_unsafe_path_without_touching_the_server(
+    tmp_path, monkeypatch, unsafe_path
+):
+    """Defense in depth even though _download_manifest already filters
+    these out of its own baseline: delete_remote_files is the actually
+    destructive function and must never trust a path it's handed,
+    regardless of caller."""
+    factory = _make_ftp_factory()
+
+    def factory_with_leftovers(*, timeout=None):
+        instance = FakeFTP(timeout=timeout)
+        _seed_remote(instance, ["/www/stray.jpg"])
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP", factory_with_leftovers)
+
+    result = delete_remote_files(_config(), [unsafe_path, "stray.jpg"])
+
+    assert result.deleted == ["stray.jpg"]
+    assert len(result.failed) == 1
+    assert result.failed[0].relative_path == unsafe_path
+    assert "sûr" in result.failed[0].message.lower()
+
+
 def test_detect_stale_files_is_empty_when_remote_matches_local(tmp_path, monkeypatch):
     factory = _make_ftp_factory()
 

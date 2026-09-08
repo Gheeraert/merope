@@ -226,11 +226,30 @@ def _cwd_strict(ftp: ftplib.FTP, path: str) -> None:
         ftp.cwd(part)
 
 
+def _is_safe_manifest_path(path: str) -> bool:
+    """True when ``path`` is safe to treat as a ``remote_dir``-relative
+    path: not absolute, no "."/".." segment (which ``_cwd_strict`` would
+    otherwise walk as a real directory change — an FTP server resolves
+    ".." the same way a filesystem does), no backslash (a Windows-style
+    separator an FTP server would treat as a literal filename character,
+    letting a segment like "..\\.." hide from the "/"-only checks above),
+    no NUL byte, and no empty segment (double slash)."""
+    if not path or path.startswith("/") or path.endswith("/"):
+        return False
+    if "\\" in path or "\x00" in path:
+        return False
+    return all(segment not in ("", ".", "..") for segment in path.split("/"))
+
+
 def _download_manifest(ftp: ftplib.FTP) -> set[str] | None:
     """Returns the set of relative paths MEROPE deployed on the previous
     successful publish, read back from the manifest it wrote then — or
     None if there is no trustworthy baseline (no manifest file, a read
-    error, or content that doesn't parse as the expected JSON list).
+    error, content that doesn't parse as the expected JSON list, or a
+    list containing even one path that isn't safely remote_dir-relative
+    — see _is_safe_manifest_path — since delete_remote_files acts on
+    this set, unconfirmed per-item, once the caller has shown the user
+    the resulting stale-file list and gotten one blanket confirmation).
 
     Deliberately treats every failure as "unknown baseline" rather than
     raising: the caller must never fall back to guessing staleness from
@@ -247,7 +266,10 @@ def _download_manifest(ftp: ftplib.FTP) -> set[str] | None:
         return None
     if not isinstance(data, list):
         return None
-    return {str(item) for item in data}
+    paths = [str(item) for item in data]
+    if not all(_is_safe_manifest_path(path) for path in paths):
+        return None
+    return set(paths)
 
 
 def _upload_manifest(ftp: ftplib.FTP, relative_paths: list[str]) -> None:
@@ -282,6 +304,15 @@ def delete_remote_files(
     paths (typically ``PublishResult.stale_remote``) to the user and
     gotten explicit confirmation — this function itself deletes
     unconditionally, no confirmation of its own.
+
+    A path that isn't safely remote_dir-relative (see
+    _is_safe_manifest_path — absolute, "..", a backslash...) is refused
+    without ever reaching the server, recorded as a failure rather than
+    silently skipped: _download_manifest already filters these out of
+    its own trusted baseline, so reaching this function's caller with
+    such a path at all means it came from somewhere else (a hand-edited
+    ``relative_paths`` argument, a future caller that doesn't go through
+    the manifest) and deserves to be visible, not quietly dropped.
     """
     if not relative_paths:
         return DeleteResult()
@@ -305,6 +336,12 @@ def delete_remote_files(
         failed: list[FailedTransfer] = []
 
         for index, relative in enumerate(sorted(relative_paths), start=1):
+            if not _is_safe_manifest_path(relative):
+                failed.append(FailedTransfer(relative, "Chemin non sûr : suppression refusée."))
+                if progress is not None:
+                    progress(index, total, relative)
+                continue
+
             subdir, _, filename = relative.rpartition("/")
             try:
                 ftp.cwd(publish_root)
