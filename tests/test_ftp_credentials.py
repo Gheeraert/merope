@@ -5,10 +5,18 @@ boundary so the suite never touches the real Windows Credential Manager.
 
 from __future__ import annotations
 
-import keyring.errors
 import pytest
 
-from bloggen.publish import ftp_credentials
+# keyring is an optional dependency (see pyproject.toml's
+# "ftp_credentials" extra) — ftp_credentials.py itself already degrades
+# gracefully without it (see its own module-level try/except), but these
+# tests specifically exercise real keyring.errors.* exception types, so
+# they need the package installed to mean anything; skip the whole file
+# rather than fail collection when it isn't.
+keyring = pytest.importorskip("keyring")
+import keyring.errors  # noqa: E402 - after importorskip, see above
+
+from bloggen.publish import ftp_credentials  # noqa: E402 - after importorskip, see above
 
 
 class FakeKeyring:

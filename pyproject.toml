@@ -17,14 +17,12 @@ requires-python = ">=3.11"
 #   - Pillow   : dozens of disclosed issues (buffer overflows, DoS via
 #                decompression bombs, OOB read/write...) between 10.0 and
 #                12.3.0; 10.0 itself was vulnerable to several.
-#   - keyring  : 24.0 already clear of every disclosed advisory.
 # Re-run this audit periodically — e.g. `pip install pip-audit && pip-audit`
 # from the project's venv, or query https://api.osv.dev/v1/querybatch with
 # the installed package/version pairs from `pip list`.
 dependencies = [
     "lxml>=6.1.0",
     "Pillow>=12.3.0",
-    "keyring>=24.0",
 ]
 
 [project.scripts]
@@ -44,6 +42,16 @@ dev = [
 # preview button just reports that it's missing.
 preview = [
     "pywebview>=5.0",
+]
+# publish/ftp_credentials.py already imports this tolerantly (module-level
+# try/except ImportError, keyring = None on failure — see that module) so
+# that a plain `bloggen build` never needs it: keeping it a hard
+# dependency here contradicted that and made every install pull in the OS
+# credential-store bindings just to publish over FTP without ever saving
+# a password to the system keyring. 24.0 already clear of every disclosed
+# OSV advisory as of the audit above.
+ftp_credentials = [
+    "keyring>=24.0",
 ]
 
 [tool.pytest.ini_options]

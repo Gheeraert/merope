@@ -1,4 +1,6 @@
 lxml>=6.1.0
 Pillow>=12.3.0
-keyring>=24.0
 pytest>=9.0.3
+# keyring>=24.0 — optional, only needed to save an FTP password in the OS
+# credential store (see pyproject.toml's "ftp_credentials" extra and
+# publish/ftp_credentials.py, which already imports it tolerantly).
