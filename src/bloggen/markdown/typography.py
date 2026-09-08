@@ -206,6 +206,12 @@ def is_valid_century_ordinal(numeral: str, suffix: str) -> bool:
     return suffix == "e"
 
 
+COMMON_CENTURY_ORDINALS = ("XVe", "XVIe", "XVIIe", "XIIIe", "XIXe", "XXe", "XXIe")
+COMMON_CENTURY_ORDINAL_TYPED_RE = re.compile(
+    r"\b(?:" + "|".join(COMMON_CENTURY_ORDINALS) + r")$"
+)
+
+
 def split_century_ordinals(runs: list[InlineRun]) -> list[InlineRun]:
     """Split plain-text runs containing a "<numeral><er|e> siecle" pattern
     (e.g. "XXIe siecle") into normal/superscript/normal parts, so the

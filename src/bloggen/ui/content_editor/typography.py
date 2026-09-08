@@ -10,6 +10,7 @@ from bloggen.markdown.note_shortcuts import strip_runs
 from bloggen.markdown.typography import (
     CENTURY_RE,
     CLOSING_GUILLEMET,
+    COMMON_CENTURY_ORDINAL_TYPED_RE,
     DOUBLE_PUNCTUATION,
     NBSP,
     OE_LIGATURE_TYPED_RE,
@@ -59,6 +60,8 @@ class TypographyMixin:
             self._autoformat_period_spacing()
         elif char.isalpha():
             self._autoformat_oe_ligature()
+            if char == "e":
+                self._autoformat_common_century_ordinal()
 
     def _autoformat_last_typed_char(self, char: str) -> None:
         # Index expressions with arithmetic (e.g. "1.8-1c") are re-evaluated
@@ -119,6 +122,25 @@ class TypographyMixin:
             if "superscript" in self.text.tag_names(suffix_start):
                 continue
             self.text.tag_add("superscript", suffix_start, suffix_end)
+
+    def _autoformat_common_century_ordinal(self) -> None:
+        """Superscript the "e" just typed right after one of the century
+        numerals used most often (XVe, XVIe, XVIIe, XIIIe, XIXe, XXe,
+        XXIe), the instant it's completed — unlike
+        :meth:`_autoformat_century_ordinal` above (which mirrors the
+        paste/import rule and needs a following "siecle" to trigger), this
+        fires on the numeral alone so the superscript appears immediately
+        even when "siecle" is never typed (e.g. "l'art XVe").
+        """
+        cursor = self.text.index("insert")
+        line = int(cursor.split(".")[0])
+        text_before = self.text.get(f"{line}.0", cursor)
+        if COMMON_CENTURY_ORDINAL_TYPED_RE.search(text_before) is None:
+            return
+        suffix_start = self.text.index(f"{cursor}-1c")
+        if "superscript" in self.text.tag_names(suffix_start):
+            return
+        self.text.tag_add("superscript", suffix_start, cursor)
 
     def _autoformat_page_number_space(self) -> None:
         """Detect a page number's first digit just typed right after

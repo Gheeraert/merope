@@ -1,6 +1,7 @@
 from bloggen.markdown.rich_text_model import InlineRun
 from bloggen.markdown.typography import (
     CLOSING_GUILLEMET,
+    COMMON_CENTURY_ORDINAL_TYPED_RE,
     NBSP,
     OE_LIGATURE_TYPED_RE,
     OPENING_GUILLEMET,
@@ -66,6 +67,16 @@ def test_oe_ligature_replacement_all_caps():
 
 def test_oe_ligature_typed_regex_does_not_match_unrelated_word():
     assert OE_LIGATURE_TYPED_RE.search("poeme") is None
+
+
+def test_common_century_ordinal_typed_regex_matches_listed_numerals():
+    for numeral in ("XVe", "XVIe", "XVIIe", "XIIIe", "XIXe", "XXe", "XXIe"):
+        assert COMMON_CENTURY_ORDINAL_TYPED_RE.search(f"au {numeral}") is not None
+
+
+def test_common_century_ordinal_typed_regex_does_not_match_other_numerals():
+    assert COMMON_CENTURY_ORDINAL_TYPED_RE.search("au IVe") is None
+    assert COMMON_CENTURY_ORDINAL_TYPED_RE.search("au XIVe") is None
 
 
 def test_is_idempotent():
