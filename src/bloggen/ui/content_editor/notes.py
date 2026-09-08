@@ -48,6 +48,12 @@ class NotesMixin:
             child.destroy()
         self._footnote_text_widgets = {}
         self._footnote_rows = {}
+        # Every note's Text widget is rebuilt from scratch below (and note
+        # ids can be reassigned to a different note by renumbering after a
+        # delete), so any quote-parity state tracked against the old
+        # widgets no longer means anything — start each one fresh rather
+        # than risk carrying a stale id's parity onto an unrelated note.
+        self._note_quote_parity = {}
 
         if not self.footnote_definitions:
             ttk.Label(
@@ -70,9 +76,7 @@ class NotesMixin:
             note_text.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
             note_text.bind(
                 "<KeyRelease>",
-                lambda _e, nid=note_id, w=note_text: self.footnote_definitions.__setitem__(
-                    nid, self._extract_note_runs(w)
-                ),
+                lambda e, nid=note_id, w=note_text: self._on_note_key_release(e, w, nid),
             )
             add_tooltip(
                 note_text,
@@ -113,10 +117,29 @@ class NotesMixin:
         bold_font.configure(weight="bold")
         italic_font = base_font.copy()
         italic_font.configure(slant="italic")
-        self._note_font_refs.extend([bold_font, italic_font])
+        superscript_font = base_font.copy()
+        superscript_font.configure(size=max(6, int(base_font.cget("size") * 0.75)))
+        self._note_font_refs.extend([bold_font, italic_font, superscript_font])
         widget.tag_configure("bold", font=bold_font)
         widget.tag_configure("italic", font=italic_font)
         widget.tag_configure("link_style", foreground="#1a73e8", underline=True)
+        widget.tag_configure("superscript", offset=6, font=superscript_font)
+
+    def _on_note_key_release(self, event: tk.Event, widget: tk.Text, note_id: str) -> None:
+        """A note's own Text widget has no <<Modified>>-driven pipeline of
+        its own — this is the only place typing inside it is observed, so
+        it both applies the same French-typography-as-you-type
+        autoformatting as the main body (see :meth:`bloggen.ui.
+        content_editor.typography.TypographyMixin._apply_typing_autoformat`,
+        which was previously only ever wired to the main editor's Text
+        widget — notes got none of it) and keeps ``footnote_definitions``
+        in sync with what's now on screen.
+        """
+        opening_next = self._note_quote_parity.get(note_id, True)
+        self._note_quote_parity[note_id] = self._apply_typing_autoformat(
+            widget, event.char, opening_next=opening_next
+        )
+        self.footnote_definitions[note_id] = self._extract_note_runs(widget)
 
     def _populate_note_widget(self, widget: tk.Text, runs: list[InlineRun]) -> None:
         widget.delete("1.0", "end")

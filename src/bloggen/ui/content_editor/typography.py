@@ -38,75 +38,91 @@ class TypographyMixin:
     """Auto-formatting applied as the user types: French typographic
     quotes/spacing, century ordinals, ((note)) shorthand."""
 
-    def _current_line_is_raw(self) -> bool:
-        line = self._current_line()
-        tags = set(self.text.tag_names(f"{line}.0"))
+    def _current_line_is_raw(self, widget: tk.Text) -> bool:
+        line = int(widget.index("insert").split(".")[0])
+        tags = set(widget.tag_names(f"{line}.0"))
         return "table_source" in tags or "verbatim" in tags
 
     def _on_key_release(self, event: tk.Event) -> None:
         self._update_toolbar_char_state()
         self._update_toolbar_block_state()
-        if self._current_line_is_raw():
+        if self._current_line_is_raw(self.text):
             return
         char = event.char
-        if char and char in _TYPOGRAPHY_TRIGGER_CHARS:
-            self._autoformat_last_typed_char(char)
-        self._autoformat_century_ordinal()
+        self._quote_parity_opening = self._apply_typing_autoformat(
+            self.text, char, opening_next=self._quote_parity_opening
+        )
         if char == ")":
             self._autoformat_double_paren_note()
-        elif char.isdigit():
-            self._autoformat_page_number_space()
-        elif char == ".":
-            self._autoformat_period_spacing()
-        elif char.isalpha():
-            self._autoformat_oe_ligature()
-            if char == "e":
-                self._autoformat_common_century_ordinal()
 
-    def _autoformat_last_typed_char(self, char: str) -> None:
+    def _apply_typing_autoformat(self, widget: tk.Text, char: str, *, opening_next: bool) -> bool:
+        """The French-typography-as-you-type rules (quotes/guillemets,
+        double-punctuation spacing, page numbers, period spacing, oe
+        ligature, century ordinals) — everything :meth:`_on_key_release`
+        applies to the main body, minus the ``((note))`` shorthand (which
+        only makes sense at the body level). Shared with each footnote's
+        own ``Text`` widget (see :mod:`bloggen.ui.content_editor.notes`),
+        which has no other way to get these autocorrections. Returns the
+        updated quote-parity state (``opening_next``) for the caller to
+        keep, since it must be tracked per widget, not globally.
+        """
+        if char and char in _TYPOGRAPHY_TRIGGER_CHARS:
+            opening_next = self._autoformat_last_typed_char(widget, char, opening_next=opening_next)
+        self._autoformat_century_ordinal(widget)
+        if char.isdigit():
+            self._autoformat_page_number_space(widget)
+        elif char == ".":
+            self._autoformat_period_spacing(widget)
+        elif char.isalpha():
+            self._autoformat_oe_ligature(widget)
+            if char == "e":
+                self._autoformat_common_century_ordinal(widget)
+        return opening_next
+
+    def _autoformat_last_typed_char(self, widget: tk.Text, char: str, *, opening_next: bool) -> bool:
         # Index expressions with arithmetic (e.g. "1.8-1c") are re-evaluated
         # against the *current* buffer on every call, so they silently drift
         # once a delete/insert has changed the line's length. Resolve each
         # index to a concrete "line.col" string up front and reuse only that.
-        insert_index = self.text.index("insert")
-        char_index = self.text.index(f"{insert_index}-1c")
+        insert_index = widget.index("insert")
+        char_index = widget.index(f"{insert_index}-1c")
 
         if char == '"':
-            self.text.delete(char_index, insert_index)
-            if self._quote_parity_opening:
-                self.text.insert(char_index, OPENING_GUILLEMET + NBSP)
+            widget.delete(char_index, insert_index)
+            if opening_next:
+                widget.insert(char_index, OPENING_GUILLEMET + NBSP)
             else:
-                self.text.insert(char_index, NBSP + CLOSING_GUILLEMET)
-            self._quote_parity_opening = not self._quote_parity_opening
-            return
+                widget.insert(char_index, NBSP + CLOSING_GUILLEMET)
+            return not opening_next
 
         if char == OPENING_GUILLEMET:
-            self.text.insert(insert_index, NBSP)
-            return
+            widget.insert(insert_index, NBSP)
+            return opening_next
         if char == CLOSING_GUILLEMET:
-            self.text.insert(char_index, NBSP)
-            return
+            widget.insert(char_index, NBSP)
+            return opening_next
 
         if char in DOUBLE_PUNCTUATION:
-            preceding_index = self.text.index(f"{char_index}-1c")
-            preceding = self.text.get(preceding_index, char_index)
+            preceding_index = widget.index(f"{char_index}-1c")
+            preceding = widget.get(preceding_index, char_index)
             if preceding == NBSP:
-                return
+                return opening_next
             if preceding == " ":
-                self.text.delete(preceding_index, char_index)
-                self.text.insert(preceding_index, NBSP)
+                widget.delete(preceding_index, char_index)
+                widget.insert(preceding_index, NBSP)
             else:
-                self.text.insert(char_index, NBSP)
+                widget.insert(char_index, NBSP)
+        return opening_next
 
-    def _autoformat_century_ordinal(self) -> None:
+    def _autoformat_century_ordinal(self, widget: tk.Text) -> None:
         """Detect "<numeral>er/e siecle" just typed (e.g. "XXIe siecle") and
         superscript the ordinal suffix in place, matching the same rule
         used for pasted/imported content (:func:`bloggen.markdown.
         typography.split_century_ordinals`).
         """
-        cursor = self.text.index("insert")
+        cursor = widget.index("insert")
         line = int(cursor.split(".")[0])
-        text_before = self.text.get(f"{line}.0", cursor)
+        text_before = widget.get(f"{line}.0", cursor)
         # .search() would only ever find the first match on the line, so a
         # second (still unconverted) occurrence would be permanently
         # skipped once the first is tagged; check every match instead.
@@ -117,13 +133,13 @@ class TypographyMixin:
 
             chars_after_suffix_start = len(text_before) - match.start(2)
             chars_after_suffix_end = len(text_before) - match.end(2)
-            suffix_start = self.text.index(f"{cursor}-{chars_after_suffix_start}c")
-            suffix_end = self.text.index(f"{cursor}-{chars_after_suffix_end}c")
-            if "superscript" in self.text.tag_names(suffix_start):
+            suffix_start = widget.index(f"{cursor}-{chars_after_suffix_start}c")
+            suffix_end = widget.index(f"{cursor}-{chars_after_suffix_end}c")
+            if "superscript" in widget.tag_names(suffix_start):
                 continue
-            self.text.tag_add("superscript", suffix_start, suffix_end)
+            widget.tag_add("superscript", suffix_start, suffix_end)
 
-    def _autoformat_common_century_ordinal(self) -> None:
+    def _autoformat_common_century_ordinal(self, widget: tk.Text) -> None:
         """Superscript the "e" just typed right after one of the century
         numerals used most often (XVe, XVIe, XVIIe, XIIIe, XIXe, XXe,
         XXIe), the instant it's completed — unlike
@@ -132,17 +148,17 @@ class TypographyMixin:
         fires on the numeral alone so the superscript appears immediately
         even when "siecle" is never typed (e.g. "l'art XVe").
         """
-        cursor = self.text.index("insert")
+        cursor = widget.index("insert")
         line = int(cursor.split(".")[0])
-        text_before = self.text.get(f"{line}.0", cursor)
+        text_before = widget.get(f"{line}.0", cursor)
         if COMMON_CENTURY_ORDINAL_TYPED_RE.search(text_before) is None:
             return
-        suffix_start = self.text.index(f"{cursor}-1c")
-        if "superscript" in self.text.tag_names(suffix_start):
+        suffix_start = widget.index(f"{cursor}-1c")
+        if "superscript" in widget.tag_names(suffix_start):
             return
-        self.text.tag_add("superscript", suffix_start, cursor)
+        widget.tag_add("superscript", suffix_start, cursor)
 
-    def _autoformat_page_number_space(self) -> None:
+    def _autoformat_page_number_space(self, widget: tk.Text) -> None:
         """Detect a page number's first digit just typed right after
         "p. "/"pp. " (e.g. "p. 12") and turn that regular space into a
         non-breaking one in place, the same convention as the NBSP already
@@ -150,44 +166,44 @@ class TypographyMixin:
         typography.fix_page_number_spacing`, applied the same way to
         pasted/imported content.
         """
-        cursor = self.text.index("insert")
+        cursor = widget.index("insert")
         line = int(cursor.split(".")[0])
-        text_before = self.text.get(f"{line}.0", cursor)
+        text_before = widget.get(f"{line}.0", cursor)
         if PAGE_ABBREVIATION_TYPED_RE.search(text_before) is None:
             return
         # The digit just typed is the last character; the space to convert
         # is the one right before it.
-        space_start = self.text.index(f"{cursor}-2c")
-        space_end = self.text.index(f"{cursor}-1c")
-        self.text.delete(space_start, space_end)
-        self.text.insert(space_start, NBSP)
+        space_start = widget.index(f"{cursor}-2c")
+        space_end = widget.index(f"{cursor}-1c")
+        widget.delete(space_start, space_end)
+        widget.insert(space_start, NBSP)
 
-    def _autoformat_period_spacing(self) -> None:
+    def _autoformat_period_spacing(self, widget: tk.Text) -> None:
         """French typography never puts a space before a period, unlike
         ``; : ! ?`` (which take a non-breaking one) — strip whatever run of
         regular/non-breaking spaces the "." just typed landed after, same
         rule as :func:`bloggen.markdown.typography.fix_period_spacing`
         applied to pasted/imported content.
         """
-        cursor = self.text.index("insert")
+        cursor = widget.index("insert")
         line = int(cursor.split(".")[0])
-        text_before = self.text.get(f"{line}.0", cursor)
+        text_before = widget.get(f"{line}.0", cursor)
         match = SPACE_BEFORE_PERIOD_TYPED_RE.search(text_before)
         if match is None:
             return
-        space_start = self.text.index(f"{cursor}-{len(text_before) - match.start()}c")
-        period_index = self.text.index(f"{cursor}-1c")
-        self.text.delete(space_start, period_index)
+        space_start = widget.index(f"{cursor}-{len(text_before) - match.start()}c")
+        period_index = widget.index(f"{cursor}-1c")
+        widget.delete(space_start, period_index)
 
-    def _autoformat_oe_ligature(self) -> None:
+    def _autoformat_oe_ligature(self, widget: tk.Text) -> None:
         """Detect one of the common French "oe" words just completed (e.g.
         "soeur", "oeuvre", "boeuf") and replace the digraph in place with
         the œ ligature, same rule as :func:`bloggen.markdown.typography.
         oe_ligature_replacement` applied to pasted/imported content.
         """
-        cursor = self.text.index("insert")
+        cursor = widget.index("insert")
         line = int(cursor.split(".")[0])
-        text_before = self.text.get(f"{line}.0", cursor)
+        text_before = widget.get(f"{line}.0", cursor)
         match = OE_LIGATURE_TYPED_RE.search(text_before)
         if match is None:
             return
@@ -195,9 +211,9 @@ class TypographyMixin:
         replacement = oe_ligature_replacement(word)
         if replacement == word:
             return
-        word_start = self.text.index(f"{cursor}-{len(word)}c")
-        self.text.delete(word_start, cursor)
-        self.text.insert(word_start, replacement)
+        word_start = widget.index(f"{cursor}-{len(word)}c")
+        widget.delete(word_start, cursor)
+        widget.insert(word_start, replacement)
 
     def _autoformat_double_paren_note(self) -> None:
         """Detect "((note text))" (Hypothèses/WordPress note shorthand)

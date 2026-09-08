@@ -95,6 +95,7 @@ class ContentEditorWindow(
         self._footnote_rows: dict[str, ttk.Frame] = {}
         self._note_font_refs: list[tkfont.Font] = []
         self._quote_parity_opening = True
+        self._note_quote_parity: dict[str, bool] = {}
         # Tk garbage-collects a PhotoImage/Font once its last Python
         # reference disappears, even though the button still displays it —
         # toolbar icons and their bold/italic/strikethrough label fonts are

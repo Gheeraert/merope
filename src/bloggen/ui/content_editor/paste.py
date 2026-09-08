@@ -41,7 +41,7 @@ class PasteMixin:
         :mod:`bloggen.markdown.note_shortcuts`) is converted to a real
         footnote reference before insertion.
         """
-        if self._current_line_is_raw():
+        if self._current_line_is_raw(self.text):
             return None
         if self._paste_image_from_clipboard():
             return "break"
@@ -238,7 +238,7 @@ class PasteMixin:
         should not carry over. Still recognizes the "((note))" shorthand,
         like every other paste path.
         """
-        if self._current_line_is_raw():
+        if self._current_line_is_raw(self.text):
             return
         try:
             plain = self.clipboard_get()
