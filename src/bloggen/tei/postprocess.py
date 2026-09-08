@@ -8,14 +8,25 @@ docstring. Verified (while building this) to be the single change that
 gets a real, representative range of Pandoc-generated content (headings
 up to 6 levels deep, paragraphs, ordered/unordered/nested lists,
 blockquotes, tables, footnotes, links, figures, bold/italic/
-strikethrough/superscript) passing that schema. Two rarer Markdown
-constructs are NOT representable in Commons Publishing at all and are
-left as-is (still correctly flagged by the Phase 1 diagnostic when
-present): fenced code blocks (Pandoc's own <ab type="codeblock">, an
-element this profile doesn't define) and horizontal rules (Pandoc's
-<milestone>, likewise undefined here) — neither already had a
-dedicated tei_to_html.xsl template before this, so nothing that
-currently renders is affected.
+strikethrough/superscript) passing that schema.
+
+extract_heading_levels recognizes both ATX ("# Titre") and Setext
+("Titre" underlined by a following line of "="/"-") headings, so either
+spelling gets the right depth reapplied — a document mixing the two, or
+using Setext exclusively, used to desynchronize the whole positional
+correspondence between markdown_text's headings and the TEI's <head>-
+carrying <div>s (extract_heading_levels only ever saw the ATX ones,
+so every heading from the first Setext one onward silently received
+some other heading's level, not just the Setext one itself).
+
+Two rarer Markdown constructs remain NOT representable in Commons
+Publishing at all and are left as-is (still correctly flagged by the
+Phase 1 diagnostic when present, see build.fail_on_invalid_commons_publishing
+to make that flag a build failure instead of a warning): fenced code
+blocks (Pandoc's own <ab type="codeblock">, an element this profile
+doesn't define) and horizontal rules (Pandoc's <milestone>, likewise
+undefined here) — neither already had a dedicated tei_to_html.xsl
+template before this, so nothing that currently renders is affected.
 """
 
 from __future__ import annotations
@@ -36,6 +47,13 @@ from bloggen.tei.header_builder import (
 
 _ALIGN_MARKER_RE = re.compile(r"^\{\{align=(left|center|right|justify)\}\}")
 _HEADING_LINE_RE = re.compile(r"^(#{1,6})\s+\S")
+# A Setext underline: a line made up of only "=" (level 1) or only "-"
+# (level 2) characters, with no other content — CommonMark only treats
+# it as a heading underline when it directly follows a non-blank line
+# (checked positionally in extract_heading_levels, not by this regex
+# alone: a bare "---"/"===" preceded by a blank line is a thematic break
+# or nothing, not a heading).
+_SETEXT_UNDERLINE_RE = re.compile(r"^(=+|-+)\s*$")
 
 
 def postprocess_tei_xml(
@@ -248,16 +266,32 @@ def extract_heading_levels(markdown_text: str) -> list[int]:
     """
     levels: list[int] = []
     in_code_fence = False
+    # Tracks the last non-blank line seen, cleared by a blank line, a
+    # fence, or a heading itself — a Setext underline only counts when it
+    # directly follows real paragraph content (see _SETEXT_UNDERLINE_RE).
+    previous_line: str | None = None
     for line in markdown_text.split("\n"):
         stripped = line.strip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
             in_code_fence = not in_code_fence
+            previous_line = None
             continue
         if in_code_fence:
+            previous_line = None
             continue
+
         match = _HEADING_LINE_RE.match(line)
         if match:
             levels.append(len(match.group(1)))
+            previous_line = None
+            continue
+
+        if previous_line and _SETEXT_UNDERLINE_RE.match(line):
+            levels.append(1 if line.lstrip()[0] == "=" else 2)
+            previous_line = None
+            continue
+
+        previous_line = stripped or None
     return levels
 
 

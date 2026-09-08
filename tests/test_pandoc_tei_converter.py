@@ -148,6 +148,45 @@ def test_image_attributes_survive_real_pandoc_conversion_to_tei():
     assert "align-left" in html
 
 
+def test_setext_and_atx_headings_both_get_the_right_section_depth_with_real_pandoc():
+    """Real pandoc + convert_markdown_file_to_tei's own
+    extract_heading_levels/apply_heading_levels_in_tei_file call (not the
+    unit-level extract_heading_levels tests in test_tei_postprocess.py):
+    a Setext H1 and H2 followed by an ATX H3 must come out as
+    section1/section2/section3 in that order, not just correctly
+    individually but without throwing off the ATX heading after them."""
+    if shutil.which("pandoc") is None:
+        pytest.skip("Pandoc non disponible dans l'environnement de test.")
+
+    markdown_source = RUNTIME_DIR / "pipeline_setext_source.md"
+    markdown_source.write_text(
+        "Titre principal\n"
+        "===============\n"
+        "\n"
+        "Un paragraphe.\n"
+        "\n"
+        "Sous-titre\n"
+        "----------\n"
+        "\n"
+        "Encore du texte.\n"
+        "\n"
+        "### Sous-sous-titre ATX\n"
+        "\n"
+        "Fin.\n",
+        encoding="utf-8",
+    )
+
+    output_path = RUNTIME_DIR / "pipeline_setext_output.xml"
+    result = convert_markdown_file_to_tei(markdown_source, output_path, pandoc_command="pandoc")
+
+    assert result.success is True
+    tei_content = output_path.read_text(encoding="utf-8")
+    assert "level" not in tei_content
+    assert 'type="section1"' in tei_content
+    assert 'type="section2"' in tei_content
+    assert 'type="section3"' in tei_content
+
+
 def test_paragraph_alignment_survives_real_pandoc_conversion_to_html():
     if shutil.which("pandoc") is None:
         pytest.skip("Pandoc non disponible dans l'environnement de test.")

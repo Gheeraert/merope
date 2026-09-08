@@ -8,6 +8,7 @@ from bloggen.tei.postprocess import (
     apply_heading_levels_in_tei_xml,
     apply_image_attributes_in_tei_xml,
     apply_paragraph_alignment_in_tei_xml,
+    extract_heading_levels,
     postprocess_tei_xml,
     rewrite_graphic_urls_in_tei_xml,
 )
@@ -267,3 +268,43 @@ def test_ordinary_headings_and_paragraphs_validate_against_commons_publishing_af
     result = validate_commons_publishing_bytes(rewritten.encode("utf-8"))
     assert result.valid is True
     assert result.issues == ()
+
+
+def test_extract_heading_levels_recognizes_setext_headings():
+    """Setext ("Titre" underlined by "=" or "-") is ordinary, valid
+    Markdown that Pandoc itself accepts exactly like ATX ("# Titre") —
+    before this, extract_heading_levels only recognized ATX, which did
+    not just leave a Setext heading unfixed: it desynchronized the
+    positional correspondence with every ATX heading after it too (see
+    apply_heading_levels_in_tei_xml, which pops one level per <head>-
+    carrying <div> in document order)."""
+    markdown = (
+        "Titre principal\n"
+        "===============\n"
+        "\n"
+        "Un paragraphe.\n"
+        "\n"
+        "Sous-titre\n"
+        "----------\n"
+        "\n"
+        "### Sous-sous-titre ATX\n"
+    )
+    assert extract_heading_levels(markdown) == [1, 2, 3]
+
+
+def test_extract_heading_levels_ignores_a_thematic_break():
+    """A bare "---" after a *blank* line is a horizontal rule, not a
+    Setext underline — CommonMark (and Pandoc) only reads the latter
+    directly after a non-blank paragraph line."""
+    markdown = "Un paragraphe.\n\n---\n\nUn autre paragraphe.\n"
+    assert extract_heading_levels(markdown) == []
+
+
+def test_extract_heading_levels_ignores_a_table_separator_row():
+    markdown = "| A | B |\n| - | - |\n| 1 | 2 |\n"
+    assert extract_heading_levels(markdown) == []
+
+
+def test_extract_heading_levels_ignores_setext_looking_lines_inside_a_code_fence():
+    markdown = "# Titre\n\n```\nCode\n====\n```\n\nTexte.\n"
+    assert extract_heading_levels(markdown) == [1]
