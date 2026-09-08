@@ -33,7 +33,7 @@ Sauf mention contraire, les chemins de fichiers/dossiers demandés sont **relati
 
 ## Barre d'outils
 
-Sous la barre de menu, une rangée de boutons donne un accès direct à **Nouveau projet...**, **Charger... / Enregistrer / Enregistrer sous...** (mêmes actions que le menu Fichier), à l'**Éditeur de contenu...** (détaillé plus bas) et à **Générer le site** (équivalent à Actions > Générer le site).
+Sous la barre de menu, une rangée de boutons donne un accès direct à **Nouveau projet...**, **Charger... / Enregistrer / Enregistrer sous...** (mêmes actions que le menu Fichier), à l'**Éditeur de contenu...** (détaillé plus bas), à **Générer le site** (équivalent à Actions > Générer le site) et à **Publier (FTP)...** (détaillé plus bas, section « Publication FTP » — accessible uniquement depuis cette barre d'outils, pas depuis le menu Actions).
 
 ### Nouveau projet...
 
@@ -296,6 +296,38 @@ Nécessite la bibliothèque optionnelle `pywebview` (`pip install pywebview`, ou
 
 ---
 
+## Publication FTP
+
+*Fenêtre séparée (bouton **Publier (FTP)...** dans la barre d'outils, juste après **Générer le site**) pour envoyer le site déjà généré localement vers un hébergement distant par FTP ou FTPS.*
+
+Il faut avoir généré le site au moins une fois avant (**Générer le site**) : si le dossier de sortie (onglet Chemins) est absent ou vide, un message le rappelle et la fenêtre de publication ne s'ouvre pas.
+
+**Champs du formulaire :**
+
+| Champ | Ce qu'on y met | Exemple |
+|---|---|---|
+| Hôte FTP | Adresse du serveur FTP. | `ftp.monsite.fr` |
+| Port | Port de connexion. | `21` |
+| Utilisateur | Identifiant de connexion FTP. | `moncompte` |
+| Mot de passe | Mot de passe FTP — **jamais écrit dans `site.json`** : enregistré dans le gestionnaire d'identifiants du système d'exploitation (Gestionnaire d'identifiants Windows, trousseau macOS...) dès qu'un fichier de configuration est associé au projet. Nécessite la bibliothèque optionnelle `keyring` (`pip install keyring`, ou l'extra `ftp_credentials` du projet) ; sans elle, le mot de passe reste seulement en mémoire le temps de la session, à ressaisir à chaque fois. | — |
+| Dossier distant | Dossier sur le serveur dans lequel transférer le site ; créé automatiquement s'il n'existe pas encore. | `/www` ou `public_html/monsite` |
+| URL du site publié | Adresse proposée à l'ouverture dans le navigateur une fois la publication terminée (facultatif). | `https://monsite.fr` |
+| Connexion sécurisée (FTPS) | Chiffre la connexion et le transfert. Coché par défaut. | — |
+| Mode passif | Recommandé dans la plupart des cas (compatible pare-feux et NAT). Coché par défaut. | — |
+
+**Publier** : se connecte et transfère tous les fichiers du dossier de sortie vers le dossier distant, avec une barre de progression et un bouton **Annuler le transfert**. Hôte et utilisateur sont obligatoires. La configuration saisie (hors mot de passe, géré à part comme indiqué ci-dessus) est enregistrée dans `site.json` dès que le transfert démarre, si le projet a déjà un fichier de configuration associé. Un échec sur un fichier particulier n'interrompt pas les autres : à la fin, un message récapitule combien de fichiers ont réussi et liste ceux qui ont échoué (non mis à jour sur le site en ligne).
+
+**Détection des fichiers obsolètes** : à chaque publication réussie, MEROPE compare la liste des fichiers qu'il vient d'envoyer à un petit fichier-manifeste (`.merope-manifest.json`) qu'il avait lui-même déposé sur le serveur lors de la publication précédente — jamais à un simple inventaire du dossier distant, pour ne jamais toucher aux fichiers d'une autre application ou déposés à la main sur ce même dossier distant. Trois cas possibles à la fin d'une publication :
+- **Aucun manifeste précédent trouvé** (toute première publication vers ce dossier distant, ou dossier jamais publié par MEROPE) : rien n'est proposé à la suppression cette fois, par précaution — un manifeste est déposé pour que les publications suivantes puissent comparer.
+- **Des fichiers obsolètes sont détectés** (billets/pages supprimés ou renommés depuis la dernière publication) : leur liste s'affiche, avec une question **Les supprimer du serveur maintenant ?** (Oui/Non) — répondre Non les laisse simplement sur le serveur, sans y revenir automatiquement plus tard.
+- **Le manifeste n'a pas pu être mis à jour** sur le serveur (erreur réseau après le transfert) : un message le signale, la détection ne sera pas fiable à la prochaine publication tant que ça persiste.
+
+Une fois la publication (et l'éventuelle suppression) terminée, si une **URL du site publié** est renseignée, une question propose de l'ouvrir dans le navigateur par défaut.
+
+> Limite assumée : le transfert se fait fichier par fichier, sans « poser » d'abord la nouvelle version dans un dossier temporaire distant avant de la faire remplacer l'ancienne en un seul geste — un visiteur peut donc, en cas d'échec partiel ou d'interruption en cours de route, voir un mélange de l'ancienne et de la nouvelle version du site le temps de relancer une publication complète.
+
+---
+
 ## Validation
 
 Avant sauvegarde ou génération, la configuration est vérifiée automatiquement. Les erreurs (ex. champ obligatoire vide, chemin manquant) s'affichent dans une boîte de dialogue et empêchent l'opération tant qu'elles ne sont pas corrigées.
@@ -312,6 +344,9 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 - `src/bloggen/ui/tooltip.py` — composant d'info-bulle affiché au survol des champs.
 - `src/bloggen/ui/content_editor/` — éditeur de contenu WYSIWYG, découpé par préoccupation : `window.py` (fenêtre, assemblage), `dialogs.py` (métadonnées), `notes.py` (panneau de notes, dont la renumérotation à l'enregistrement, `_renumber_footnotes`), `typography.py` (typographie française en direct), `autosave.py`, `undo_redo.py`, `blocks.py`, `file_ops.py`, `find_replace.py`, `formatting.py`, `paste.py`, `preview.py` (aperçu HTML, voir plus haut).
 - `src/bloggen/ui/preview_process.py` — sous-processus `pywebview` de l'aperçu HTML (fenêtre séparée : `pywebview` exige que sa boucle d'événements tourne sur le vrai thread principal du processus, déjà occupé par Tkinter).
+- `src/bloggen/ui/ftp_publish_dialog.py` — fenêtre de publication FTP (formulaire, transfert en arrière-plan avec barre de progression/annulation, confirmation de suppression des fichiers obsolètes).
+- `src/bloggen/publish/ftp_publisher.py` — transfert FTP/FTPS réel, manifeste des fichiers déployés par MEROPE (détection des fichiers obsolètes sans jamais toucher aux fichiers d'une autre application partageant le même dossier distant), suppression des fichiers obsolètes.
+- `src/bloggen/publish/ftp_credentials.py` — lecture/écriture du mot de passe FTP dans le gestionnaire d'identifiants du système (dépendance optionnelle `keyring`, jamais dans `site.json`).
 - `src/bloggen/ui/toolbar_icons.py` — icônes de la barre de mise en forme, dessinées à la volée (pas de fichiers image externes).
 - `src/bloggen/ui/image_widget.py` — aperçu d'image réel, poignées de redimensionnement, alignement, recadrage.
 - `src/bloggen/markdown/rich_text_model.py`, `rich_text_export.py`, `rich_text_import.py` — modèle pivot et conversions Markdown <-> saisie visuelle.

@@ -17,7 +17,8 @@
   "notes_rendering": {},
   "footer": {},
   "build": {},
-  "search": {}
+  "search": {},
+  "ftp": {}
 }
 ```
 
@@ -127,6 +128,14 @@ Recherche statique côté client (index JSON généré au build, filtrage en
 sous-chaîne dans le navigateur, sans serveur) :
 - activation
 - longueur de l'extrait de recherche
+
+### `ftp`
+Réglages de publication FTP/FTPS (fenêtre « Publier (FTP)... », voir `docs/GUIDE_UI.md`) :
+- hôte, port, utilisateur, dossier distant, URL du site publié une fois en ligne
+- `use_tls` (FTPS), `passive_mode`
+- `password` : jamais persisté ici — chargé/écrit dans le gestionnaire d'identifiants du
+  système via la dépendance optionnelle `keyring` (`ftp_credentials.py`), présent uniquement en
+  mémoire le temps d'une session tant que `keyring` n'est pas installé
 
 ## Exemple minimal
 

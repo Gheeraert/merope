@@ -30,6 +30,7 @@ Le système est organisé en modules correspondant au pipeline réel :
 - aperçu HTML optionnel de l'éditeur (`ui/content_editor/preview.py` + `ui/preview_process.py`,
   fenêtre `pywebview` lancée en sous-processus séparé — pywebview exige que sa propre boucle
   d'événements tourne sur le vrai thread principal du processus, déjà occupé par Tkinter)
+- publication FTP (`ui/ftp_publish_dialog.py`), au-dessus de `publish/` ci-dessous
 
 ### `content/`
 - chargement des fichiers
