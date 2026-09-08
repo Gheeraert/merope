@@ -933,9 +933,10 @@ def _validate_generated_tei_against_commons_publishing(
     """Runs the Commons Publishing diagnostic (see
     bloggen.tei.commons_publishing) against every generated item's TEI
     sidecar. Returns (url, issue summary) for every item that doesn't
-    validate — purely informational, never raises and never affects
-    report.success (see that module's docstring for why this is
-    currently expected to report on every build).
+    validate. Purely informational by itself — the caller decides
+    whether a non-empty result becomes a warning or a build failure via
+    build.fail_on_invalid_commons_publishing (see this function's call
+    site above).
     """
     results: list[tuple[str, str]] = []
     for item in (*pages, *posts):

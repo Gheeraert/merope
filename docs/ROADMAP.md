@@ -10,7 +10,7 @@
 - images + lightbox
 - notes finales (bas d'article), avec ancre de défilement doux entre l'appel de note et la note — notes *marginales* désactivées pour le moment (voir V1.1)
 - CLI headless (`bloggen build --config ...`)
-- RSS (`feed.xml`), sitemap (`sitemap.xml`, avec `lastmod`), `robots.txt` et méta SEO (Open Graph, Twitter Card, JSON-LD Article/WebSite) — sitemap/RSS si `site.base_url` renseigné
+- RSS (`feed.xml`), sitemap (`sitemap.xml`, avec `lastmod`), `robots.txt` et méta SEO (Open Graph, Twitter Card, JSON-LD BlogPosting/WebSite) — sitemap/RSS si `site.base_url` renseigné
 - surcharge de thème (CSS/JS) et de gabarits HTML par projet
 - éditeur de contenu WYSIWYG intégré (création/édition de pages et billets sans quitter l'application)
 - import Markdown et copier-coller nettoyé depuis Word/Google Docs dans l'éditeur
@@ -29,6 +29,9 @@
 - conversion en un clic d'une page en billet (ou l'inverse) depuis l'éditeur, sans réécrire le contenu à la main
 - aperçu local du site généré (serveur HTTP intégré, sans sous-processus ni installation) proposé directement depuis le rapport de génération
 - redimensionnement/copie de l'image de bannière proposé au moment de l'import
+- pagination réelle de l'archive des billets (`blog.posts_per_page`, une page HTML par tranche)
+- validation diagnostique du TEI généré contre le profil TEI Commons Publishing (grammaire RelaxNG *et* règles Schematron embarquées), avec option pour la rendre bloquante (`build.fail_on_invalid_commons_publishing`) plutôt que purement informative
+- aperçu HTML de l'éditeur de contenu, au clic ou en direct pendant la frappe (fenêtre séparée, pipeline de génération réel) — voir « Éditeur de contenu » dans `docs/GUIDE_UI.md`
 
 ## V1.1
 - amélioration responsive
@@ -38,4 +41,3 @@
 ## V2
 - enrichissements TEI supplémentaires
 - meilleure automatisation des médias
-- pagination réelle de l'archive (`blog.posts_per_page` n'est pas encore branché)

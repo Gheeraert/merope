@@ -87,6 +87,9 @@ Réglages billets :
 - pretty print
 - conservation de la TEI
 - activation de la lightbox
+- `validate_commons_publishing` : vérifie le TEI généré contre le schéma normatif TEI Commons
+  Publishing (grammaire RelaxNG et règles Schematron embarquées), purement diagnostique par
+  défaut (voir `build.fail_on_invalid_commons_publishing` ci-dessous)
 
 ### `media_handling`
 - stratégie de récupération des médias
@@ -109,9 +112,15 @@ Texte et options de pied de page.
 Options techniques :
 - nettoyage du dossier de sortie
 - copie des assets
-- comportement sur erreurs
+- comportement sur erreurs (`fail_on_missing_assets`, `fail_on_invalid_config`,
+  `fail_on_broken_links`, `fail_on_invalid_commons_publishing` : chacune, décochée, transforme
+  le problème correspondant en simple avertissement plutôt qu'en échec de génération)
+- `check_broken_links` : vérifie liens/médias internes, pages orphelines, balises canoniques et
+  données structurées (JSON-LD) déjà présentes, meta description et `<h1>` unique
 - commande Pandoc
 - `generate_sitemap` : génère `sitemap.xml` si `site.base_url` est renseigné
+- `generate_redirects` : page de redirection automatique à l'ancienne adresse d'un contenu dont
+  le slug change
 
 ### `search`
 Recherche statique côté client (index JSON généré au build, filtrage en
@@ -134,8 +143,13 @@ absolues) et un avertissement apparaît dans le rapport de build.
 
 Chaque page générée reçoit aussi une balise `<meta name="description">` (à partir du champ
 `description` du front matter, ou de `site.description` à défaut), une balise
-`<link rel="canonical">` et des balises Open Graph de base (`og:title`, `og:description`,
-`og:url`, `og:image` si une bannière est configurée), dès que `site.base_url` est renseigné.
+`<link rel="canonical">`, des balises Open Graph (`og:title`, `og:description`, `og:url`,
+`og:image` si une bannière est configurée) et Twitter Card, ainsi qu'un bloc de données
+structurées JSON-LD (`BlogPosting` pour un billet, avec date de publication/modification et
+auteur ; `WebSite` pour l'accueil), dès que `site.base_url` est renseigné. `check_broken_links`
+(voir `build` ci-dessus) vérifie ce qui est déjà présent (JSON valide, champs attendus, balise
+canonique cohérente) mais ne détecte pas une balise ou un bloc totalement absent d'une page qui
+en attendrait un.
 
 ## Personnalisation du thème
 

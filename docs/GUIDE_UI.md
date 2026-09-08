@@ -53,7 +53,7 @@ Demande un dossier (vide de préférence) puis y crée une arborescence complèt
 | Auteur | Le nom affiché comme auteur du site. | `Jeanne Dupont` |
 | Description | Un résumé en une phrase, utilisé pour le référencement (SEO) et les aperçus de partage sur les réseaux. | `Carnet de recherche sur les archives orales du XIXe siècle.` |
 
-**Référencement (SEO)** : dès que « Base URL » est renseignée, chaque page générée reçoit automatiquement une balise `<link rel="canonical">`, une méta-description, les balises Open Graph et Twitter Card (aperçus de partage sur les réseaux), un bloc de données structurées `schema.org` (JSON-LD — `Article` pour les billets avec leur date de publication, `WebSite` pour la page d'accueil), ainsi qu'un `sitemap.xml` (avec date de dernière modification), un `feed.xml` (RSS) et un `robots.txt` référençant le sitemap. Sans « Base URL », ces fichiers annexes ne sont pas générés (avertissement affiché), mais un `robots.txt` minimal (`Allow: /`) est tout de même produit.
+**Référencement (SEO)** : dès que « Base URL » est renseignée, chaque page générée reçoit automatiquement une balise `<link rel="canonical">`, une méta-description, les balises Open Graph et Twitter Card (aperçus de partage sur les réseaux), un bloc de données structurées `schema.org` (JSON-LD — `BlogPosting` pour les billets avec leur date de publication, `WebSite` pour la page d'accueil), ainsi qu'un `sitemap.xml` (avec date de dernière modification), un `feed.xml` (RSS) et un `robots.txt` référençant le sitemap. Sans « Base URL », ces fichiers annexes ne sont pas générés (avertissement affiché), mais un `robots.txt` minimal (`Allow: /`) est tout de même produit.
 
 ## 2. Bannière
 *Image large affichée en haut de la page d'accueil (et éventuellement des autres pages), au-dessus du menu ou du titre. Entièrement facultative.*
@@ -185,6 +185,7 @@ Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer p
 | Conserver TEI | Si coché, les fichiers TEI intermédiaires sont gardés dans le dossier TEI au lieu d'être supprimés après génération. | — |
 | Activer lightbox | Si coché, les images des articles s'ouvrent en grand au clic plutôt que de rester simplement affichées en ligne. | — |
 | Moteur lightbox | Bibliothèque JavaScript utilisée pour cet agrandissement. | `fancybox` |
+| Diagnostic TEI Commons Publishing | Si coché, chaque génération vérifie le TEI produit contre le schéma normatif TEI Commons Publishing (grammaire RelaxNG et règles Schematron intégrées) et affiche un avertissement s'il ne s'y conforme pas. Purement diagnostique par défaut — n'affecte pas le résultat de la génération, sauf si « Échouer si non conforme Commons Publishing » (onglet Génération) est aussi coché. Un contenu éditorial ordinaire est conforme ; seuls trois cas restent non représentables dans ce profil : blocs de code, règles horizontales, titres au style Setext (« Titre » souligné par une ligne de `=`, plutôt que « # Titre »). | — |
 
 ## 10. Médias
 *Comment les images référencées dans vos billets/pages sont récupérées, copiées et affichées.*
@@ -232,6 +233,10 @@ Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer p
 | Copier assets | Si coché, le dossier assets est copié vers la sortie à chaque génération. | — |
 | Échouer si assets manquants | Si coché, la génération s'arrête en erreur quand un fichier référencé (image, PDF...) est introuvable. Si décoché, un avertissement s'affiche mais la génération continue. | — |
 | Échouer si config invalide | Si coché, la génération est bloquée tant que des erreurs de validation subsistent. | — |
+| Vérifier liens/médias, pages orphelines, canoniques, données structurées et métadonnées SEO | Si coché, chaque génération vérifie : que tous les liens et images internes du site produit pointent vers un fichier réellement présent ; qu'aucune page générée n'est orpheline (sans lien interne entrant) ; que chaque balise canonique déjà présente correspond bien à `site.base_url` et à une page existante ; que chaque bloc de données structurées (JSON-LD) déjà présent est un JSON valide portant les champs attendus ; et que chaque page a bien une balise meta description et un titre `<h1>` unique. Ces trois derniers contrôles valident ce qui est présent, sans détecter une balise canonique ou un bloc JSON-LD totalement absent d'une page qui en attendrait un. | — |
+| Échouer si l'une de ces vérifications signale un problème | Si coché (et la vérification ci-dessus aussi), la génération s'arrête en erreur au moindre problème détecté. Si décoché (par défaut), un avertissement s'affiche mais la génération continue. | — |
+| Échouer si le TEI généré ne respecte pas le profil Commons Publishing | Si coché (et « Diagnostic TEI Commons Publishing », onglet Rendu, aussi), la génération s'arrête en erreur dès qu'une page ou un billet produit un TEI non conforme. Si décoché (par défaut), un avertissement s'affiche mais la génération continue — utile tant que le contenu peut légitimement contenir l'une des trois constructions encore non représentables dans ce profil (blocs de code, règles horizontales, titres Setext). | — |
+| Générer des redirections sur changement de slug | Si coché, renommer le slug d'une page ou d'un billet génère automatiquement une page de redirection à son ancienne adresse, pour que les liens/favoris existants continuent de fonctionner au lieu de tomber en erreur 404. | — |
 | Activer la recherche sur le site | Si coché, un index de recherche (`search-index.json`) est généré à chaque build et une case de recherche apparaît sur chaque page du site publié. La recherche se fait entièrement dans le navigateur du visiteur (aucun serveur, aucune base de données) : elle filtre par sous-chaîne, insensible à la casse et aux accents, sur le titre et le texte intégral des pages et billets publiés. | — |
 | Longueur de l'extrait de recherche (car.) | Nombre de caractères affichés sous chaque résultat de recherche. | `160` |
 
@@ -281,6 +286,12 @@ Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer p
 
 **Enregistrer** : convertit le contenu saisi en Markdown (avec front matter) et l'écrit sur disque ; si les métadonnées n'ont pas encore été renseignées, la fenêtre de métadonnées s'ouvre automatiquement avant l'enregistrement.
 
+**Aperçu HTML** (boutons à droite de la barre de mise en forme, à côté d'Enregistrer) : deux façons de voir le contenu en cours d'édition rendu comme sur le site publié, sans jamais rien écrire dans le vrai dossier de sortie —
+- **Aperçu** : ouvre (ou rafraîchit) une fenêtre séparée montrant le rendu HTML actuel, généré via le même pipeline que « Générer le site » (Pandoc → TEI → XSLT → gabarit).
+- **Aperçu en direct** (case à cocher) : régénère automatiquement cet aperçu quelques instants après chaque modification, dans la même fenêtre.
+
+Nécessite la bibliothèque optionnelle `pywebview` (`pip install pywebview`, ou l'extra `preview` du projet) ; un message clair s'affiche à la place si elle n'est pas installée. Le titre et le slug doivent être renseignés avant le premier aperçu (comme pour Enregistrer). Si le site n'a jamais été généré, l'aperçu s'affiche sans mise en forme CSS (structure correcte, style manquant) — générez le site une première fois pour un aperçu fidèle au style.
+
 > Limite assumée : cet éditeur ne comprend, à la réouverture d'un fichier, que le Markdown qu'il produit lui-même (voir `docs/ARCHITECTURE_PROJET.md`). Un passage non reconnu (HTML brut, syntaxe inhabituelle) est affiché tel quel dans une zone repérable (fond jauni) plutôt que d'être mal interprété ou perdu.
 
 ---
@@ -299,7 +310,8 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 - `src/bloggen/ui/menu_editor.py` — onglets Menu supérieur / Menu latéral.
 - `src/bloggen/ui/dialogs.py` — boîtes de dialogue d'ajout/modification d'une entrée de menu ou d'une section.
 - `src/bloggen/ui/tooltip.py` — composant d'info-bulle affiché au survol des champs.
-- `src/bloggen/ui/content_editor.py` — fenêtre de l'éditeur de contenu WYSIWYG, boîte de dialogue des métadonnées, panneau de notes (dont la renumérotation à l'enregistrement, `_renumber_footnotes`), typographie française en direct.
+- `src/bloggen/ui/content_editor/` — éditeur de contenu WYSIWYG, découpé par préoccupation : `window.py` (fenêtre, assemblage), `dialogs.py` (métadonnées), `notes.py` (panneau de notes, dont la renumérotation à l'enregistrement, `_renumber_footnotes`), `typography.py` (typographie française en direct), `autosave.py`, `undo_redo.py`, `blocks.py`, `file_ops.py`, `find_replace.py`, `formatting.py`, `paste.py`, `preview.py` (aperçu HTML, voir plus haut).
+- `src/bloggen/ui/preview_process.py` — sous-processus `pywebview` de l'aperçu HTML (fenêtre séparée : `pywebview` exige que sa boucle d'événements tourne sur le vrai thread principal du processus, déjà occupé par Tkinter).
 - `src/bloggen/ui/toolbar_icons.py` — icônes de la barre de mise en forme, dessinées à la volée (pas de fichiers image externes).
 - `src/bloggen/ui/image_widget.py` — aperçu d'image réel, poignées de redimensionnement, alignement, recadrage.
 - `src/bloggen/markdown/rich_text_model.py`, `rich_text_export.py`, `rich_text_import.py` — modèle pivot et conversions Markdown <-> saisie visuelle.
