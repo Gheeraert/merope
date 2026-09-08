@@ -1,9 +1,8 @@
 """bloggen.tei.commons_publishing: diagnostic validation of generated TEI
-against the TEI Commons Publishing RelaxNG schema (bundled from the
-companion project Mini-Métopes) — Phase 1 of the roadmap towards MEROPE
-eventually producing Commons-Publishing-conformant TEI. Purely
-informational for now: see the module's own docstring for why MEROPE's
-current Pandoc-based TEI does not validate yet.
+against the TEI Commons Publishing schema bundled from the companion
+project Mini-Métopes — both its RelaxNG grammar and its embedded
+Schematron assertions. Purely informational: never blocks a build, see
+the module's own docstring for what's still known not to validate.
 """
 
 from __future__ import annotations
@@ -77,3 +76,47 @@ def test_the_schema_is_only_compiled_once():
     first = _commons_publishing_schema()
     second = _commons_publishing_schema()
     assert first is second
+
+
+def test_the_schematron_is_only_compiled_once():
+    from bloggen.tei.commons_publishing import _commons_publishing_schematron
+
+    first = _commons_publishing_schematron()
+    second = _commons_publishing_schematron()
+    assert first is second
+
+
+def test_a_relaxng_valid_document_violating_a_schematron_only_rule_is_still_rejected():
+    """<desc type="deprecationInfo"> is legal TEI content wherever <desc>
+    itself is (RelaxNG has no opinion on it) — only a Schematron rule in
+    the bundled schema restricts it to elements carrying @validUntil.
+    Before this validator also ran Schematron, a document like this one
+    passed as "valid Commons Publishing TEI" despite violating a real
+    constraint of the profile."""
+    data = b"""<TEI xmlns="http://www.tei-c.org/ns/1.0">
+<teiHeader><fileDesc><titleStmt><title>Test</title></titleStmt>
+<publicationStmt><p>p</p></publicationStmt><sourceDesc><p>s</p></sourceDesc>
+<encodingDesc><specGrp xml:id="specs"><specGrpRef target="#specs"/>
+<desc type="deprecationInfo">Obsolete.</desc></specGrp></encodingDesc>
+</fileDesc></teiHeader>
+<text><body><div><head>Titre</head><p>Contenu.</p></div></body></text>
+</TEI>"""
+    result = validate_commons_publishing_bytes(data)
+    assert result.valid is False
+    assert any("deprecat" in issue.message.lower() for issue in result.issues)
+
+
+def test_a_document_satisfying_every_schematron_rule_still_validates():
+    """Guards against a rewrite of _rewrite_xpath2_comparison_operators
+    (or an lxml/libxslt upgrade) silently making every document fail —
+    the minimal valid document exercises none of the 9 embedded rules'
+    contexts, so this adds one that at least reaches a fired-rule/
+    successful-report branch without tripping it."""
+    data = b"""<TEI xmlns="http://www.tei-c.org/ns/1.0">
+<teiHeader><fileDesc><titleStmt><title>Test</title></titleStmt>
+<publicationStmt><p>p</p></publicationStmt><sourceDesc><p>s</p></sourceDesc></fileDesc></teiHeader>
+<text><body><div><head>Titre</head><p>Le <date when="2026">2026</date>.</p></div></body></text>
+</TEI>"""
+    result = validate_commons_publishing_bytes(data)
+    assert result.valid is True
+    assert result.issues == ()
