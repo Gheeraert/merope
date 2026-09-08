@@ -617,7 +617,7 @@ class MainWindow(tk.Tk):
         add_tooltip(count_label, count_help)
         add_tooltip(count_entry, count_help)
 
-        excerpt_length_var = tk.StringVar(value="300")
+        excerpt_length_var = tk.StringVar(value="1000")
         self.home_vars["recent_posts_excerpt_length"] = excerpt_length_var
         excerpt_length_label = ttk.Label(self.home_recent_frame, text="Longueur de l'extrait (car.)")
         excerpt_length_label.grid(row=1, column=0, sticky="w", padx=8, pady=4)

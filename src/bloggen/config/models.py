@@ -71,7 +71,7 @@ class HomeConfig:
     # per post on the home page — the full body used to be embedded
     # there too, duplicating every one of those posts' content across
     # two fully-indexable URLs.
-    recent_posts_excerpt_length: int = 300
+    recent_posts_excerpt_length: int = 1000
 
 
 @dataclass(slots=True)
