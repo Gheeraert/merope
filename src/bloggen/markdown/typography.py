@@ -147,6 +147,46 @@ def fix_page_number_spacing(text: str) -> str:
     return PAGE_ABBREVIATION_RE.sub(rf"\1{NBSP}", text)
 
 
+OE_LIGATURE = "œ"
+OE_LIGATURE_UPPER = "Œ"
+OE_LIGATURE_WORDS = (
+    "soeur",
+    "oeuvre",
+    "boeuf",
+    "coeur",
+    "noeud",
+    "voeu",
+    "moeurs",
+    "oeil",
+    "foetus",
+    "oesophage",
+    "oedeme",
+    "manoeuvre",
+)
+OE_LIGATURE_TYPED_RE = re.compile(
+    r"\b(" + "|".join(OE_LIGATURE_WORDS) + r")$", re.IGNORECASE
+)
+_OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
+
+
+def oe_ligature_replacement(word: str) -> str:
+    """Replace the "oe" digraph in *word* (a case-insensitive match of one
+    of :data:`OE_LIGATURE_WORDS`) with the French œ ligature. Uppercased to
+    Œ when the digraph opens the word (a capitalized word start, e.g.
+    "Oeuvre") or is itself fully capitalized (an all-caps word, e.g.
+    "SOEUR"); lowercase otherwise, including mid-word occurrences under an
+    otherwise-capitalized word (e.g. "Soeur" -> "Sœur").
+    """
+    match = _OE_PAIR_RE.search(word)
+    if match is None:
+        return word
+    o_char, e_char = match.group()[0], match.group()[1]
+    word_initial = match.start() == 0
+    upper = o_char.isupper() and (word_initial or e_char.isupper())
+    ligature = OE_LIGATURE_UPPER if upper else OE_LIGATURE
+    return word[: match.start()] + ligature + word[match.end() :]
+
+
 CENTURY_RE = re.compile(r"\b([IVXLCDM]+)(er|e)\s+([Ss]i[eè]cle)\b")
 
 

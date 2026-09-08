@@ -2,6 +2,7 @@ from bloggen.markdown.rich_text_model import InlineRun
 from bloggen.markdown.typography import (
     CLOSING_GUILLEMET,
     NBSP,
+    OE_LIGATURE_TYPED_RE,
     OPENING_GUILLEMET,
     apply_french_typography,
     convert_curly_quotes_to_guillemets,
@@ -10,6 +11,7 @@ from bloggen.markdown.typography import (
     fix_page_number_spacing,
     fix_period_spacing,
     is_valid_century_ordinal,
+    oe_ligature_replacement,
     split_century_ordinals,
 )
 
@@ -41,6 +43,29 @@ def test_double_punctuation_with_regular_space_gets_fixed():
 def test_double_punctuation_already_nbsp_is_unchanged():
     text = f"Vraiment{NBSP}!"
     assert apply_french_typography(text) == text
+
+
+def test_oe_ligature_replacement_lowercase():
+    assert oe_ligature_replacement("soeur") == "sœur"
+    assert oe_ligature_replacement("oeuvre") == "œuvre"
+    assert oe_ligature_replacement("boeuf") == "bœuf"
+
+
+def test_oe_ligature_replacement_capitalized_word_keeps_ligature_lowercase_mid_word():
+    assert oe_ligature_replacement("Soeur") == "Sœur"
+
+
+def test_oe_ligature_replacement_uppercases_ligature_when_word_initial():
+    assert oe_ligature_replacement("Oeuvre") == "Œuvre"
+
+
+def test_oe_ligature_replacement_all_caps():
+    assert oe_ligature_replacement("SOEUR") == "SŒUR"
+    assert oe_ligature_replacement("OEUVRE") == "ŒUVRE"
+
+
+def test_oe_ligature_typed_regex_does_not_match_unrelated_word():
+    assert OE_LIGATURE_TYPED_RE.search("poeme") is None
 
 
 def test_is_idempotent():

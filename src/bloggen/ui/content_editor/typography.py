@@ -12,6 +12,7 @@ from bloggen.markdown.typography import (
     CLOSING_GUILLEMET,
     DOUBLE_PUNCTUATION,
     NBSP,
+    OE_LIGATURE_TYPED_RE,
     OPENING_GUILLEMET,
     PAGE_ABBREVIATION_TYPED_RE,
     SPACE_BEFORE_PERIOD_TYPED_RE,
@@ -22,6 +23,7 @@ from bloggen.markdown.typography import (
     fix_page_number_spacing,
     fix_period_spacing,
     is_valid_century_ordinal,
+    oe_ligature_replacement,
 )
 
 _TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE_PUNCTUATION
@@ -55,6 +57,8 @@ class TypographyMixin:
             self._autoformat_page_number_space()
         elif char == ".":
             self._autoformat_period_spacing()
+        elif char.isalpha():
+            self._autoformat_oe_ligature()
 
     def _autoformat_last_typed_char(self, char: str) -> None:
         # Index expressions with arithmetic (e.g. "1.8-1c") are re-evaluated
@@ -152,6 +156,26 @@ class TypographyMixin:
         space_start = self.text.index(f"{cursor}-{len(text_before) - match.start()}c")
         period_index = self.text.index(f"{cursor}-1c")
         self.text.delete(space_start, period_index)
+
+    def _autoformat_oe_ligature(self) -> None:
+        """Detect one of the common French "oe" words just completed (e.g.
+        "soeur", "oeuvre", "boeuf") and replace the digraph in place with
+        the œ ligature, same rule as :func:`bloggen.markdown.typography.
+        oe_ligature_replacement` applied to pasted/imported content.
+        """
+        cursor = self.text.index("insert")
+        line = int(cursor.split(".")[0])
+        text_before = self.text.get(f"{line}.0", cursor)
+        match = OE_LIGATURE_TYPED_RE.search(text_before)
+        if match is None:
+            return
+        word = match.group(1)
+        replacement = oe_ligature_replacement(word)
+        if replacement == word:
+            return
+        word_start = self.text.index(f"{cursor}-{len(word)}c")
+        self.text.delete(word_start, cursor)
+        self.text.insert(word_start, replacement)
 
     def _autoformat_double_paren_note(self) -> None:
         """Detect "((note text))" (Hypothèses/WordPress note shorthand)
