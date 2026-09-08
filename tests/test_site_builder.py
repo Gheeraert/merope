@@ -1960,3 +1960,97 @@ def test_tei_header_is_enriched_with_author_orcid_license_language_and_dates():
     assert "creativecommons.org/licenses/by/4.0" in tei
     assert 'ident="fr">fr<' in tei
     assert "radioactivite" in tei
+
+
+def test_a_failed_tei_swap_rolls_back_an_already_succeeded_site_swap(monkeypatch):
+    """Reproduces the exact scenario an external audit flagged: the site
+    directory and the TEI directory are swapped in as two separate
+    _replace_directory calls — if the first (site) succeeds and the
+    second (TEI) then fails, a naive implementation leaves this build's
+    new site paired with the *previous* build's TEI, while still
+    reporting failure. build_site must instead undo the site swap too,
+    so a reported failure never leaves that split behind, and a
+    reported success is always the new site with its matching TEI."""
+    project = RUNTIME_ROOT / f"transactional_swap_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.source = "content/pages/accueil.md"
+    config.render.generate_tei_files = True
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(TEI_SAMPLE, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=Path(input_path),
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+    first_site_html = (project / "site/index.html").read_text(encoding="utf-8")
+    first_tei = (project / "build/tei/pages/accueil.xml").read_text(encoding="utf-8")
+
+    # Change the content so the second build's site/TEI would be visibly
+    # different from the first's if the (about to fail) swap went through.
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n\nContenu modifié.\n',
+        encoding="utf-8",
+    )
+
+    import bloggen.build.site_builder as site_builder_module
+
+    real_replace_directory = site_builder_module._replace_directory
+    calls = {"count": 0}
+
+    def flaky_replace_directory(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise OSError("échec simulé du remplacement du dossier TEI")
+        return real_replace_directory(*args, **kwargs)
+
+    monkeypatch.setattr(site_builder_module, "_replace_directory", flaky_replace_directory)
+
+    second_report = build_site(config, config_path=config_path)
+
+    assert second_report.success is False
+    assert any("TEI" in error for error in second_report.errors)
+    assert not any("annulation" in error.lower() for error in second_report.errors), (
+        "the site-swap rollback itself must have succeeded, not just been attempted"
+    )
+
+    # The real, load-bearing assertion: the site on disk must still match
+    # the first build exactly — never the second build's HTML paired with
+    # the first build's TEI (or any other split state).
+    assert (project / "site/index.html").read_text(encoding="utf-8") == first_site_html
+    assert (project / "build/tei/pages/accueil.xml").read_text(encoding="utf-8") == first_tei
+
+    # No orphaned backup/staging directories left behind either.
+    leftovers = [
+        entry.name
+        for entry in project.iterdir()
+        if entry.name.startswith(".site") or entry.name.startswith(".tei")
+    ]
+    assert leftovers == []

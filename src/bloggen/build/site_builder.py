@@ -173,7 +173,7 @@ def _rename_with_retry(src: Path, dst: Path, *, attempts: int) -> None:
             delay *= 2
 
 
-def _replace_directory(staging: Path, final: Path, *, attempts: int = 5) -> None:
+def _replace_directory(staging: Path, final: Path, *, attempts: int = 5, keep_backup: bool = False) -> Path | None:
     """Swaps ``staging`` in for ``final`` without ever deleting ``final``
     before ``staging`` has actually taken its place.
 
@@ -188,10 +188,18 @@ def _replace_directory(staging: Path, final: Path, *, attempts: int = 5) -> None
     it — each individual rename is a single atomic filesystem
     operation, so a failure at any point is either a clean no-op or an
     explicit, undone-if-possible rollback, never a silent deletion.
+
+    ``keep_backup=True`` leaves the pre-swap contents of ``final`` (if
+    any) on disk at the returned path instead of deleting them once the
+    swap succeeds — for a caller that needs to be able to undo *this*
+    swap later (see ``_restore_backup``) because it's one half of a
+    multi-directory swap that must succeed or fail together (see
+    build_site). Returns None when there was nothing to back up (this
+    was the very first build) or when ``keep_backup`` is False.
     """
     if not final.exists():
         _rename_with_retry(staging, final, attempts=attempts)
-        return
+        return None
 
     backup = final.parent / f".{final.name}.previous-{uuid.uuid4().hex}"
     _rename_with_retry(final, backup, attempts=attempts)
@@ -200,7 +208,22 @@ def _replace_directory(staging: Path, final: Path, *, attempts: int = 5) -> None
     except Exception:
         _rename_with_retry(backup, final, attempts=attempts)
         raise
+    if keep_backup:
+        return backup
     shutil.rmtree(backup, ignore_errors=True)
+    return None
+
+
+def _restore_backup(final: Path, backup: Path, *, attempts: int = 5) -> None:
+    """Undoes a ``keep_backup=True`` _replace_directory swap: whatever
+    currently sits at ``final`` (this build's just-swapped-in output) is
+    discarded, and ``backup`` (the previous build) takes its place
+    again — used when a *later* step in a multi-directory swap fails
+    (see build_site), so this swap doesn't survive alone."""
+    discard = final.parent / f".{final.name}.discarded-{uuid.uuid4().hex}"
+    _rename_with_retry(final, discard, attempts=attempts)
+    _rename_with_retry(backup, final, attempts=attempts)
+    shutil.rmtree(discard, ignore_errors=True)
 
 
 _PROJECT_PATH_FIELDS: tuple[tuple[str, str], ...] = (
@@ -280,6 +303,13 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
     # external audit flagged this as escaping the transactional
     # protection above.
     tei_staging_root: Path | None = None
+    # The pre-swap contents of final_output_root/requested_tei_root, kept
+    # around (not deleted) once a swap below succeeds — see the "swapped
+    # in as one unit" comment further down for why, and the finally
+    # block for why these are declared up here rather than inside the
+    # try (so a failure partway through still cleans them up correctly).
+    site_backup: Path | None = None
+    tei_backup: Path | None = None
 
     try:
         _ensure_all_project_paths_are_contained(config, project_root)
@@ -494,26 +524,76 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
 
         report.success = len(report.errors) == 0
 
+        # The output and TEI directories are swapped in as one unit, not
+        # two independent ones: _replace_directory(keep_backup=True) below
+        # keeps each prior directory recoverable (instead of deleting it
+        # immediately) specifically so that if the TEI swap fails right
+        # after the site swap already succeeded, the site swap can be
+        # undone too — a failed build must never leave this build's site
+        # paired with the previous build's TEI (or vice versa) while still
+        # reporting failure. Sidecars and redirect history are written
+        # only once both swaps have actually landed, for the same reason:
+        # they describe this build's output, so they must never survive a
+        # build that didn't fully replace it.
+        if report.success and staging_root is not None:
+            try:
+                site_backup = _replace_directory(staging_root, final_output_root, keep_backup=True)
+                staging_root = None
+            except Exception as exc:
+                report.errors.append(f"Échec du remplacement du dossier de sortie : {exc}")
+                report.success = False
+
+        if report.success and tei_staging_root is not None:
+            try:
+                tei_backup = _replace_directory(tei_staging_root, requested_tei_root, keep_backup=True)
+                tei_staging_root = None
+            except Exception as exc:
+                report.errors.append(f"Échec du remplacement du dossier TEI : {exc}")
+                report.success = False
+                if site_backup is not None:
+                    try:
+                        _restore_backup(final_output_root, site_backup)
+                        site_backup = None
+                    except Exception as rollback_exc:
+                        report.errors.append(
+                            "Échec de l'annulation du remplacement du dossier de sortie après "
+                            f"l'échec du remplacement TEI : {rollback_exc}. Le dossier de sortie "
+                            "peut désormais contenir un site plus récent que le dossier TEI."
+                        )
+
         if report.success:
             for generated_item in (*generated_pages, *generated_posts):
                 if generated_item.pending_sidecar is not None:
                     sidecar_path, sidecar_bytes = generated_item.pending_sidecar
                     sidecar_path.write_bytes(sidecar_bytes)
 
-        if report.success and pending_redirect_history is not None:
-            # Only recorded once the build actually succeeded — an
-            # aborted build's "current" URLs are incomplete (some pages
-            # may never have rendered), and persisting it would plant
-            # wrong redirect targets for the next, successful build.
-            save_url_history(redirect_history_path, pending_redirect_history)
+            if pending_redirect_history is not None:
+                # Only recorded once the build actually succeeded — an
+                # aborted build's "current" URLs are incomplete (some pages
+                # may never have rendered), and persisting it would plant
+                # wrong redirect targets for the next, successful build.
+                save_url_history(redirect_history_path, pending_redirect_history)
 
-        if staging_root is not None and report.success:
-            _replace_directory(staging_root, final_output_root)
-            staging_root = None
-
-        if tei_staging_root is not None and report.success:
-            _replace_directory(tei_staging_root, requested_tei_root)
-            tei_staging_root = None
+        if report.success:
+            # Only cleaned up on confirmed success: unlike staging_root/
+            # tei_staging_root below (this build's own, disposable,
+            # failed output), a kept-around backup is the *previous*
+            # build's good content — deleting it on a path where
+            # something already went wrong would destroy the one copy
+            # left to recover from that failure.
+            if site_backup is not None:
+                shutil.rmtree(site_backup, ignore_errors=True)
+            if tei_backup is not None:
+                shutil.rmtree(tei_backup, ignore_errors=True)
+        elif site_backup is not None or tei_backup is not None:
+            report.warnings.append(
+                "Une sauvegarde du contenu précédent a été conservée sur le disque à côté de "
+                + " et ".join(
+                    str(path) for path in (site_backup, tei_backup) if path is not None
+                )
+                + " suite à cet échec — supprimez-la manuellement une fois vérifié qu'elle "
+                "n'est plus nécessaire."
+            )
 
         return report
 
@@ -549,6 +629,12 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
             shutil.rmtree(staging_root, ignore_errors=True)
         if tei_staging_root is not None:
             shutil.rmtree(tei_staging_root, ignore_errors=True)
+        # site_backup/tei_backup are deliberately NOT force-deleted here:
+        # reaching this finally without having gone through the try
+        # block's own success-only cleanup above means something failed
+        # after a swap already landed (e.g. a sidecar write raising) —
+        # exactly when a kept-around backup of the previous build must
+        # survive, not be destroyed alongside the failure.
 
 
 def _generate_pages(
