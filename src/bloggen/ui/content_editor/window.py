@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from tkinter import font as tkfont, ttk
 import tkinter as tk
+from typing import Callable, TYPE_CHECKING
 
 from bloggen.markdown.rich_text_model import InlineRun
 from bloggen.ui import toolbar_icons
@@ -22,12 +23,17 @@ from .find_replace import FindReplaceMixin
 from .formatting import FormattingMixin
 from .notes import NotesMixin
 from .paste import PasteMixin
+from .preview import PreviewMixin
 from .typography import TypographyMixin
 from .undo_redo import UndoRedoMixin
+
+if TYPE_CHECKING:
+    from bloggen.config.models import ProjectConfig
 
 
 class ContentEditorWindow(
     AutosaveMixin,
+    PreviewMixin,
     UndoRedoMixin,
     FindReplaceMixin,
     NotesMixin,
@@ -61,6 +67,7 @@ class ContentEditorWindow(
         images_dir: Path,
         slugify_mode: str,
         project_root: Path | None = None,
+        get_config: Callable[[], "ProjectConfig | None"] | None = None,
     ) -> None:
         super().__init__(master)
         self.title("Éditeur de contenu")
@@ -113,6 +120,7 @@ class ContentEditorWindow(
         self._suppress_undo_tracking = False
         self._dirty = False
         self._autosave_after_id: str | None = None
+        self._init_preview(get_config)
 
         self._build_ui()
         self._refresh_file_list()
@@ -380,6 +388,28 @@ class ContentEditorWindow(
         save_button.pack(side="right", padx=1)
         add_tooltip(save_button, "Enregistrer : écrit ce contenu dans son fichier Markdown.")
 
+        self._preview_live_var = tk.BooleanVar(value=False)
+        live_preview_check = ttk.Checkbutton(
+            toolbar_row2,
+            text="Aperçu en direct",
+            variable=self._preview_live_var,
+            command=self._toggle_live_preview,
+        )
+        live_preview_check.pack(side="right", padx=(4, 8))
+        add_tooltip(
+            live_preview_check,
+            "Régénère automatiquement l'aperçu HTML quelques instants après chaque "
+            "modification. Nécessite pywebview (voir le bouton « Aperçu » si absent).",
+        )
+
+        preview_button = ttk.Button(toolbar_row2, text="Aperçu", command=self._show_preview)
+        preview_button.pack(side="right", padx=1)
+        add_tooltip(
+            preview_button,
+            "Aperçu HTML : ouvre (ou rafraîchit) une fenêtre montrant ce contenu rendu "
+            "comme sur le site publié, sans rien écrire dans le dossier de sortie réel.",
+        )
+
         vertical_paned = ttk.PanedWindow(master, orient="vertical")
         vertical_paned.pack(fill="both", expand=True)
 
@@ -417,6 +447,7 @@ class ContentEditorWindow(
         self._init_zoom()
         self.text.bind("<KeyRelease>", self._on_key_release, add="+")
         self.text.bind("<<Modified>>", self._on_text_modified)
+        self.text.bind("<<Modified>>", self._mark_preview_stale, add="+")
         self.text.bind("<<Paste>>", self._on_paste)
         self.text.bind("<Control-Shift-V>", self._shortcut_paste_plain)
         self.text.bind("<ButtonRelease-1>", self._update_toolbar_char_state, add="+")

@@ -37,6 +37,14 @@ dev = [
     # in 9.0.3 — dev-only dependency, never shipped with the generated site.
     "pytest>=9.0.3",
 ]
+# Powers the content editor's optional "Aperçu HTML" / "Aperçu en direct"
+# preview window (bloggen.ui.content_editor.preview). Imported tolerantly
+# there (same pattern as the optional keyring import in
+# publish/ftp_credentials.py) — the editor works fine without it, the
+# preview button just reports that it's missing.
+preview = [
+    "pywebview>=5.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -898,6 +898,18 @@ class MainWindow(tk.Tk):
         project_root = resolve_project_root(ProjectConfig(paths=paths), self.current_config_path)
         return project_root, paths.assets_dir
 
+    def _config_for_preview(self) -> ProjectConfig | None:
+        """Lazily resolved, like _list_menu_link_targets/_resolve_assets_root
+        above: the content editor is built once and reused, but the
+        Paths/Site/... tabs can change at any time while it's open, and the
+        preview should always reflect their current values, not whatever
+        they held when the editor was opened."""
+        try:
+            return self._collect_from_form()
+        except (ConfigValidationError, OSError, ValueError) as exc:
+            messagebox.showerror("Aperçu HTML", f"Configuration du projet invalide :\n{exc}")
+            return None
+
     def open_content_editor(self) -> None:
         paths = PathsConfig(**_read_vars(self.paths_vars))
         project_root = resolve_project_root(ProjectConfig(paths=paths), self.current_config_path)
@@ -913,6 +925,7 @@ class MainWindow(tk.Tk):
             images_dir=images_dir,
             slugify_mode=slugify_mode,
             project_root=project_root,
+            get_config=self._config_for_preview,
         )
 
     def stub_open_output(self) -> None:
