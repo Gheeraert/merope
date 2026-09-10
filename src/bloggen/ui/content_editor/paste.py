@@ -215,16 +215,18 @@ class PasteMixin:
         image = grab_clipboard_image()
         if image is None:
             return False
+        size_var = tk.StringVar(value="petit")
         caption = (
             ask_caption(
                 self,
                 "Image collée",
                 "Légende (affichée sous l'image sur le site publié ; laissez vide pour ne pas en mettre) :",
+                size_var=size_var,
             )
             or ""
         )
         src = save_clipboard_image(image, self.images_dir, self._doc_dir())
-        self._insert_image_widget("insert", src, caption, align="center")
+        self._insert_image_widget("insert", src, caption, align="center", size_preset=size_var.get())
         return True
 
     def _paste_image_button(self) -> None:

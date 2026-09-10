@@ -19,6 +19,7 @@
   };
 
   var previouslyFocused = null;
+  var closeTimer = null;
   var overlay = document.createElement("div");
   overlay.className = "lightbox-overlay";
   overlay.setAttribute("hidden", "hidden");
@@ -40,6 +41,10 @@
   var nextButton = overlay.querySelector(".lightbox-next");
 
   function openLightbox(group, index) {
+    if (closeTimer !== null) {
+      window.clearTimeout(closeTimer);
+      closeTimer = null;
+    }
     previouslyFocused = document.activeElement;
     state.group = group;
     state.index = index;
@@ -47,14 +52,24 @@
     overlay.removeAttribute("hidden");
     document.body.classList.add("lightbox-open");
     closeButton.focus();
+    // Force layout before adding the class so the opacity/transform change
+    // is picked up as a transition instead of applying instantly.
+    overlay.getBoundingClientRect();
+    overlay.classList.add("lightbox-visible");
   }
 
   function closeLightbox() {
-    overlay.setAttribute("hidden", "hidden");
+    overlay.classList.remove("lightbox-visible");
     document.body.classList.remove("lightbox-open");
     if (previouslyFocused && typeof previouslyFocused.focus === "function") {
       previouslyFocused.focus();
     }
+    var hide = function () {
+      closeTimer = null;
+      overlay.setAttribute("hidden", "hidden");
+    };
+    overlay.addEventListener("transitionend", hide, { once: true });
+    closeTimer = window.setTimeout(hide, 250);
   }
 
   function renderCurrent() {

@@ -321,9 +321,18 @@ class FormattingMixin:
         )
         if not source:
             return
-        alt = ask_caption(self, "Image", "Légende (affichée sous l'image ; sert aussi de texte alternatif) :") or ""
+        size_var = tk.StringVar(value="petit")
+        alt = (
+            ask_caption(
+                self,
+                "Image",
+                "Légende (affichée sous l'image ; sert aussi de texte alternatif) :",
+                size_var=size_var,
+            )
+            or ""
+        )
         src_repr = copy_into_images_dir(Path(source), self.images_dir, self._doc_dir())
-        self._insert_image_widget("insert", src_repr, alt)
+        self._insert_image_widget("insert", src_repr, alt, size_preset=size_var.get())
 
     def _doc_dir(self) -> Path:
         """Directory Markdown image paths should be written/resolved
@@ -349,6 +358,7 @@ class FormattingMixin:
         width: int | None = None,
         height: int | None = None,
         align: str | None = None,
+        size_preset: str | None = None,
     ) -> ImageWidget:
         at = self.text.index(index)
         widget = ImageWidget(
@@ -360,6 +370,7 @@ class FormattingMixin:
             width=width,
             height=height,
             align=align,
+            size_preset=size_preset,
         )
         self.text.window_create(at, window=widget)
         # Purely cosmetic: center the widget in the editor regardless of the

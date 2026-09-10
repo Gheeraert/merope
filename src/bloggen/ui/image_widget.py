@@ -28,9 +28,26 @@ from bloggen.ui.tooltip import add_tooltip
 _HANDLE_SIZE = 8
 _CROP_HANDLE_HIT = 16
 _MIN_SIZE = 40
-_MAX_PREVIEW_WIDTH = 400
 _MAX_CROP_PREVIEW_DIM = 700
 _ALIGN_LABELS = {"left": "gauche", "center": "centré", "right": "droite"}
+
+# Display-size presets offered when inserting an image's caption, and the
+# default cap applied when none is chosen (e.g. a pasted clipboard image
+# inserted without going through the size-picking dialog). Width in pixels;
+# ``None`` (taille originale) means no cap at all.
+SIZE_PRESETS: dict[str, int | None] = {
+    "petit": 240,
+    "moyen": 420,
+    "grand": 700,
+    "original": None,
+}
+_SIZE_LABELS = {
+    "petit": "Petit",
+    "moyen": "Moyen",
+    "grand": "Grand",
+    "original": "Taille originale",
+}
+_DEFAULT_SIZE = "petit"
 
 
 def copy_into_images_dir(source: Path, images_dir: Path, doc_dir: Path) -> str:
@@ -95,12 +112,25 @@ def save_clipboard_image(image: Image.Image, images_dir: Path, doc_dir: Path) ->
     return _relative_src(destination, doc_dir)
 
 
-def ask_caption(parent: tk.Misc, title: str, prompt: str, initial: str = "") -> str | None:
+def ask_caption(
+    parent: tk.Misc,
+    title: str,
+    prompt: str,
+    initial: str = "",
+    *,
+    size_var: tk.StringVar | None = None,
+) -> str | None:
     """Prompt for an image caption, with Gras/Italique buttons that wrap the
     current selection in ``**``/``*`` markers (kept literally through export,
     see :mod:`bloggen.markdown.rich_text_export`, so they render as real
     emphasis in the published caption while ``alt`` stays plain text).
     Returns ``None`` if the user cancels, mirroring ``simpledialog.askstring``.
+
+    When ``size_var`` is given, also shows a row of "petit/moyen/grand/taille
+    originale" radio buttons bound to it (see ``SIZE_PRESETS``), so the
+    caller can read the chosen display size back from the same variable
+    after this call returns — used when inserting a new image, not when
+    merely editing an existing one's caption.
     """
     dialog = tk.Toplevel(parent)
     dialog.title(title)
@@ -134,6 +164,17 @@ def ask_caption(parent: tk.Misc, title: str, prompt: str, initial: str = "") -> 
     italic_button = ttk.Button(toolbar, text="I", width=3, command=lambda: _wrap("*"))
     italic_button.pack(side="left", padx=(4, 0))
     add_tooltip(italic_button, "Mettre la sélection en italique.")
+
+    if size_var is not None:
+        size_frame = ttk.Frame(dialog)
+        size_frame.pack(padx=10, pady=(0, 8), anchor="w")
+        ttk.Label(size_frame, text="Taille d'affichage :").pack(anchor="w")
+        radios = ttk.Frame(size_frame)
+        radios.pack(anchor="w")
+        for key in ("petit", "moyen", "grand", "original"):
+            ttk.Radiobutton(
+                radios, text=_SIZE_LABELS[key], value=key, variable=size_var
+            ).pack(side="left", padx=(0, 8))
 
     result: dict[str, str | None] = {"value": None}
 
@@ -187,6 +228,7 @@ class ImageWidget(tk.Frame):
         width: int | None = None,
         height: int | None = None,
         align: str | None = None,
+        size_preset: str | None = None,
     ) -> None:
         super().__init__(master, borderwidth=1, relief="solid")
         self.images_dir = Path(images_dir)
@@ -203,7 +245,8 @@ class ImageWidget(tk.Frame):
         if width and height:
             self.width, self.height = width, height
         else:
-            self.width = min(natural_width, _MAX_PREVIEW_WIDTH)
+            cap = SIZE_PRESETS.get(size_preset or _DEFAULT_SIZE, SIZE_PRESETS[_DEFAULT_SIZE])
+            self.width = min(natural_width, cap) if cap is not None else natural_width
             self.height = round(natural_height * (self.width / natural_width)) if natural_width else natural_height
 
         self._build_ui()

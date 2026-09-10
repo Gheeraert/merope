@@ -963,10 +963,25 @@ button:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
+  opacity: 0;
+  transition: opacity 0.22s ease;
 }
 
 .lightbox-overlay[hidden] {
   display: none;
+}
+
+.lightbox-overlay.lightbox-visible {
+  opacity: 1;
+}
+
+.lightbox-overlay .lightbox-panel {
+  transform: scale(0.94);
+  transition: transform 0.22s ease;
+}
+
+.lightbox-overlay.lightbox-visible .lightbox-panel {
+  transform: scale(1);
 }
 
 .lightbox-backdrop {
@@ -987,6 +1002,11 @@ button:focus-visible {
 }
 
 .lightbox-figure {
+  /* Explicit placement in the panel's middle track: without it, when
+     prev/next are both hidden (single-image group) they stop being grid
+     items altogether, so the figure — the only item left — falls back to
+     the first (left) auto track instead of the centered 1fr one. */
+  grid-column: 2;
   margin: 0;
   max-height: 92vh;
   display: grid;
