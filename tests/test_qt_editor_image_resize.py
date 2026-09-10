@@ -180,6 +180,68 @@ def test_real_mouse_drag_updates_only_dimensions_and_is_one_undo(tmp_path):
     editor.close()
 
 
+def test_activated_drag_keeps_following_pointer_back_below_threshold(tmp_path):
+    run = InlineRun(image_src="image.png", image_width="420", image_height="280")
+    original = [Block(kind=PARAGRAPH, runs=[run])]
+    editor = _renderable_editor(tmp_path, run)
+    geometry = editor.image_resize_geometry()
+    assert geometry is not None
+    origin = geometry.handle_rect.center()
+
+    QTest.mousePress(editor.viewport(), Qt.MouseButton.LeftButton, pos=origin)
+    QTest.mouseMove(editor.viewport(), origin + QPoint(-120, -80), delay=1)
+    intermediate = targeted_merope_image(editor.textCursor()).run
+    final_delta = QPoint(-1, -1)
+    QTest.mouseMove(editor.viewport(), origin + final_delta, delay=1)
+    QTest.mouseRelease(
+        editor.viewport(), Qt.MouseButton.LeftButton, pos=origin + final_delta
+    )
+
+    expected = ratio_preserving_size(geometry.image_rect.size(), final_delta)
+    final = targeted_merope_image(editor.textCursor()).run
+    assert final != intermediate
+    assert (final.image_width, final.image_height) == (
+        str(expected.width()),
+        str(expected.height()),
+    )
+    editor.undo()
+    assert extract_blocks(editor.document()) == original
+    assert not editor.document().isUndoAvailable()
+    editor.redo()
+    assert targeted_merope_image(editor.textCursor()).run == final
+    editor.close()
+
+
+def test_activated_drag_returning_to_origin_restores_original_metadata(tmp_path):
+    run = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_width="50%",
+        image_height=None,
+        image_align="center",
+    )
+    original = [Block(kind=PARAGRAPH, runs=[run])]
+    editor = _renderable_editor(tmp_path, run)
+    geometry = editor.image_resize_geometry()
+    assert geometry is not None
+    origin = geometry.handle_rect.center()
+
+    QTest.mousePress(editor.viewport(), Qt.MouseButton.LeftButton, pos=origin)
+    QTest.mouseMove(editor.viewport(), origin + QPoint(-120, -80), delay=1)
+    assert targeted_merope_image(editor.textCursor()).run != run
+    QTest.mouseMove(editor.viewport(), origin, delay=1)
+    QTest.mouseRelease(editor.viewport(), Qt.MouseButton.LeftButton, pos=origin)
+
+    assert extract_blocks(editor.document()) == original
+    assert editor.document().isUndoAvailable()
+    editor.undo()
+    assert extract_blocks(editor.document()) == original
+    assert not editor.document().isUndoAvailable()
+    editor.redo()
+    assert extract_blocks(editor.document()) == original
+    editor.close()
+
+
 def test_resize_converts_non_numeric_dimensions_to_explicit_pixels(tmp_path):
     run = InlineRun(
         image_src="image.png",

@@ -81,8 +81,10 @@ _REJECTED_RICH_PASTE_TAGS = frozenset(
 @dataclass
 class _ImageResizeState:
     target: ImageTarget
+    original_target: ImageTarget
     origin: QPoint
     initial_size: QSize
+    activated: bool = False
     edit_cursor: QTextCursor | None = None
 
 
@@ -182,6 +184,7 @@ class MeropeTextEdit(QTextEdit):
     def _start_image_resize(self, geometry: ImageResizeGeometry, point: QPoint) -> None:
         self._image_resize_state = _ImageResizeState(
             target=geometry.target,
+            original_target=geometry.target,
             origin=QPoint(point),
             initial_size=geometry.image_rect.size(),
         )
@@ -189,15 +192,22 @@ class MeropeTextEdit(QTextEdit):
 
     def _resize_selected_image_to(self, point: QPoint) -> None:
         state = self._image_resize_state
-        if state is None or not resize_drag_is_effective(state.origin, point):
+        if state is None:
             return
+        if not state.activated:
+            if not resize_drag_is_effective(state.origin, point):
+                return
+            state.activated = True
 
-        size = ratio_preserving_size(state.initial_size, point - state.origin)
-        new_run = replace(
-            state.target.run,
-            image_width=str(size.width()),
-            image_height=str(size.height()),
-        )
+        if point == state.origin:
+            new_run = state.original_target.run
+        else:
+            size = ratio_preserving_size(state.initial_size, point - state.origin)
+            new_run = replace(
+                state.target.run,
+                image_width=str(size.width()),
+                image_height=str(size.height()),
+            )
         if new_run == state.target.run:
             return
 
