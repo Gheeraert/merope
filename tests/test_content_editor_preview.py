@@ -130,6 +130,27 @@ def test_preview_never_writes_into_the_real_output_directory(editor, project):
     assert not real_output.exists()
 
 
+def test_preview_copies_shared_assets_so_images_resolve(editor, project):
+    # Regression test: _build_single_item rewrites <img src> pointing into
+    # the project's shared assets/ folder on the assumption that
+    # copy_project_assets() already ran — true for the real "Générer le
+    # site" pipeline (site_builder.py, right before _generate_pages), false
+    # for the preview, which calls _build_single_item directly. Without
+    # syncing assets/ into the scratch dir first, the rewritten src pointed
+    # at a file that was never actually copied there.
+    editor.text.insert("insert", "Contenu de test pour l'aperçu")
+    editor.metadata = {"title": "Page d'aperçu", "slug": "page-apercu", "type": "page"}
+
+    html_path = editor._build_preview_html()
+    assert html_path is not None
+
+    target_project, config = project
+    source_image = target_project / config.paths.assets_dir / "images" / "exemple.jpg"
+    scratch_image = editor._preview_scratch() / config.paths.assets_dir / "images" / "exemple.jpg"
+    assert source_image.exists()
+    assert scratch_image.exists(), "preview never synced the project's shared assets/ folder"
+
+
 def test_preview_reports_content_metadata_errors(editor):
     editor.text.insert("insert", "Contenu")
     editor.metadata = {"title": "Page", "slug": "Slug Invalide !", "type": "page"}

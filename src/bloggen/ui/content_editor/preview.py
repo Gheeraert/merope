@@ -31,6 +31,7 @@ from pathlib import Path
 from tkinter import messagebox
 from typing import Callable
 
+from bloggen.build.assets import copy_project_assets
 from bloggen.build.reports import BuildReport
 from bloggen.build.site_builder import _build_single_item
 from bloggen.config.models import ProjectConfig
@@ -74,6 +75,7 @@ class PreviewMixin:
         self._preview_stale = True
         self._preview_building = False
         self._preview_revision = 0
+        self._preview_assets_synced = False
 
     # -- staleness tracking -------------------------------------------------
 
@@ -109,6 +111,25 @@ class PreviewMixin:
         real_static = real_output / "static"
         if real_static.is_dir():
             shutil.copytree(real_static, scratch_static)
+
+    def _sync_preview_project_assets(self, config: ProjectConfig) -> None:
+        """Mirrors the real build's project-wide assets/ folder into the
+        scratch dir once per editor session.
+
+        ``_build_single_item`` rewrites image URLs on the assumption that
+        ``copy_project_assets`` already ran, exactly as it does in the real
+        "Générer le site" pipeline (``site_builder.py``, right before
+        ``_generate_pages``/``_generate_posts``) — the preview must run the
+        same step itself, since it calls ``_build_single_item`` directly
+        without going through that pipeline. Skipping it left the rewritten
+        `<img src>` pointing at files that were never copied into the
+        scratch dir, so every image referenced from the shared assets
+        folder rendered as a broken link in the preview.
+        """
+        if self._preview_assets_synced or not config.build.copy_assets:
+            return
+        copy_project_assets(self.project_root, config.paths.assets_dir, self._preview_scratch())
+        self._preview_assets_synced = True
 
     # -- build ----------------------------------------------------------------
 
@@ -184,6 +205,7 @@ class PreviewMixin:
         )
 
         self._sync_preview_static_assets(config)
+        self._sync_preview_project_assets(config)
         scratch = self._preview_scratch()
 
         if kind == "page":
@@ -316,3 +338,4 @@ class PreviewMixin:
         if self._preview_scratch_dir is not None:
             shutil.rmtree(self._preview_scratch_dir, ignore_errors=True)
             self._preview_scratch_dir = None
+        self._preview_assets_synced = False
