@@ -197,8 +197,11 @@ class MeropeTextEdit(QTextEdit):
         if punctuation_position < 0:
             return
         block = cursor.block()
-        relative_position = punctuation_position - block.position()
         block_text = block.text()
+        relative_position = _python_index_for_utf16_offset(
+            block_text,
+            punctuation_position - block.position(),
+        )
         preceding = block_text[relative_position - 1] if relative_position > 0 else ""
         if preceding == NBSP:
             return

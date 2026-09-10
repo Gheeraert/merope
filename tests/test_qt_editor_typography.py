@@ -223,12 +223,34 @@ def test_autocorrection_preserves_paragraph_alignment():
     assert _leaf_text(extracted) == f"Aligné{NBSP};"
 
 
-def test_non_bmp_character_before_correction_does_not_shift_the_edit():
+@pytest.mark.parametrize("character", [":", ";", "!", "?", "»"])
+def test_non_bmp_character_and_existing_space_use_the_same_utf16_units(character):
     editor = _editor()
 
-    _type(editor, "📚Texte:")
+    _type(editor, f"📚 {character}")
 
-    assert _document_text(editor) == f"📚Texte{NBSP}:"
+    assert _document_text(editor) == f"📚{NBSP}{character}"
+
+
+@pytest.mark.parametrize("character", [":", "!", "»"])
+def test_non_bmp_character_without_space_gets_one_nbsp(character):
+    editor = _editor()
+
+    _type(editor, f"📚{character}")
+
+    assert _document_text(editor) == f"📚{NBSP}{character}"
+
+
+def test_non_bmp_spacing_correction_is_one_undo_redo_step():
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text="📚 ")])])
+
+    _type(editor, ":")
+    assert _document_text(editor) == f"📚{NBSP}:"
+
+    editor.undo()
+    assert _document_text(editor) == "📚 "
+    editor.redo()
+    assert _document_text(editor) == f"📚{NBSP}:"
 
 
 def test_century_superscript_preserves_bold_italic_and_link():
