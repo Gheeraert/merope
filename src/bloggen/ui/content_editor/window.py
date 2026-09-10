@@ -575,6 +575,7 @@ class ContentEditorWindow(
             "superscript": 8,
             "superscript_offset": 6,
         }
+        self._current_sizes = dict(self._base_font_sizes)
         self._notes_font = tkfont.Font(family="TkDefaultFont", size=self._base_font_sizes["body"])
 
     def _on_ctrl_mousewheel(self, event: tk.Event) -> str:
@@ -586,6 +587,7 @@ class ContentEditorWindow(
     def _apply_zoom(self) -> None:
         scale = self._zoom_scale
         sizes = {key: max(6, round(value * scale)) for key, value in self._base_font_sizes.items()}
+        self._current_sizes = sizes
         text = self.text
         text.configure(font=("TkDefaultFont", sizes["body"]))
         text.tag_configure("h1", font=("TkDefaultFont", sizes["h1"], "bold"))
@@ -600,6 +602,7 @@ class ContentEditorWindow(
             "superscript", offset=sizes["superscript_offset"], font=("TkDefaultFont", sizes["superscript"])
         )
         self._notes_font.configure(size=sizes["body"])
+        self._refresh_combined_fonts()
 
     # -- keyboard shortcuts ---------------------------------------------------
 

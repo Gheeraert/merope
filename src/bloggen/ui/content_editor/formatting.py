@@ -18,6 +18,18 @@ _LIST_LINE_TAGS = {"bullet_item", "ordered_item"}
 # PARAGRAPH/BLOCKQUOTE on export (see bloggen.markdown.paragraph_alignment).
 _ALIGN_TAGS = ("align_left", "align_center", "align_right", "align_justify")
 
+_HEADING_TAGS = ("h1", "h2", "h3", "h4")
+# Tk Text tags each carry a whole ``font`` spec, so when two tags with
+# conflicting fonts overlap (e.g. "italic" and "h2"), only the
+# higher-priority tag's font is used in full — the other's weight/size is
+# silently lost rather than merged. That made italic text inside a heading
+# render at body size and lose its boldness, even though the exported HTML
+# (where <i> nests correctly inside <h2>) always looked right. Dynamically
+# generated tags below, raised above every component tag, patch the visual
+# gap for the one combination the toolbar lets users create this way:
+# bold+italic (a heading is bold for this purpose).
+_COMBINED_FONT_TAG_PREFIX = "cf_"
+
 
 class FormattingMixin:
     """Toolbar formatting commands: character styles, headings/lists/
@@ -80,6 +92,56 @@ class FormattingMixin:
                 lambda: self.text.tag_remove(tag, mark_start, mark_end),
                 lambda: self.text.tag_add(tag, mark_start, mark_end),
             )
+        if tag in ("bold", "italic"):
+            self._refresh_combined_fonts(start, end)
+
+    def _refresh_combined_fonts(self, start: str = "1.0", end: str = "end") -> None:
+        """Reconcile overlapping bold/italic/heading tags in ``[start, end)``
+        — see :data:`_COMBINED_FONT_TAG_PREFIX` for why this is needed."""
+        text = self.text
+        for existing in list(text.tag_names()):
+            if existing.startswith(_COMBINED_FONT_TAG_PREFIX):
+                text.tag_remove(existing, start, end)
+
+        sizes = getattr(self, "_current_sizes", getattr(self, "_base_font_sizes", None))
+        if sizes is None:
+            return
+
+        def offset(idx: str) -> int:
+            # Text.count() returns None (rather than 0) when the two indices
+            # are equal.
+            result = text.count("1.0", idx, "chars")
+            return int(result[0]) if result else 0
+
+        boundaries = {offset(start), offset(end)}
+        for relevant_tag in (*_HEADING_TAGS, "bold", "italic"):
+            pos = start
+            while True:
+                found = text.tag_nextrange(relevant_tag, pos, end)
+                if not found:
+                    break
+                boundaries.add(offset(found[0]))
+                boundaries.add(offset(found[1]))
+                pos = found[1]
+        points = sorted(boundaries)
+
+        for point_start, point_end in zip(points, points[1:]):
+            if point_start == point_end:
+                continue
+            span_start = f"1.0+{point_start}c"
+            span_end = f"1.0+{point_end}c"
+            active = set(text.tag_names(span_start))
+            heading = next((h for h in _HEADING_TAGS if h in active), None)
+            is_bold = heading is not None or "bold" in active
+            is_italic = "italic" in active
+            if not (is_bold and is_italic):
+                continue
+            size = sizes[heading] if heading else sizes["body"]
+            combo_tag = f"{_COMBINED_FONT_TAG_PREFIX}{size}"
+            if combo_tag not in text.tag_names():
+                text.tag_configure(combo_tag, font=("TkDefaultFont", size, "bold italic"))
+            text.tag_add(combo_tag, span_start, span_end)
+            text.tag_raise(combo_tag)
 
     def _char_indices(self, start: str, end: str):
         count = int(self.text.count(start, end, "chars")[0])
@@ -145,6 +207,7 @@ class FormattingMixin:
             changes.append((line_start, line_end, before, after))
         self._push_line_tag_undo(_BLOCK_LINE_TAGS, changes)
         self._update_toolbar_block_state()
+        self._refresh_combined_fonts(f"{start_line}.0", f"{end_line}.end")
 
     def _list_marker_text(self, tag: str, ordinal: int) -> str:
         return "•  " if tag == "bullet_item" else f"{ordinal}.  "

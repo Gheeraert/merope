@@ -205,6 +205,7 @@ class BlocksMixin:
                 self.text.insert("end", "\n\n")
             self._insert_block(block)
 
+        self._refresh_combined_fonts()
         self._quote_parity_opening = True
         self._refresh_notes_panel()
         self.text.edit_reset()

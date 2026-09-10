@@ -115,10 +115,12 @@ class PasteMixin:
         BLOCKQUOTE/BULLET_LIST/ORDERED_LIST are handled: the HTML paste
         importer never produces TABLE/VERBATIM/FOOTNOTE_DEFINITION blocks.
         """
+        paste_start = self.text.index("insert")
         for index, block in enumerate(blocks):
             if index > 0:
                 self.text.insert("insert", "\n\n")
             self._insert_block_at_cursor(block)
+        self._refresh_combined_fonts(paste_start, self.text.index("insert"))
 
     def _insert_block_at_cursor(self, block: Block) -> None:
         if block.kind == PARAGRAPH:
