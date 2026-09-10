@@ -33,6 +33,7 @@ from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 def qapplication():
     app = QApplication.instance() or QApplication([])
     yield app
+    app.clipboard().clear()
 
 
 def _editor(blocks: list[Block] | None = None) -> MeropeTextEdit:
@@ -64,6 +65,75 @@ def _set_cursor(editor: MeropeTextEdit, position: int, end: int | None = None) -
 
 def _text(block: Block) -> str:
     return "".join(run.text for run in block.runs)
+
+
+def _paste_from_qt_clipboard(editor: MeropeTextEdit, mime: QMimeData) -> None:
+    clipboard = QApplication.clipboard()
+    clipboard.setMimeData(mime)
+    editor.paste()
+
+
+def test_qt_paste_prefers_html_over_plain_text_and_uses_merope_importer(monkeypatch):
+    editor = _editor()
+    calls = []
+    original_importer = text_edit_module.html_to_blocks
+
+    def recording_importer(html, **kwargs):
+        calls.append((html, kwargs))
+        return original_importer(html, **kwargs)
+
+    monkeypatch.setattr(text_edit_module, "html_to_blocks", recording_importer)
+    mime = QMimeData()
+    mime.setHtml("<p><b>Riche</b></p>")
+    mime.setText("fallback brut")
+
+    assert editor.canInsertFromMimeData(mime) is True
+    _paste_from_qt_clipboard(editor, mime)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "<p><b>Riche</b></p>"
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Riche", bold=True)])
+    ]
+
+
+def test_qt_paste_accepts_html_without_plain_text():
+    editor = _editor()
+    mime = QMimeData()
+    mime.setHtml("<h2>Titre HTML</h2>")
+
+    assert editor.canInsertFromMimeData(mime) is True
+    _paste_from_qt_clipboard(editor, mime)
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=HEADING, level=2, runs=[InlineRun(text="Titre HTML")])
+    ]
+
+
+def test_qt_paste_accepts_plain_text_without_html():
+    editor = _editor()
+    mime = QMimeData()
+    mime.setText("Texte brut")
+
+    assert editor.canInsertFromMimeData(mime) is True
+    _paste_from_qt_clipboard(editor, mime)
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Texte brut")])
+    ]
+
+
+def test_qt_paste_rejects_unsupported_mime_only():
+    original = [Block(kind=PARAGRAPH, runs=[InlineRun(text="Intact")])]
+    editor = _editor(original)
+    mime = QMimeData()
+    mime.setData("application/x-merope-unsupported", b"opaque")
+
+    assert editor.canInsertFromMimeData(mime) is False
+    _paste_from_qt_clipboard(editor, mime)
+
+    assert extract_blocks(editor.document()) == original
+    assert editor.document().isUndoAvailable() is False
 
 
 def test_single_rich_paragraph_is_inserted_inline_at_cursor():
@@ -258,6 +328,79 @@ def test_structural_rich_paste_is_one_native_undo_redo_step():
     assert extract_blocks(editor.document()) == pasted
 
 
+def test_structural_paste_in_middle_of_list_item_preserves_both_sides_and_list():
+    original = [
+        Block(
+            kind=BULLET_LIST,
+            children=[
+                Block(kind=LIST_ITEM, runs=[InlineRun(text="Avant après")]),
+                Block(kind=LIST_ITEM, runs=[InlineRun(text="Deux")]),
+            ],
+        )
+    ]
+    editor = _editor(original)
+    _set_cursor(editor, len("Avant "))
+
+    _paste_html(editor, "<h2>Titre</h2><blockquote>Citation</blockquote>")
+
+    pasted = extract_blocks(editor.document())
+    assert pasted == [
+        Block(
+            kind=BULLET_LIST,
+            children=[Block(kind=LIST_ITEM, runs=[InlineRun(text="Avant ")])],
+        ),
+        Block(kind=HEADING, level=2, runs=[InlineRun(text="Titre")]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text="Citation")]),
+        Block(
+            kind=BULLET_LIST,
+            children=[
+                Block(kind=LIST_ITEM, runs=[InlineRun(text="après")]),
+                Block(kind=LIST_ITEM, runs=[InlineRun(text="Deux")]),
+            ],
+        ),
+    ]
+
+    editor.undo()
+    assert extract_blocks(editor.document()) == original
+    editor.redo()
+    assert extract_blocks(editor.document()) == pasted
+
+
+def test_structural_paste_replacing_multi_block_selection_preserves_edges():
+    original = [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Avant supprimer")]),
+        Block(kind=HEADING, level=3, runs=[InlineRun(text="Titre supprimé")]),
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="retirer après")]),
+    ]
+    editor = _editor(original)
+    first = editor.document().begin()
+    third = first.next().next()
+    start = first.position() + len("Avant ")
+    end = third.position() + len("retirer ")
+    _set_cursor(editor, start, end)
+
+    _paste_html(editor, "<blockquote>Citation</blockquote><ol><li>Un</li><li>Deux</li></ol>")
+
+    pasted = extract_blocks(editor.document())
+    assert pasted == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Avant ")]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text="Citation")]),
+        Block(
+            kind=ORDERED_LIST,
+            children=[
+                Block(kind=LIST_ITEM, runs=[InlineRun(text="Un")]),
+                Block(kind=LIST_ITEM, runs=[InlineRun(text="Deux")]),
+            ],
+        ),
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="après")]),
+    ]
+
+    editor.undo()
+    assert extract_blocks(editor.document()) == original
+    editor.redo()
+    assert extract_blocks(editor.document()) == pasted
+
+
 def test_plain_text_fallback_matches_tk_policy_without_typographic_normalization():
     editor = _editor()
     plain = '"Bossuet" : p. 12 ((note))'
@@ -281,6 +424,12 @@ def test_empty_html_uses_available_plain_text_fallback():
     ("html", "tag"),
     [
         ("<p>Avant<img src='data:image/png;base64,abc'>Après</p>", "img"),
+        ("<p>Avant<v:imagedata src='wordml://image1.png'>Après</p>", "v:imagedata"),
+        (
+            "<p>Avant</p><v:shape><v:imagedata src='wordml://image1.png'>"
+            "</v:imagedata></v:shape><p>Après</p>",
+            "v:shape",
+        ),
         ("<p>Avant</p><table><tr><td>Cellule</td></tr></table>", "table"),
         ("<p>Avant</p><pre>code</pre>", "pre"),
     ],

@@ -49,7 +49,9 @@ from bloggen.ui.qt_editor.document_adapter import (
 
 
 _OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
-_REJECTED_RICH_PASTE_TAGS = frozenset({"img", "pre", "table"})
+_REJECTED_RICH_PASTE_TAGS = frozenset(
+    {"img", "pre", "table", "v:imagedata", "v:shape"}
+)
 
 
 class MeropeTextEdit(QTextEdit):
@@ -83,6 +85,13 @@ class MeropeTextEdit(QTextEdit):
             return
 
         super().keyPressEvent(event)
+
+    def canInsertFromMimeData(self, source: QMimeData) -> bool:
+        """Accept only MIME content that Merope can inspect safely itself."""
+
+        if source.hasHtml() and bool(source.html().strip()):
+            return True
+        return source.hasText() and bool(source.text())
 
     def insertFromMimeData(self, source: QMimeData) -> None:
         """Insert clipboard data without letting Qt interpret rich HTML.

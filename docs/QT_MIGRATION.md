@@ -144,8 +144,12 @@ QMimeData
   → QTextDocument
 ```
 
-`MeropeTextEdit.insertFromMimeData()` préfère le HTML disponible dans le MIME
-Qt natif. Le parseur partagé conserve ses traitements Word, Google Docs,
+`MeropeTextEdit.canInsertFromMimeData()` accepte un HTML non vide ou un texte
+brut non vide et refuse les formats MIME seuls qu’il ne sait pas interpréter.
+Le vrai chemin `QApplication.clipboard() → QTextEdit.paste()` aboutit ainsi à
+`MeropeTextEdit.insertFromMimeData()`, qui préfère le HTML disponible dans le
+MIME Qt natif. `acceptRichText` reste désactivé : Qt n’interprète jamais ce
+HTML lui-même. Le parseur partagé conserve ses traitements Word, Google Docs,
 styles inline, liens, listes, citations et typographie française. Aucune
 réintroduction du contournement Win32 propre à Tk n’a été nécessaire à ce
 stade.
@@ -165,7 +169,8 @@ Le texte brut est inséré littéralement, sans normalisation typographique
 globale immédiate, comme le fallback historique Tk. La typographie à la frappe
 et la commande explicite sur sélection restent disponibles ensuite.
 
-Les balises `<img>`, `<table>` et `<pre>` refusent intégralement le collage
+Les balises `<img>`, `<table>`, `<pre>` ainsi que les images VML Word
+`<v:imagedata>` et leur conteneur `<v:shape>` refusent intégralement le collage
 riche, même si le MIME fournit aussi un texte alternatif. La fenêtre explique
 que rien n’a été inséré afin d’éviter une perte de données. L’option stricte
 `reject_tags` a été ajoutée au parseur HTML canonique ; sa valeur par défaut
