@@ -10,11 +10,15 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence, TextIO
 
 from bloggen.ui.qt_editor_protocol import ProtocolError, ProtocolEvent, parse_event_line
+
+
+QT_EDITOR_READY_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +45,11 @@ class StderrOutput:
 class ProcessExited:
     returncode: int
     before_ready: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StartupTimedOut:
+    timeout_seconds: float
 
 
 LauncherNotification = ProtocolEvent | ProtocolDiagnostic | StderrOutput | ProcessExited
@@ -87,9 +96,15 @@ class QtEditorLauncher:
         context: QtEditorLaunchContext,
         *,
         popen_factory: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
+        ready_timeout: float = QT_EDITOR_READY_TIMEOUT_SECONDS,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
+        if ready_timeout <= 0:
+            raise ValueError("Le délai d’attente de ready doit être positif")
         self.context = context
         self._popen_factory = popen_factory
+        self._ready_timeout = ready_timeout
+        self._monotonic = monotonic
         self._process: subprocess.Popen[str] | None = None
         self._notifications: queue.SimpleQueue[
             tuple[int, LauncherNotification]
@@ -97,10 +112,17 @@ class QtEditorLauncher:
         self._generation = 0
         self._ready = False
         self._returncode: int | None = None
+        self._started_at: float | None = None
+        self._ready_seen: threading.Event | None = None
+        self._timed_out = False
 
     @property
     def is_running(self) -> bool:
-        return self._process is not None and self._process.poll() is None
+        return (
+            not self._timed_out
+            and self._process is not None
+            and self._process.poll() is None
+        )
 
     @property
     def ready(self) -> bool:
@@ -139,7 +161,10 @@ class QtEditorLauncher:
         self._process = process
         self._ready = False
         self._returncode = None
+        self._started_at = self._monotonic()
+        self._timed_out = False
         ready_seen = threading.Event()
+        self._ready_seen = ready_seen
         stdout_thread = threading.Thread(
             target=self._read_stdout,
             args=(process.stdout, generation, ready_seen),
@@ -161,6 +186,38 @@ class QtEditorLauncher:
             name="merope-qt-process",
         ).start()
         return process
+
+    def check_startup_timeout(self) -> StartupTimedOut | None:
+        """Fail a living child that has not emitted ``ready`` in time.
+
+        This method is intentionally non-blocking and is called from the
+        existing Tk ``after`` polling loop.  A child that never became ready
+        cannot own an editable document, so it is safe to ask it to terminate.
+        """
+
+        process = self._process
+        if (
+            process is None
+            or self._timed_out
+            or self._ready
+            or (self._ready_seen is not None and self._ready_seen.is_set())
+            or process.poll() is not None
+            or self._started_at is None
+        ):
+            return None
+        if self._monotonic() - self._started_at < self._ready_timeout:
+            return None
+
+        self._timed_out = True
+        self._process = None
+        self._started_at = None
+        self._ready_seen = None
+        try:
+            process.terminate()
+        except OSError:
+            # The process may have exited between poll() and terminate().
+            pass
+        return StartupTimedOut(timeout_seconds=self._ready_timeout)
 
     def drain_notifications(self) -> list[LauncherNotification]:
         """Drain on the Tk thread; reader threads never invoke GUI callbacks."""

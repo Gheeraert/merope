@@ -29,6 +29,7 @@ elif mode == "die-before-ready":
 elif mode == "invalid":
     print("not-json", flush=True)
     emit("closed")
+elif mode == "never-ready":
+    time.sleep(5)
 else:
     raise SystemExit(2)
-

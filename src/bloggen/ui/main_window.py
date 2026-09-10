@@ -41,6 +41,7 @@ from bloggen.ui.qt_editor_launcher import (
     QtEditorLaunchContext,
     QtEditorLaunchError,
     QtEditorLauncher,
+    StartupTimedOut,
     StderrOutput,
 )
 from bloggen.ui.qt_editor_protocol import ProtocolEvent
@@ -1061,6 +1062,15 @@ class MainWindow(tk.Tk):
 
         if exited:
             self._qt_editor_launcher = None
+            return
+
+        timeout = launcher.check_startup_timeout()
+        if isinstance(timeout, StartupTimedOut):
+            self._qt_editor_launcher = None
+            self._offer_tk_editor_fallback(
+                "L’éditeur Qt n’a pas signalé qu’il était prêt dans le délai "
+                f"imparti ({timeout.timeout_seconds:g} s)."
+            )
             return
         self.after(75, lambda: self._poll_qt_editor(launcher))
 

@@ -15,6 +15,7 @@ from bloggen.ui.qt_editor_launcher import (
     QtEditorLaunchContext,
     QtEditorLaunchError,
     QtEditorLauncher,
+    StartupTimedOut,
     StderrOutput,
     build_qt_editor_command,
 )
@@ -166,6 +167,48 @@ def test_process_dying_before_ready_is_reported_with_stderr(tmp_path):
     assert exit_notice == ProcessExited(returncode=7, before_ready=True)
 
 
+def test_living_process_that_never_emits_ready_times_out_without_blocking(tmp_path):
+    launcher = QtEditorLauncher(_context(tmp_path), ready_timeout=0.05)
+    launcher.start(command=_fake_command("never-ready"))
+
+    deadline = time.monotonic() + 2.0
+    timeout_notice = None
+    while timeout_notice is None and time.monotonic() < deadline:
+        launcher.drain_notifications()
+        timeout_notice = launcher.check_startup_timeout()
+        time.sleep(0.01)
+
+    assert timeout_notice == StartupTimedOut(timeout_seconds=0.05)
+    assert launcher.is_running is False
+    _wait_for_exit(launcher)
+
+    launcher.start(command=_fake_command("normal"))
+    notifications = _wait_for_exit(launcher)
+    assert any(
+        isinstance(item, ProtocolEvent) and item.type == "ready"
+        for item in notifications
+    )
+
+
+def test_ready_process_is_never_subject_to_startup_timeout(tmp_path):
+    now = [0.0]
+    launcher = QtEditorLauncher(
+        _context(tmp_path),
+        ready_timeout=1.0,
+        monotonic=lambda: now[0],
+    )
+    launcher.start(command=_fake_command("wait"))
+    deadline = time.monotonic() + 2.0
+    while not launcher.ready and time.monotonic() < deadline:
+        launcher.drain_notifications()
+        time.sleep(0.01)
+
+    now[0] = 100.0
+    assert launcher.check_startup_timeout() is None
+    assert launcher.is_running is True
+    _wait_for_exit(launcher)
+
+
 def test_invalid_child_stdout_becomes_protocol_diagnostic(tmp_path):
     launcher = QtEditorLauncher(_context(tmp_path))
 
@@ -216,4 +259,3 @@ def test_os_start_failure_is_wrapped(tmp_path):
 
     with pytest.raises(QtEditorLaunchError, match="interpréteur introuvable"):
         launcher.start()
-

@@ -5,11 +5,14 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from bloggen.ui import main_window as main_window_module
 from bloggen.ui.main_window import MainWindow
 from bloggen.ui.qt_editor_launcher import (
     ProcessExited,
     QtEditorLaunchContext,
+    StartupTimedOut,
 )
 from bloggen.ui.qt_editor_protocol import ProtocolEvent
 
@@ -173,3 +176,25 @@ def test_process_exit_before_ready_offers_tk_fallback():
     assert "n’a pas pu démarrer" in fallbacks[0]
     assert "PySide6 absent" in fallbacks[0]
     assert host._qt_editor_launcher is None
+
+
+def test_startup_timeout_offers_fallback_and_releases_launcher():
+    fallbacks = []
+    launcher = SimpleNamespace(
+        ready=False,
+        drain_notifications=lambda: [],
+        check_startup_timeout=lambda: StartupTimedOut(timeout_seconds=10.0),
+    )
+    host = SimpleNamespace(
+        _qt_editor_launcher=launcher,
+        _qt_editor_diagnostics=[],
+        _qt_editor_last_event=None,
+        after=lambda *args: pytest.fail("Le polling ne doit pas être reprogrammé"),
+        _offer_tk_editor_fallback=lambda detail: fallbacks.append(detail),
+    )
+
+    MainWindow._poll_qt_editor(host)
+
+    assert host._qt_editor_launcher is None
+    assert len(fallbacks) == 1
+    assert "10 s" in fallbacks[0]
