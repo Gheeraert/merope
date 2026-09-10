@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtGui import QTextCursor, QTextDocument
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from bloggen.content.writer import read_content_file, write_content_file
 from bloggen.markdown.rich_text_import import markdown_to_blocks
@@ -19,6 +19,7 @@ from bloggen.ui.qt_editor.file_io import (
     load_content_document,
     save_content_document,
 )
+from bloggen.ui.qt_editor import window as qt_window_module
 from bloggen.ui.qt_editor.window import QtEditorWindow
 
 
@@ -226,3 +227,64 @@ def test_close_event_is_cancelled_when_unsaved_prompt_is_cancelled(monkeypatch):
 
     assert event.accepted is False
     assert event.ignored is True
+
+
+def test_ipc_window_emits_opened_and_saved_events(tmp_path, monkeypatch):
+    path = write_content_file(tmp_path, "document.md", _metadata(), "Corps.\n")
+    events = []
+    monkeypatch.setattr(
+        qt_window_module,
+        "emit_event",
+        lambda event_type, **fields: events.append((event_type, fields)) or True,
+    )
+    window = QtEditorWindow(initial_directory=tmp_path, ipc=True)
+
+    window.load_markdown(path)
+    QTextCursor(window.editor.document()).insertText("Ajout ")
+    assert window.save_document() is True
+
+    assert events == [
+        ("opened", {"path": path, "message": None}),
+        ("saved", {"path": path, "message": None}),
+    ]
+
+
+def test_project_pages_directory_is_used_as_initial_open_location(
+    tmp_path, monkeypatch
+):
+    locations = []
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda parent, title, location, file_filter: locations.append(location) or ("", ""),
+    )
+    window = QtEditorWindow(initial_directory=tmp_path)
+
+    window._open_from_dialog()
+
+    assert locations == [str(tmp_path)]
+
+
+def test_run_emits_ready_then_closed_around_qt_event_loop(monkeypatch):
+    events = []
+
+    class FakeApplication:
+        def exec(self):
+            events.append("exec")
+            return 0
+
+    class FakeWindow:
+        def __init__(self, **kwargs):
+            assert kwargs["ipc"] is True
+
+        def show(self):
+            events.append("show")
+
+        def _emit(self, event_type, **kwargs):
+            events.append(event_type)
+
+    monkeypatch.setattr(qt_window_module.QApplication, "instance", lambda: FakeApplication())
+    monkeypatch.setattr(qt_window_module, "QtEditorWindow", FakeWindow)
+
+    assert qt_window_module.run(ipc=True) == 0
+    assert events == ["show", "ready", "exec", "closed"]

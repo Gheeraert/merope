@@ -43,15 +43,24 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_strikethrough,
     toggle_superscript,
 )
+from bloggen.ui.qt_editor_protocol import emit_event
 
 
 class QtEditorWindow(QMainWindow):
     """Standalone editor limited to content the Qt adapter can preserve."""
 
-    def __init__(self, markdown_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        markdown_path: Path | None = None,
+        *,
+        initial_directory: Path | None = None,
+        ipc: bool = False,
+    ) -> None:
         super().__init__()
         self.current_path: Path | None = None
         self.metadata: dict[str, str] = {}
+        self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
+        self.ipc = ipc
         self.resize(920, 700)
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(False)
@@ -70,6 +79,7 @@ class QtEditorWindow(QMainWindow):
         self.metadata = loaded.metadata
         self.save_action.setEnabled(True)
         self._update_window_title()
+        self._emit("opened", path=loaded.path)
 
     def open_document(self, path: Path) -> bool:
         if not self._confirm_unsaved_changes():
@@ -77,6 +87,7 @@ class QtEditorWindow(QMainWindow):
         try:
             self.load_markdown(path)
         except (OSError, ValueError) as exc:
+            self._emit("open_refused", path=path, message=str(exc))
             QMessageBox.critical(
                 self,
                 "Ouverture impossible",
@@ -96,11 +107,13 @@ class QtEditorWindow(QMainWindow):
                 self.editor.document(),
             )
         except (OSError, ValueError) as exc:
+            self._emit("error", message=f"Enregistrement impossible : {exc}")
             QMessageBox.critical(self, "Enregistrement impossible", str(exc))
             return False
 
         self.current_path = result.path
         self._update_window_title()
+        self._emit("saved", path=result.path)
         self._offer_version_purge(result.archive)
         return True
 
@@ -178,7 +191,7 @@ class QtEditorWindow(QMainWindow):
         path, _selected_filter = QFileDialog.getOpenFileName(
             self,
             "Ouvrir un fichier Mérope",
-            str(self.current_path.parent if self.current_path else Path.cwd()),
+            str(self.current_path.parent if self.current_path else self.initial_directory),
             "Markdown (*.md *.markdown);;Tous les fichiers (*)",
         )
         if path:
@@ -236,6 +249,16 @@ class QtEditorWindow(QMainWindow):
         else:
             event.ignore()
 
+    def _emit(
+        self,
+        event_type: str,
+        *,
+        path: Path | None = None,
+        message: str | None = None,
+    ) -> None:
+        if self.ipc:
+            emit_event(event_type, path=path, message=message)
+
     def _add_action(
         self,
         toolbar: QToolBar,
@@ -251,13 +274,19 @@ class QtEditorWindow(QMainWindow):
         return action
 
 
-def run(markdown_path: Path | None = None) -> int:
+def run(
+    markdown_path: Path | None = None,
+    *,
+    initial_directory: Path | None = None,
+    ipc: bool = False,
+) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
-    window = QtEditorWindow()
+    window = QtEditorWindow(initial_directory=initial_directory, ipc=ipc)
     if markdown_path is not None:
         try:
             window.load_markdown(markdown_path)
         except (OSError, ValueError) as exc:
+            window._emit("open_refused", path=markdown_path, message=str(exc))
             QMessageBox.critical(
                 None,
                 "Ouverture impossible",
@@ -266,4 +295,7 @@ def run(markdown_path: Path | None = None) -> int:
             )
             return 2
     window.show()
-    return app.exec()
+    window._emit("ready")
+    returncode = app.exec()
+    window._emit("closed")
+    return returncode

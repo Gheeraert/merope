@@ -34,6 +34,16 @@ from bloggen.ui.ftp_publish_dialog import FtpPublishDialog
 from bloggen.ui.media_panel import MediaPanel
 from bloggen.ui.menu_editor import SideMenuEditor, TopMenuEditor
 from bloggen.ui.notes_panel import NotesPanel
+from bloggen.ui.qt_editor_launcher import (
+    ProcessExited,
+    ProtocolDiagnostic,
+    QtEditorAlreadyRunning,
+    QtEditorLaunchContext,
+    QtEditorLaunchError,
+    QtEditorLauncher,
+    StderrOutput,
+)
+from bloggen.ui.qt_editor_protocol import ProtocolEvent
 from bloggen.ui.site_preview import SitePreviewServer
 from bloggen.ui.tooltip import add_tooltip
 
@@ -54,6 +64,9 @@ class MainWindow(tk.Tk):
         self.current_config_path: Path | None = None
         self._site_preview_server = SitePreviewServer()
         self._ftp_config = FtpConfig()
+        self._qt_editor_launcher: QtEditorLauncher | None = None
+        self._qt_editor_diagnostics: list[str] = []
+        self._qt_editor_last_event: ProtocolEvent | None = None
         self._build_ui()
         self.new_config()
 
@@ -724,6 +737,18 @@ class MainWindow(tk.Tk):
             "directement, sans quitter MEROPE.",
         )
 
+        qt_editor_button = ttk.Button(
+            toolbar,
+            text="Éditeur Qt (expérimental)...",
+            command=self.open_qt_content_editor,
+        )
+        qt_editor_button.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            qt_editor_button,
+            "Lance dans un processus séparé le prototype Qt. L’éditeur Tkinter "
+            "historique reste disponible avec le bouton précédent.",
+        )
+
         generate_button = ttk.Button(toolbar, text="Générer le site", command=self.generate_site)
         generate_button.pack(side="left", padx=(0, 6))
         add_tooltip(
@@ -931,22 +956,122 @@ class MainWindow(tk.Tk):
             return None
 
     def open_content_editor(self) -> None:
+        context = self._resolve_content_editor_context()
+
+        ContentEditorWindow(
+            self,
+            pages_dir=context.pages_dir,
+            posts_dir=context.posts_dir,
+            images_dir=context.images_dir,
+            slugify_mode=context.slugify_mode,
+            project_root=context.project_root,
+            get_config=self._config_for_preview,
+        )
+
+    def open_qt_content_editor(self) -> None:
+        if self._qt_editor_launcher is not None and self._qt_editor_launcher.is_running:
+            messagebox.showinfo(
+                "Éditeur Qt",
+                "L’éditeur Qt expérimental est déjà ouvert.",
+                parent=self,
+            )
+            return
+
+        try:
+            context = self._resolve_content_editor_context()
+            launcher = QtEditorLauncher(context)
+            launcher.start()
+        except (OSError, ValueError, QtEditorLaunchError) as exc:
+            self._offer_tk_editor_fallback(str(exc))
+            return
+        except QtEditorAlreadyRunning:
+            messagebox.showinfo(
+                "Éditeur Qt",
+                "L’éditeur Qt expérimental est déjà ouvert.",
+                parent=self,
+            )
+            return
+
+        self._qt_editor_launcher = launcher
+        self._qt_editor_diagnostics = []
+        self._qt_editor_last_event = None
+        self.after(75, lambda: self._poll_qt_editor(launcher))
+
+    def _resolve_content_editor_context(self) -> QtEditorLaunchContext:
         paths = PathsConfig(**_read_vars(self.paths_vars))
         project_root = resolve_project_root(ProjectConfig(paths=paths), self.current_config_path)
         pages_dir = (project_root / paths.pages_dir).resolve()
         posts_dir = (project_root / paths.posts_dir).resolve()
         images_dir = (project_root / self.media_panel.images_dir_var.get()).resolve()
         slugify_mode = self.content_vars["slugify_mode"].get().strip() or "ascii"
-
-        ContentEditorWindow(
-            self,
+        return QtEditorLaunchContext(
+            project_root=project_root,
             pages_dir=pages_dir,
             posts_dir=posts_dir,
             images_dir=images_dir,
             slugify_mode=slugify_mode,
-            project_root=project_root,
-            get_config=self._config_for_preview,
         )
+
+    def _poll_qt_editor(self, expected_launcher: QtEditorLauncher | None = None) -> None:
+        launcher = self._qt_editor_launcher
+        if launcher is None or (
+            expected_launcher is not None and launcher is not expected_launcher
+        ):
+            return
+
+        exited = False
+        for notification in launcher.drain_notifications():
+            if isinstance(notification, StderrOutput):
+                if notification.line:
+                    self._qt_editor_diagnostics.append(notification.line)
+                    self._qt_editor_diagnostics = self._qt_editor_diagnostics[-20:]
+            elif isinstance(notification, ProtocolDiagnostic):
+                diagnostic = (
+                    f"Protocole invalide : {notification.message} ({notification.line!r})"
+                )
+                self._qt_editor_diagnostics.append(diagnostic)
+                messagebox.showwarning("Éditeur Qt", diagnostic, parent=self)
+            elif isinstance(notification, ProtocolEvent):
+                self._qt_editor_last_event = notification
+                if notification.type == "error":
+                    error_message = notification.message or "Erreur inconnue dans l’éditeur Qt."
+                    self._qt_editor_diagnostics.append(error_message)
+                    if launcher.ready:
+                        messagebox.showerror(
+                            "Éditeur Qt",
+                            error_message,
+                            parent=self,
+                        )
+            elif isinstance(notification, ProcessExited):
+                exited = True
+                if notification.before_ready:
+                    detail = "\n".join(self._qt_editor_diagnostics[-8:])
+                    message = "L’éditeur Qt n’a pas pu démarrer."
+                    if detail:
+                        message += f"\n\nDiagnostic :\n{detail}"
+                    self._offer_tk_editor_fallback(message)
+                elif notification.returncode != 0:
+                    detail = "\n".join(self._qt_editor_diagnostics[-8:])
+                    messagebox.showerror(
+                        "Éditeur Qt",
+                        "Le processus de l’éditeur Qt s’est arrêté avec une erreur."
+                        + (f"\n\n{detail}" if detail else ""),
+                        parent=self,
+                    )
+
+        if exited:
+            self._qt_editor_launcher = None
+            return
+        self.after(75, lambda: self._poll_qt_editor(launcher))
+
+    def _offer_tk_editor_fallback(self, detail: str) -> None:
+        use_tk = messagebox.askyesno(
+            "Éditeur Qt indisponible",
+            f"{detail}\n\nOuvrir l’éditeur Tkinter à la place ?",
+            parent=self,
+        )
+        if use_tk:
+            self.open_content_editor()
 
     def stub_open_output(self) -> None:
         messagebox.showinfo(
