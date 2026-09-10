@@ -7,7 +7,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtGui import QTextCursor, QTextDocument
+from PySide6.QtGui import QTextCursor, QTextDocument, QTextImageFormat
 
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks
@@ -27,7 +27,17 @@ from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedBlockError,
     UnsupportedInlineError,
     extract_blocks,
+    make_image_format,
     populate_document,
+)
+from bloggen.ui.qt_editor.constants import (
+    BOLD_PROPERTY,
+    IMAGE_ALIGN_PROPERTY,
+    IMAGE_ALT_PROPERTY,
+    IMAGE_HEIGHT_PROPERTY,
+    IMAGE_MARKER_PROPERTY,
+    IMAGE_SRC_PROPERTY,
+    IMAGE_WIDTH_PROPERTY,
 )
 
 
@@ -35,6 +45,16 @@ def _round_trip(blocks: list[Block]) -> list[Block]:
     document = QTextDocument()
     populate_document(document, blocks)
     return extract_blocks(document)
+
+
+def _first_image_format(document: QTextDocument) -> QTextImageFormat:
+    iterator = document.begin().begin()
+    while not iterator.atEnd():
+        fragment = iterator.fragment()
+        if fragment.isValid() and fragment.charFormat().isImageFormat():
+            return QTextImageFormat(fragment.charFormat())
+        iterator += 1
+    raise AssertionError("Aucun fragment image Qt trouvé")
 
 
 def test_simple_paragraph_roundtrip():
@@ -212,6 +232,121 @@ def test_complete_block_qt_block_roundtrip():
     assert _round_trip(blocks) == blocks
 
 
+@pytest.mark.parametrize(
+    "image",
+    [
+        InlineRun(image_src="images/a.png", image_alt=""),
+        InlineRun(image_src="images/a.png", image_alt="Une légende"),
+        InlineRun(image_src="images/a.png", image_alt="**Bossuet** à *Meaux*"),
+        InlineRun(image_src="images/a.png", image_width="240"),
+        InlineRun(image_src="images/a.png", image_height="180"),
+        InlineRun(image_src="images/a.png", image_width="420", image_height="280"),
+        InlineRun(image_src="images/a.png", image_align="left"),
+        InlineRun(image_src="images/a.png", image_align="center"),
+        InlineRun(image_src="images/a.png", image_align="right"),
+        InlineRun(image_src="images/a.png", image_align=None),
+    ],
+)
+def test_merope_image_roundtrip_preserves_every_semantic_attribute(image: InlineRun):
+    blocks = [Block(kind=PARAGRAPH, runs=[image])]
+    document = QTextDocument()
+
+    populate_document(document, blocks)
+
+    image_format = _first_image_format(document)
+    assert image_format.isImageFormat()
+    assert image_format.name() == image.image_src
+    assert image_format.property(IMAGE_MARKER_PROPERTY) is True
+    assert image_format.property(IMAGE_SRC_PROPERTY) == image.image_src
+    assert extract_blocks(document) == blocks
+
+
+def test_image_none_and_empty_optional_values_remain_distinct():
+    image = InlineRun(
+        image_src="images/a.png",
+        image_alt="",
+        image_width="",
+        image_height=None,
+        image_align=None,
+    )
+    document = QTextDocument()
+
+    populate_document(document, [Block(kind=PARAGRAPH, runs=[image])])
+
+    image_format = _first_image_format(document)
+    assert image_format.hasProperty(IMAGE_ALT_PROPERTY)
+    assert image_format.property(IMAGE_ALT_PROPERTY)
+    assert image_format.hasProperty(IMAGE_WIDTH_PROPERTY)
+    assert image_format.property(IMAGE_WIDTH_PROPERTY)
+    assert not image_format.hasProperty(IMAGE_HEIGHT_PROPERTY)
+    assert not image_format.hasProperty(IMAGE_ALIGN_PROPERTY)
+    assert extract_blocks(document)[0].runs == [image]
+
+
+def test_only_positive_integer_dimensions_affect_native_qt_rendering():
+    semantic_only = InlineRun(
+        image_src="images/a.png",
+        image_width="50%",
+        image_height="auto",
+    )
+    pixels = InlineRun(
+        image_src="images/b.png",
+        image_width="240",
+        image_height="180",
+    )
+    document = QTextDocument()
+    blocks = [Block(kind=PARAGRAPH, runs=[semantic_only, pixels])]
+
+    populate_document(document, blocks)
+
+    formats = []
+    iterator = document.begin().begin()
+    while not iterator.atEnd():
+        fragment = iterator.fragment()
+        if fragment.isValid() and fragment.charFormat().isImageFormat():
+            formats.append(QTextImageFormat(fragment.charFormat()))
+        iterator += 1
+    assert formats[0].width() == 0
+    assert formats[0].height() == 0
+    assert formats[1].width() == 240
+    assert formats[1].height() == 180
+    assert extract_blocks(document) == blocks
+
+
+def test_image_between_text_runs_roundtrips_without_fragment_loss():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[
+                InlineRun(text="Avant ", italic=True),
+                InlineRun(image_src="images/a.png", image_alt="Légende"),
+                InlineRun(text=" après", bold=True),
+            ],
+        )
+    ]
+
+    assert _round_trip(blocks) == blocks
+
+
+def test_image_inside_simple_list_item_roundtrips():
+    blocks = [
+        Block(
+            kind=BULLET_LIST,
+            children=[
+                Block(
+                    kind=LIST_ITEM,
+                    runs=[
+                        InlineRun(text="Voir "),
+                        InlineRun(image_src="images/a.png", image_alt="A"),
+                    ],
+                )
+            ],
+        )
+    ]
+
+    assert _round_trip(blocks) == blocks
+
+
 def test_markdown_block_qt_block_markdown_roundtrip():
     source_blocks = [
         Block(kind=HEADING, level=2, runs=[InlineRun(text="Titre", italic=True)]),
@@ -264,12 +399,30 @@ def test_unsupported_block_is_never_silently_lost(unsupported: Block):
 
 @pytest.mark.parametrize(
     "run",
-    [
-        InlineRun(image_src="assets/image.jpg", image_alt="Image"),
-        InlineRun(footnote_ref="1"),
-    ],
+    [InlineRun(footnote_ref="1")],
 )
 def test_unsupported_inline_leaf_is_never_silently_lost(run: InlineRun):
+    document = QTextDocument()
+
+    with pytest.raises(UnsupportedInlineError):
+        populate_document(document, [Block(kind=PARAGRAPH, runs=[run])])
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        InlineRun(image_src=""),
+        InlineRun(image_alt="sans source"),
+        InlineRun(image_src="a.png", image_width=240),
+        InlineRun(image_src="a.png", image_height=180),
+        InlineRun(image_src="a.png", image_align="justify"),
+        InlineRun(image_src="a.png", text="texte"),
+        InlineRun(image_src="a.png", footnote_ref="1"),
+        InlineRun(image_src="a.png", bold=True),
+        InlineRun(image_src="a.png", link_href="https://example.org"),
+    ],
+)
+def test_invalid_image_model_is_explicitly_rejected(run: InlineRun):
     document = QTextDocument()
 
     with pytest.raises(UnsupportedInlineError):
@@ -292,10 +445,21 @@ def test_qt_table_is_not_flattened_during_extraction():
         extract_blocks(document)
 
 
-def test_qt_image_is_not_converted_to_placeholder_text():
+def test_foreign_qt_image_without_merope_metadata_is_rejected():
     document = QTextDocument()
     cursor = QTextCursor(document)
     cursor.insertImage("missing-development-image.png")
 
-    with pytest.raises(UnsupportedInlineError, match="images"):
+    with pytest.raises(UnsupportedInlineError, match="etrangere"):
+        extract_blocks(document)
+
+
+def test_merope_image_with_incompatible_qt_text_format_is_rejected():
+    document = QTextDocument()
+    cursor = QTextCursor(document)
+    image_format = make_image_format(InlineRun(image_src="image.png"))
+    image_format.setProperty(BOLD_PROPERTY, True)
+    cursor.insertImage(image_format)
+
+    with pytest.raises(UnsupportedInlineError, match="format de texte incompatible"):
         extract_blocks(document)

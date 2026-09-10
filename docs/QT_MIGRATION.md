@@ -92,6 +92,11 @@ mais Tk ne lui envoie aucune commande après le lancement.
   historique et un bouton distinct « Éditeur Qt (expérimental)... » ;
 - des propriétés Mérope centralisées fondées sur `QTextFormat.UserProperty`
   pour lever les ambiguïtés sémantiques ;
+- les images Markdown statiques, représentées comme de vrais
+  `QTextImageFormat`, ouvertes et enregistrées sans perte de `src`, légende,
+  dimensions ni alignement ;
+- l’insertion d’une image locale dans un document déjà ouvert, avec copie et
+  résolution du chemin relatif assurées par le service d’images partagé ;
 - une erreur explicite avant toute modification du document pour les blocs ou
   feuilles inline que ce prototype ne sait pas conserver.
 
@@ -187,10 +192,49 @@ Markdown → rich_text_import → Block / InlineRun
 Les fonctions Qt `toMarkdown`, `setMarkdown`, `toHtml` et `setHtml` ne font
 pas partie de ce chemin.
 
+### Images statiques
+
+Le chemin documentaire des images est désormais :
+
+```text
+Markdown image
+  → InlineRun image
+  → QTextImageFormat + UserProperty Mérope
+  → InlineRun image
+  → Markdown image
+```
+
+Les propriétés centralisées conservent un marqueur Mérope ainsi que `src`,
+`image_alt`, `width`, `height` et `align`. `QTextImageFormat.name()` reçoit le
+`src` canonique sans le convertir en chemin absolu. Lors du chargement,
+`QTextDocument.baseUrl` est fixé au dossier du fichier Markdown, après
+validation complète du nouveau modèle. Qt peut ainsi résoudre une ressource
+relative pour l’affichage sans modifier ce qui sera réexporté. Une image
+absente reste une image sémantique valide et Qt peut afficher son indication
+de ressource manquante.
+
+Les dimensions Markdown restent des chaînes ou `None`. Seules les valeurs
+entières positives sont recopiées dans la largeur ou la hauteur visuelle
+native de Qt ; une dimension absente ou non traduisible n’est jamais inventée
+à partir du rendu. L’alignement `left`, `center` ou `right` est conservé comme
+donnée Mérope sans simuler pour l’instant le rendu publié. `image_alt` reste
+le champ historique de légende et conserve littéralement ses marqueurs `*` et
+`**` ; aucun modèle de légende distinct n’est introduit.
+
+La commande « Insérer une image... » exige un document réel ouvert et un
+répertoire d’images configuré. Elle copie le fichier avec
+`copy_into_images_dir`, demande une légende simple, puis insère le même
+`InlineRun` via `insert_blocks`. Undo/redo porte sur le document Qt ; la copie
+physique reste volontairement sur disque après undo.
+
+Les images venant du collage HTML (`img`, `v:imagedata`, `v:shape`) et les
+bitmaps seuls du presse-papiers restent refusés : leur extraction et leur
+copie transactionnelle feront l’objet d’un autre lot.
+
 ## Explicitement refusé
 
-- l’ouverture éditable et l’enregistrement de fichiers contenant images,
-  notes, tableaux, blocs `verbatim`, titres hors H1–H4 ou listes complexes ;
+- l’ouverture éditable et l’enregistrement de fichiers contenant notes,
+  tableaux, blocs `verbatim`, titres hors H1–H4 ou listes complexes ;
 - les listes vides ou imbriquées et les éléments de liste contenant des blocs ;
 - l’alignement d’une sélection mêlant paragraphes et éléments de liste ;
 - tout objet, cadre ou tableau Qt que l’adaptateur ne sait pas retranscrire.
@@ -202,8 +246,8 @@ refusé n’est ni réécrit ni archivé.
 
 - vérifier manuellement les formats MIME réellement exposés par Word et Google
   Docs sous Windows ;
-- préparer un lot séparé pour la représentation et le round-trip des images
-  Qt, avant d’autoriser leur collage riche ;
+- vérifier la sélection et la modification contrôlée des métadonnées d’une
+  image Qt avant d’envisager redimensionnement ou recadrage interactif ;
 - éprouver le lancement et le timeout sur les plateformes distribuées ainsi
   que le conditionnement de l’extra PySide6 ;
 - conserver Tkinter comme éditeur principal et fallback tant que la couverture
@@ -211,7 +255,8 @@ refusé n’est ni réécrit ni archivé.
 
 ## Volontairement différé
 
-- images interactives, redimensionnement, recadrage et légendes ;
+- images interactives, redimensionnement, recadrage, remplacement et édition
+  riche des légendes ;
 - notes de bas de page et raccourci `((note))` dans l’interface Qt ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;

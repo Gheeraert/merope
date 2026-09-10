@@ -18,12 +18,20 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from bloggen.content.image_service import copy_into_images_dir
 from bloggen.content.versioning import purge_versions, versions_to_purge
 from bloggen.markdown.rich_text_export import blocks_to_markdown
-from bloggen.markdown.rich_text_model import BULLET_LIST, ORDERED_LIST
+from bloggen.markdown.rich_text_model import (
+    BULLET_LIST,
+    ORDERED_LIST,
+    PARAGRAPH,
+    Block,
+    InlineRun,
+)
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
     extract_blocks,
+    insert_blocks,
     populate_document,
 )
 from bloggen.ui.qt_editor.file_io import (
@@ -54,12 +62,14 @@ class QtEditorWindow(QMainWindow):
         markdown_path: Path | None = None,
         *,
         initial_directory: Path | None = None,
+        images_dir: Path | None = None,
         ipc: bool = False,
     ) -> None:
         super().__init__()
         self.current_path: Path | None = None
         self.metadata: dict[str, str] = {}
         self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
+        self.images_dir = Path(images_dir) if images_dir is not None else None
         self.ipc = ipc
         self.resize(920, 700)
         self.editor = MeropeTextEdit(self)
@@ -147,6 +157,7 @@ class QtEditorWindow(QMainWindow):
         self._add_action(toolbar, "Barre", lambda: toggle_strikethrough(self.editor))
         self._add_action(toolbar, "Exposant", lambda: toggle_superscript(self.editor))
         self._add_action(toolbar, "Lien", self._prompt_for_link, "Ctrl+K")
+        self._add_action(toolbar, "Insérer une image...", self._insert_image_from_dialog)
         toolbar.addSeparator()
 
         block_group = QActionGroup(self)
@@ -191,6 +202,61 @@ class QtEditorWindow(QMainWindow):
         href, accepted = QInputDialog.getText(self, "Lien", "Adresse du lien :")
         if accepted:
             set_link(self.editor, href.strip() or None)
+
+    def insert_image_file(self, source: Path, *, image_alt: str = "") -> InlineRun:
+        """Copy and insert one local image through the canonical adapter path."""
+
+        if self.current_path is None:
+            raise ValueError("Ouvrez d’abord un fichier Mérope.")
+        if self.images_dir is None:
+            raise ValueError("Le répertoire d’images du projet n’est pas configuré.")
+        src = copy_into_images_dir(
+            Path(source),
+            self.images_dir,
+            self.current_path.parent,
+        )
+        run = InlineRun(image_src=src, image_alt=image_alt)
+        cursor = insert_blocks(
+            self.editor.textCursor(),
+            [Block(kind=PARAGRAPH, runs=[run])],
+        )
+        self.editor.setTextCursor(cursor)
+        return run
+
+    def _insert_image_from_dialog(self) -> None:
+        if self.current_path is None:
+            QMessageBox.warning(
+                self,
+                "Insérer une image",
+                "Ouvrez d’abord un fichier Mérope afin de calculer le chemin de l’image.",
+            )
+            return
+        if self.images_dir is None:
+            QMessageBox.warning(
+                self,
+                "Insérer une image",
+                "Le répertoire d’images du projet n’est pas configuré.",
+            )
+            return
+        source, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Choisir une image",
+            str(self.current_path.parent),
+            "Images (*.jpg *.jpeg *.png *.gif *.webp);;Tous les fichiers (*)",
+        )
+        if not source:
+            return
+        image_alt, accepted = QInputDialog.getText(
+            self,
+            "Image",
+            "Légende (sert aussi de texte alternatif) :",
+        )
+        if not accepted:
+            return
+        try:
+            self.insert_image_file(Path(source), image_alt=image_alt)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Insertion impossible", str(exc))
 
     def _show_paste_refused(self, message: str) -> None:
         QMessageBox.warning(
@@ -290,10 +356,15 @@ def run(
     markdown_path: Path | None = None,
     *,
     initial_directory: Path | None = None,
+    images_dir: Path | None = None,
     ipc: bool = False,
 ) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
-    window = QtEditorWindow(initial_directory=initial_directory, ipc=ipc)
+    window = QtEditorWindow(
+        initial_directory=initial_directory,
+        images_dir=images_dir,
+        ipc=ipc,
+    )
     if markdown_path is not None:
         try:
             window.load_markdown(markdown_path)

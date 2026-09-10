@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
+    QTextImageFormat,
     QTextListFormat,
 )
 
@@ -39,6 +40,12 @@ from bloggen.ui.qt_editor.constants import (
     BOLD_PROPERTY,
     HEADING_LEVEL_PROPERTY,
     HEADING_POINT_SIZES,
+    IMAGE_ALIGN_PROPERTY,
+    IMAGE_ALT_PROPERTY,
+    IMAGE_HEIGHT_PROPERTY,
+    IMAGE_MARKER_PROPERTY,
+    IMAGE_SRC_PROPERTY,
+    IMAGE_WIDTH_PROPERTY,
     ITALIC_PROPERTY,
     LIST_KIND_PROPERTY,
     STRIKETHROUGH_PROPERTY,
@@ -49,6 +56,8 @@ from bloggen.ui.qt_editor.constants import (
 SUPPORTED_LEAF_KINDS = {PARAGRAPH, HEADING, BLOCKQUOTE}
 SUPPORTED_LIST_KINDS = {BULLET_LIST, ORDERED_LIST}
 SUPPORTED_ALIGNMENTS = {"left", "center", "right", "justify"}
+SUPPORTED_IMAGE_ALIGNMENTS = {None, "left", "center", "right"}
+_OPTIONAL_IMAGE_STRING_PREFIX = "merope-string:"
 
 
 class UnsupportedDocumentError(ValueError):
@@ -247,6 +256,28 @@ def make_char_format(run: InlineRun, *, heading_level: int | None = None) -> QTe
     return char_format
 
 
+def make_image_format(run: InlineRun) -> QTextImageFormat:
+    """Create one native Qt image carrying Merope's canonical metadata."""
+
+    _validate_image_run(run)
+    image_format = QTextImageFormat()
+    image_format.setName(run.image_src)
+    image_format.setProperty(IMAGE_MARKER_PROPERTY, True)
+    image_format.setProperty(IMAGE_SRC_PROPERTY, run.image_src)
+    _set_optional_property(image_format, IMAGE_ALT_PROPERTY, run.image_alt)
+    _set_optional_property(image_format, IMAGE_WIDTH_PROPERTY, run.image_width)
+    _set_optional_property(image_format, IMAGE_HEIGHT_PROPERTY, run.image_height)
+    _set_optional_property(image_format, IMAGE_ALIGN_PROPERTY, run.image_align)
+
+    visual_width = _positive_pixel_dimension(run.image_width)
+    visual_height = _positive_pixel_dimension(run.image_height)
+    if visual_width is not None:
+        image_format.setWidth(visual_width)
+    if visual_height is not None:
+        image_format.setHeight(visual_height)
+    return image_format
+
+
 def refresh_block_visuals(block: QTextBlock) -> None:
     """Refresh heading/body size without altering inline semantic properties."""
 
@@ -310,17 +341,53 @@ def validate_blocks(blocks: Iterable[Block]) -> None:
 
 def _validate_runs(runs: Iterable[InlineRun]) -> None:
     for run in runs:
-        if run.image_src is not None or any(
+        has_image_data = run.image_src is not None or any(
             value is not None
             for value in (run.image_alt, run.image_width, run.image_height, run.image_align)
-        ):
-            raise UnsupportedInlineError(
-                "Les images ne sont pas encore prises en charge par Qt"
-            )
+        )
+        if has_image_data:
+            _validate_image_run(run)
+            continue
         if run.footnote_ref is not None:
             raise UnsupportedInlineError(
                 "Les appels de note ne sont pas encore pris en charge par Qt"
             )
+
+
+def _validate_image_run(run: InlineRun) -> None:
+    if not isinstance(run.image_src, str) or not run.image_src.strip():
+        raise UnsupportedInlineError("Une image Merope doit avoir un src non vide")
+    for label, value in (
+        ("alt", run.image_alt),
+        ("width", run.image_width),
+        ("height", run.image_height),
+    ):
+        if value is not None and not isinstance(value, str):
+            raise UnsupportedInlineError(
+                f"L'attribut image {label} doit etre une chaine ou None"
+            )
+    if run.image_align not in SUPPORTED_IMAGE_ALIGNMENTS:
+        raise UnsupportedInlineError(
+            f"Alignement d'image Merope non pris en charge : {run.image_align!r}"
+        )
+    if run.text:
+        raise UnsupportedInlineError(
+            "Une image Merope ne peut pas contenir simultanement du texte"
+        )
+    if run.footnote_ref is not None:
+        raise UnsupportedInlineError(
+            "Une image Merope ne peut pas etre simultanement un appel de note"
+        )
+    if (
+        run.bold
+        or run.italic
+        or run.strikethrough
+        or run.superscript
+        or run.link_href is not None
+    ):
+        raise UnsupportedInlineError(
+            "Une image Merope ne peut pas porter un format de texte ou un lien"
+        )
 
 
 def _validate_alignment(alignment: str) -> None:
@@ -384,7 +451,10 @@ def _insert_runs(
     heading_level: int | None = None,
 ) -> None:
     for run in runs:
-        cursor.insertText(run.text, make_char_format(run, heading_level=heading_level))
+        if run.image_src is not None:
+            cursor.insertImage(make_image_format(run))
+        else:
+            cursor.insertText(run.text, make_char_format(run, heading_level=heading_level))
 
 
 def _begin_block(
@@ -445,9 +515,30 @@ def _extract_runs(block: QTextBlock) -> list[InlineRun]:
         if fragment.isValid():
             char_format = fragment.charFormat()
             if char_format.isImageFormat():
-                raise UnsupportedInlineError(
-                    "Les images QTextDocument ne sont pas encore prises en charge"
+                if not bool(char_format.property(IMAGE_MARKER_PROPERTY)):
+                    raise UnsupportedInlineError(
+                        "Image Qt etrangere sans metadonnees Merope"
+                    )
+                _validate_image_char_format(char_format)
+                run = InlineRun(
+                    image_src=_required_image_property(
+                        char_format, IMAGE_SRC_PROPERTY, "src"
+                    ),
+                    image_alt=_optional_image_property(char_format, IMAGE_ALT_PROPERTY),
+                    image_width=_optional_image_property(
+                        char_format, IMAGE_WIDTH_PROPERTY
+                    ),
+                    image_height=_optional_image_property(
+                        char_format, IMAGE_HEIGHT_PROPERTY
+                    ),
+                    image_align=_optional_image_property(
+                        char_format, IMAGE_ALIGN_PROPERTY
+                    ),
                 )
+                _validate_image_run(run)
+                runs.append(run)
+                iterator += 1
+                continue
             run = InlineRun(
                 text=fragment.text(),
                 bold=inline_format_enabled(char_format, BOLD_PROPERTY),
@@ -463,8 +554,82 @@ def _extract_runs(block: QTextBlock) -> list[InlineRun]:
     return runs or [InlineRun(text="")]
 
 
+def _validate_image_char_format(char_format: QTextCharFormat) -> None:
+    if char_format.isAnchor() or any(
+        inline_format_enabled(char_format, property_id)
+        for property_id in (
+            BOLD_PROPERTY,
+            ITALIC_PROPERTY,
+            STRIKETHROUGH_PROPERTY,
+            SUPERSCRIPT_PROPERTY,
+        )
+    ):
+        raise UnsupportedInlineError(
+            "Une image Qt Merope porte un format de texte incompatible"
+        )
+
+
+def _set_optional_property(
+    image_format: QTextImageFormat,
+    property_id: int,
+    value: str | None,
+) -> None:
+    if value is not None:
+        # An empty Python string can round-trip through QVariant as an empty
+        # QStringList in PySide. A private prefix preserves "" versus None.
+        image_format.setProperty(
+            property_id,
+            _OPTIONAL_IMAGE_STRING_PREFIX + value,
+        )
+
+
+def _required_image_property(
+    char_format: QTextCharFormat,
+    property_id: int,
+    label: str,
+) -> str:
+    if not char_format.hasProperty(property_id):
+        raise UnsupportedInlineError(
+            f"Image Qt Merope sans propriete obligatoire {label}"
+        )
+    value = char_format.property(property_id)
+    if not isinstance(value, str):
+        raise UnsupportedInlineError(
+            f"Propriete image Merope {label} invalide"
+        )
+    return value
+
+
+def _optional_image_property(
+    char_format: QTextCharFormat,
+    property_id: int,
+) -> str | None:
+    if not char_format.hasProperty(property_id):
+        return None
+    value = char_format.property(property_id)
+    if not isinstance(value, str) or not value.startswith(
+        _OPTIONAL_IMAGE_STRING_PREFIX
+    ):
+        raise UnsupportedInlineError("Propriete image Merope optionnelle invalide")
+    return value[len(_OPTIONAL_IMAGE_STRING_PREFIX) :]
+
+
+def _positive_pixel_dimension(value: str | None) -> int | None:
+    if value is None or not value.isascii() or not value.isdecimal():
+        return None
+    pixels = int(value)
+    return pixels if pixels > 0 else None
+
+
 def _append_semantic_run(runs: list[InlineRun], run: InlineRun) -> None:
-    if runs and _same_inline_format(runs[-1], run):
+    if (
+        runs
+        and runs[-1].image_src is None
+        and runs[-1].footnote_ref is None
+        and run.image_src is None
+        and run.footnote_ref is None
+        and _same_inline_format(runs[-1], run)
+    ):
         runs[-1].text += run.text
     else:
         runs.append(run)

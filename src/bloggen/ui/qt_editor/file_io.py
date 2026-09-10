@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import QTextDocument
 
 from bloggen.content.versioning import ArchiveResult, archive_previous_version
 from bloggen.content.writer import read_content_file, write_content_file
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks
-from bloggen.ui.qt_editor.document_adapter import extract_blocks, populate_document
+from bloggen.ui.qt_editor.document_adapter import (
+    extract_blocks,
+    populate_document,
+    validate_blocks,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,8 +39,10 @@ def load_content_document(path: Path, document: QTextDocument) -> LoadedContent:
     path = Path(path)
     metadata, body = read_content_file(path)
     blocks = markdown_to_blocks(body)
-    # populate_document validates every block before clearing the current Qt
-    # document, so an unsupported file leaves the open document untouched.
+    # Change the resource context only after full validation. An unsupported
+    # file therefore leaves both the open document and its base URL intact.
+    validate_blocks(blocks)
+    document.setBaseUrl(_document_base_url(path))
     populate_document(document, blocks)
     document.setModified(False)
     return LoadedContent(path=path, metadata=dict(metadata))
@@ -55,3 +63,7 @@ def save_content_document(
     document.setModified(False)
     return SaveResult(path=written_path, markdown_body=markdown_body, archive=archive)
 
+
+def _document_base_url(path: Path) -> QUrl:
+    directory = str(path.resolve().parent) + os.sep
+    return QUrl.fromLocalFile(directory)

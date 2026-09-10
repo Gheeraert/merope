@@ -45,6 +45,7 @@ def main() -> int:
         return run(
             args.markdown,
             initial_directory=args.pages_dir,
+            images_dir=args.images_dir,
             ipc=args.ipc,
         )
     except Exception as exc:
