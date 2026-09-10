@@ -27,6 +27,7 @@ from bloggen.markdown.rich_text_model import (
 )
 
 _ESCAPE_RE = re.compile(r"([\\*_\[\]^])")
+_ESCAPE_CAPTION_RE = re.compile(r"([\\\[\]^])")
 
 
 def blocks_to_markdown(blocks: list[Block]) -> str:
@@ -138,7 +139,8 @@ def _merge_adjacent_runs(runs: list[InlineRun]) -> list[InlineRun]:
 
 def _run_to_md(run: InlineRun) -> str:
     if run.image_src is not None:
-        alt = _escape_text(run.image_alt or "")
+        # */** are left unescaped here so caption emphasis survives to TEI/HTML.
+        alt = _ESCAPE_CAPTION_RE.sub(r"\\\1", run.image_alt or "")
         attrs = format_image_attributes(
             {
                 "width": run.image_width or "",

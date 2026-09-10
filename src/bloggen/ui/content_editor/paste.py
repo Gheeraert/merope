@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import queue
 import threading
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox
 import tkinter as tk
 from bloggen.markdown.html_paste_import import html_to_blocks
 from bloggen.markdown.note_shortcuts import (
@@ -23,7 +23,7 @@ from bloggen.markdown.rich_text_model import (
     InlineRun,
 )
 from bloggen.ui.clipboard_html import read_html_clipboard
-from bloggen.ui.image_widget import grab_clipboard_image, save_clipboard_image
+from bloggen.ui.image_widget import ask_caption, grab_clipboard_image, save_clipboard_image
 
 class PasteMixin:
     """Clipboard paste handling: rich HTML (async, off the Tk main
@@ -216,10 +216,10 @@ class PasteMixin:
         if image is None:
             return False
         caption = (
-            simpledialog.askstring(
+            ask_caption(
+                self,
                 "Image collée",
                 "Légende (affichée sous l'image sur le site publié ; laissez vide pour ne pas en mettre) :",
-                parent=self,
             )
             or ""
         )

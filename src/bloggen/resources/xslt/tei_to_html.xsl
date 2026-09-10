@@ -176,7 +176,8 @@
 
   <xsl:template match="tei:figure">
     <xsl:variable name="url" select="normalize-space((tei:graphic/@url)[1])"/>
-    <xsl:variable name="captionText" select="normalize-space(string((tei:figDesc | tei:head)[1]))"/>
+    <xsl:variable name="captionNode" select="(tei:figDesc | tei:head)[1]"/>
+    <xsl:variable name="captionText" select="normalize-space(string($captionNode))"/>
     <xsl:variable name="width" select="normalize-space((tei:graphic/@width)[1])"/>
     <xsl:variable name="height" select="normalize-space((tei:graphic/@height)[1])"/>
     <xsl:variable name="rend" select="normalize-space((tei:graphic/@rend)[1])"/>
@@ -215,7 +216,7 @@
       </xsl:if>
 
       <xsl:if test="$captionText != ''">
-        <figcaption><xsl:value-of select="$captionText"/></figcaption>
+        <figcaption><xsl:apply-templates select="$captionNode/node()"/></figcaption>
       </xsl:if>
     </figure>
   </xsl:template>

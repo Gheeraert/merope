@@ -26,6 +26,7 @@ from PIL import Image, ImageTk
 from bloggen.ui.tooltip import add_tooltip
 
 _HANDLE_SIZE = 8
+_CROP_HANDLE_HIT = 16
 _MIN_SIZE = 40
 _MAX_PREVIEW_WIDTH = 400
 _MAX_CROP_PREVIEW_DIM = 700
@@ -92,6 +93,68 @@ def save_clipboard_image(image: Image.Image, images_dir: Path, doc_dir: Path) ->
         image = image.convert("RGBA")
     image.save(destination, "PNG")
     return _relative_src(destination, doc_dir)
+
+
+def ask_caption(parent: tk.Misc, title: str, prompt: str, initial: str = "") -> str | None:
+    """Prompt for an image caption, with Gras/Italique buttons that wrap the
+    current selection in ``**``/``*`` markers (kept literally through export,
+    see :mod:`bloggen.markdown.rich_text_export`, so they render as real
+    emphasis in the published caption while ``alt`` stays plain text).
+    Returns ``None`` if the user cancels, mirroring ``simpledialog.askstring``.
+    """
+    dialog = tk.Toplevel(parent)
+    dialog.title(title)
+    dialog.transient(parent)
+    dialog.resizable(False, False)
+
+    ttk.Label(dialog, text=prompt, wraplength=340).pack(padx=10, pady=(10, 6), anchor="w")
+
+    text_var = tk.StringVar(value=initial)
+    entry = ttk.Entry(dialog, textvariable=text_var, width=50)
+    entry.pack(padx=10, pady=(0, 6), fill="x")
+    entry.focus_set()
+    entry.selection_range(0, "end")
+
+    def _wrap(marker: str) -> None:
+        try:
+            start, end = entry.index("sel.first"), entry.index("sel.last")
+        except tk.TclError:
+            start = end = entry.index("insert")
+        value = text_var.get()
+        wrapped = f"{marker}{value[start:end]}{marker}"
+        text_var.set(value[:start] + wrapped + value[end:])
+        entry.selection_range(start, start + len(wrapped))
+        entry.focus_set()
+
+    toolbar = ttk.Frame(dialog)
+    toolbar.pack(padx=10, pady=(0, 8), anchor="w")
+    bold_button = ttk.Button(toolbar, text="G", width=3, command=lambda: _wrap("**"))
+    bold_button.pack(side="left")
+    add_tooltip(bold_button, "Mettre la sélection en gras.")
+    italic_button = ttk.Button(toolbar, text="I", width=3, command=lambda: _wrap("*"))
+    italic_button.pack(side="left", padx=(4, 0))
+    add_tooltip(italic_button, "Mettre la sélection en italique.")
+
+    result: dict[str, str | None] = {"value": None}
+
+    def _confirm(_event: tk.Event | None = None) -> None:
+        result["value"] = text_var.get()
+        dialog.destroy()
+
+    def _cancel(_event: tk.Event | None = None) -> None:
+        dialog.destroy()
+
+    buttons = ttk.Frame(dialog)
+    buttons.pack(fill="x", padx=10, pady=(0, 10))
+    ttk.Button(buttons, text="Valider", command=_confirm).pack(side="right")
+    ttk.Button(buttons, text="Annuler", command=_cancel).pack(side="right", padx=(0, 6))
+
+    dialog.bind("<Return>", _confirm)
+    dialog.bind("<Escape>", _cancel)
+    dialog.protocol("WM_DELETE_WINDOW", _cancel)
+    dialog.grab_set()
+    parent.wait_window(dialog)
+    return result["value"]
 
 
 def _relative_src(path: Path, doc_dir: Path) -> str:
@@ -171,6 +234,13 @@ class ImageWidget(tk.Frame):
         crop_button = ttk.Button(toolbar, text="Recadrer...", command=self._open_crop_dialog)
         crop_button.pack(side="left", padx=(4, 0))
         add_tooltip(crop_button, "Découpe réellement le fichier image selon une zone choisie.")
+
+        caption_button = ttk.Button(toolbar, text="Légende...", command=self._edit_caption)
+        caption_button.pack(side="left", padx=(4, 0))
+        add_tooltip(
+            caption_button,
+            "Modifie la légende affichée sous l'image (et le texte alternatif pour l'accessibilité).",
+        )
 
         replace_button = ttk.Button(toolbar, text="Remplacer...", command=self._replace_image)
         replace_button.pack(side="left", padx=(4, 0))
@@ -254,6 +324,17 @@ class ImageWidget(tk.Frame):
         self._source_image = self._load_source_image()
         self._render_preview()
 
+    def _edit_caption(self) -> None:
+        caption = ask_caption(
+            self,
+            "Légende",
+            "Légende (affichée sous l'image sur le site publié ; laissez vide pour ne pas en mettre) :",
+            initial=self.alt,
+        )
+        if caption is None:
+            return
+        self.alt = caption
+
     def _open_crop_dialog(self) -> None:
         dialog = CropDialog(self, image_path=self._resolve_path())
         self.wait_window(dialog)
@@ -290,6 +371,7 @@ class CropDialog(tk.Toplevel):
         self._rect = [inset_x, inset_y, display_w - inset_x, display_h - inset_y]
         self._rect_id = self.canvas.create_rectangle(*self._rect, outline="#1a73e8", width=2)
         self._handle_ids: dict[str, int] = {}
+        self._dragging_corner: str | None = None
         self._draw_handles()
 
         buttons = ttk.Frame(self)
@@ -301,17 +383,51 @@ class CropDialog(tk.Toplevel):
         self.grab_set()
 
     def _draw_handles(self) -> None:
-        for handle_id in self._handle_ids.values():
-            self.canvas.delete(handle_id)
-        self._handle_ids = {}
+        """Create the four corner handles once; dragging afterwards only
+        repositions them (see ``_drag_corner``) rather than recreating them,
+        since deleting the item currently under the pointer mid-drag stops
+        Tk's canvas tag bindings — which track the "current" item by id —
+        from ever firing another ``<B1-Motion>`` for that drag."""
         left, top, right, bottom = self._rect
         corners = {"nw": (left, top), "ne": (right, top), "sw": (left, bottom), "se": (right, bottom)}
         for name, (x, y) in corners.items():
-            handle = self.canvas.create_rectangle(x - 5, y - 5, x + 5, y + 5, fill="#1a73e8", outline="")
+            handle = self.canvas.create_rectangle(
+                x - _CROP_HANDLE_HIT // 2,
+                y - _CROP_HANDLE_HIT // 2,
+                x + _CROP_HANDLE_HIT // 2,
+                y + _CROP_HANDLE_HIT // 2,
+                fill="#1a73e8",
+                outline="white",
+                width=1,
+            )
             self._handle_ids[name] = handle
-            self.canvas.tag_bind(handle, "<B1-Motion>", lambda e, n=name: self._drag_corner(e, n))
+            self.canvas.tag_bind(handle, "<ButtonPress-1>", lambda e, n=name: self._start_drag(e, n))
+            self.canvas.tag_bind(handle, "<B1-Motion>", self._drag_corner)
+            self.canvas.tag_bind(handle, "<ButtonRelease-1>", self._end_drag)
 
-    def _drag_corner(self, event: tk.Event, corner: str) -> None:
+    def _start_drag(self, _event: tk.Event, corner: str) -> None:
+        self._dragging_corner = corner
+
+    def _end_drag(self, _event: tk.Event) -> None:
+        self._dragging_corner = None
+
+    def _reposition_handles(self) -> None:
+        left, top, right, bottom = self._rect
+        positions = {"nw": (left, top), "ne": (right, top), "sw": (left, bottom), "se": (right, bottom)}
+        for name, (x, y) in positions.items():
+            handle = self._handle_ids[name]
+            self.canvas.coords(
+                handle,
+                x - _CROP_HANDLE_HIT // 2,
+                y - _CROP_HANDLE_HIT // 2,
+                x + _CROP_HANDLE_HIT // 2,
+                y + _CROP_HANDLE_HIT // 2,
+            )
+
+    def _drag_corner(self, event: tk.Event) -> None:
+        corner = self._dragging_corner
+        if corner is None:
+            return
         left, top, right, bottom = self._rect
         x = max(0, min(event.x, int(self.canvas["width"])))
         y = max(0, min(event.y, int(self.canvas["height"])))
@@ -325,7 +441,7 @@ class CropDialog(tk.Toplevel):
             right, bottom = max(x, left + 20), max(y, top + 20)
         self._rect = [left, top, right, bottom]
         self.canvas.coords(self._rect_id, *self._rect)
-        self._draw_handles()
+        self._reposition_handles()
 
     def _confirm(self) -> None:
         left, top, right, bottom = self._rect

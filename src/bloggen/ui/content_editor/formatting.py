@@ -9,7 +9,7 @@ import tkinter as tk
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_model import TABLE, Block, InlineRun
 from bloggen.markdown.typography import NBSP
-from bloggen.ui.image_widget import ImageWidget, copy_into_images_dir
+from bloggen.ui.image_widget import ImageWidget, ask_caption, copy_into_images_dir
 from .constants import _BLOCK_LINE_TAGS
 
 _LIST_LINE_TAGS = {"bullet_item", "ordered_item"}
@@ -321,7 +321,7 @@ class FormattingMixin:
         )
         if not source:
             return
-        alt = simpledialog.askstring("Image", "Texte alternatif (description de l'image) :", parent=self) or ""
+        alt = ask_caption(self, "Image", "Légende (affichée sous l'image ; sert aussi de texte alternatif) :") or ""
         src_repr = copy_into_images_dir(Path(source), self.images_dir, self._doc_dir())
         self._insert_image_widget("insert", src_repr, alt)
 
