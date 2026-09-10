@@ -6,8 +6,8 @@ import re
 from difflib import SequenceMatcher
 from typing import Callable
 
-from PySide6.QtCore import QMimeData, Signal
-from PySide6.QtGui import QFont, QKeyEvent, QTextCharFormat, QTextCursor
+from PySide6.QtCore import QMimeData, Qt, Signal
+from PySide6.QtGui import QFont, QKeyEvent, QMouseEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QTextEdit
 
 from bloggen.markdown.html_paste_import import (
@@ -46,6 +46,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
     insert_blocks,
 )
+from bloggen.ui.qt_editor.image_selection import merope_image_at_position
 
 
 _OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
@@ -85,6 +86,41 @@ class MeropeTextEdit(QTextEdit):
             return
 
         super().keyPressEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            target = self._image_at_viewport_point(event.position().toPoint())
+            if target is not None:
+                self.setTextCursor(target.cursor(self.document()))
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def _image_at_viewport_point(self, point):
+        hit_cursor = self.cursorForPosition(point)
+        candidates = {}
+        for position in (hit_cursor.position() - 1, hit_cursor.position()):
+            try:
+                target = merope_image_at_position(self.document(), position)
+            except UnsupportedDocumentError:
+                continue
+            if target is not None:
+                candidates[target.start] = target
+
+        for target in candidates.values():
+            start_cursor = QTextCursor(self.document())
+            start_cursor.setPosition(target.start)
+            end_cursor = QTextCursor(self.document())
+            end_cursor.setPosition(target.end)
+            start_rect = self.cursorRect(start_cursor)
+            end_rect = self.cursorRect(end_cursor)
+            left = min(start_rect.center().x(), end_rect.center().x())
+            right = max(start_rect.center().x(), end_rect.center().x())
+            top = min(start_rect.top(), end_rect.top())
+            bottom = max(start_rect.bottom(), end_rect.bottom())
+            if left <= point.x() <= right and top <= point.y() <= bottom:
+                return target
+        return None
 
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         """Accept only MIME content that Merope can inspect safely itself."""

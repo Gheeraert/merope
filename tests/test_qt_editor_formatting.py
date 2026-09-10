@@ -29,6 +29,7 @@ from bloggen.ui.qt_editor.formatting import (
     set_alignment,
     set_blockquote,
     set_heading,
+    set_link,
     set_list,
     set_paragraph,
     toggle_bold,
@@ -47,6 +48,7 @@ def qapplication():
 def _editor(blocks: list[Block]) -> QTextEdit:
     editor = QTextEdit()
     populate_document(editor.document(), blocks)
+    editor.document().setModified(False)
     return editor
 
 
@@ -338,3 +340,81 @@ def test_two_paragraphs_can_become_headings_in_one_operation():
         Block(kind=HEADING, level=3, runs=[InlineRun(text="Un")]),
         Block(kind=HEADING, level=3, runs=[InlineRun(text="Deux")]),
     ]
+
+
+@pytest.mark.parametrize(
+    ("command", "field"),
+    [
+        (toggle_bold, "bold"),
+        (toggle_superscript, "superscript"),
+    ],
+)
+def test_inline_format_across_image_only_changes_text(command, field: str):
+    image = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_width="240",
+        image_align="center",
+    )
+    original = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="Avant "), image, InlineRun(text=" après")],
+        )
+    ]
+    editor = _editor(original)
+    _select_document(editor)
+
+    command(editor)
+
+    runs = extract_blocks(editor.document())[0].runs
+    assert getattr(runs[0], field) is True
+    assert runs[1] == image
+    assert getattr(runs[2], field) is True
+    editor.undo()
+    assert extract_blocks(editor.document()) == original
+
+
+def test_link_across_image_only_changes_text_and_undoes_once():
+    image = InlineRun(image_src="image.png", image_alt="Légende")
+    original = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="Avant "), image, InlineRun(text=" après")],
+        )
+    ]
+    editor = _editor(original)
+    _select_document(editor)
+
+    set_link(editor, "https://example.org")
+
+    runs = extract_blocks(editor.document())[0].runs
+    assert runs[0].link_href == "https://example.org"
+    assert runs[1] == image
+    assert runs[2].link_href == "https://example.org"
+    editor.undo()
+    assert extract_blocks(editor.document()) == original
+
+
+@pytest.mark.parametrize("command", [toggle_bold, toggle_italic, set_link])
+def test_text_format_on_image_only_is_clean_noop(command):
+    original = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(image_src="image.png", image_alt="Légende")],
+        )
+    ]
+    editor = _editor(original)
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(0)
+    cursor.setPosition(1, QTextCursor.MoveMode.KeepAnchor)
+    editor.setTextCursor(cursor)
+
+    if command is set_link:
+        command(editor, "https://example.org")
+    else:
+        command(editor)
+
+    assert extract_blocks(editor.document()) == original
+    assert editor.document().isModified() is False
+    assert editor.document().isUndoAvailable() is False

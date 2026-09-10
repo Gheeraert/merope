@@ -50,6 +50,11 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_strikethrough,
     toggle_superscript,
 )
+from bloggen.ui.qt_editor.image_dialog import ImageMetadataDialog
+from bloggen.ui.qt_editor.image_selection import (
+    replace_merope_image,
+    targeted_merope_image,
+)
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor_protocol import emit_event
 
@@ -78,10 +83,13 @@ class QtEditorWindow(QMainWindow):
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
         self._create_toolbar()
+        self.editor.cursorPositionChanged.connect(self._update_image_action)
+        self.editor.selectionChanged.connect(self._update_image_action)
         self.editor.document().modificationChanged.connect(self._update_window_title)
         if markdown_path is not None:
             self.load_markdown(markdown_path)
         self._update_window_title()
+        self._update_image_action()
 
     def load_markdown(self, path: Path) -> None:
         loaded = load_content_document(path, self.editor.document())
@@ -158,6 +166,12 @@ class QtEditorWindow(QMainWindow):
         self._add_action(toolbar, "Exposant", lambda: toggle_superscript(self.editor))
         self._add_action(toolbar, "Lien", self._prompt_for_link, "Ctrl+K")
         self._add_action(toolbar, "Insérer une image...", self._insert_image_from_dialog)
+        self.image_action = self._add_action(
+            toolbar,
+            "Image...",
+            self._edit_targeted_image,
+        )
+        self.image_action.setEnabled(False)
         toolbar.addSeparator()
 
         block_group = QActionGroup(self)
@@ -257,6 +271,38 @@ class QtEditorWindow(QMainWindow):
             self.insert_image_file(Path(source), image_alt=image_alt)
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Insertion impossible", str(exc))
+
+    def replace_targeted_image(self, run: InlineRun) -> bool:
+        """Replace the unique selected/adjacent image, if unambiguous."""
+
+        try:
+            target = targeted_merope_image(self.editor.textCursor())
+            if target is None:
+                return False
+            cursor = replace_merope_image(self.editor.document(), target, run)
+        except UnsupportedDocumentError:
+            return False
+        self.editor.setTextCursor(cursor)
+        return run != target.run
+
+    def _edit_targeted_image(self) -> bool:
+        try:
+            target = targeted_merope_image(self.editor.textCursor())
+        except UnsupportedDocumentError:
+            return False
+        if target is None:
+            return False
+        dialog = ImageMetadataDialog(target.run, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        return self.replace_targeted_image(dialog.image_run())
+
+    def _update_image_action(self) -> None:
+        try:
+            enabled = targeted_merope_image(self.editor.textCursor()) is not None
+        except UnsupportedDocumentError:
+            enabled = False
+        self.image_action.setEnabled(enabled)
 
     def _show_paste_refused(self, message: str) -> None:
         QMessageBox.warning(

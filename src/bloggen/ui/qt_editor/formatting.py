@@ -65,7 +65,6 @@ def toggle_superscript(editor: QTextEdit) -> None:
 def set_link(editor: QTextEdit, href: str | None) -> None:
     """Apply a native Qt anchor, or remove it when ``href`` is ``None``."""
 
-    cursor = editor.textCursor()
     char_format = QTextCharFormat()
     char_format.setAnchor(href is not None)
     char_format.setAnchorHref(href or "")
@@ -74,10 +73,7 @@ def set_link(editor: QTextEdit, href: str | None) -> None:
         char_format.setForeground(QColor("#1a5fb4"))
     else:
         char_format.setForeground(editor.palette().brush(QPalette.ColorRole.Text))
-    cursor.beginEditBlock()
-    cursor.mergeCharFormat(char_format)
-    cursor.endEditBlock()
-    editor.setTextCursor(cursor)
+    _merge_text_char_format(editor, char_format)
 
 
 def set_paragraph(editor: QTextEdit) -> None:
@@ -162,14 +158,16 @@ def _toggle_inline(
     apply_visual: Callable[[QTextCharFormat, bool], None],
 ) -> None:
     cursor = editor.textCursor()
-    enabled = not _selection_all_has_format(cursor, property_id)
+    text_ranges = _selected_text_ranges(cursor) if cursor.hasSelection() else None
+    if text_ranges == [] or (
+        not cursor.hasSelection() and cursor.charFormat().isImageFormat()
+    ):
+        return
+    enabled = not _selection_all_has_format(cursor, property_id, text_ranges)
     char_format = QTextCharFormat()
     char_format.setProperty(property_id, enabled)
     apply_visual(char_format, enabled)
-    cursor.beginEditBlock()
-    cursor.mergeCharFormat(char_format)
-    cursor.endEditBlock()
-    editor.setTextCursor(cursor)
+    _merge_text_char_format(editor, char_format, text_ranges=text_ranges)
 
 
 def _set_leaf_block_kind(editor: QTextEdit, kind: str, level: int | None = None) -> None:
@@ -200,27 +198,85 @@ def _clear_heading_state(block_format) -> None:
     block_format.setHeadingLevel(0)
 
 
-def _selection_all_has_format(cursor: QTextCursor, property_id: int) -> bool:
+def _selection_all_has_format(
+    cursor: QTextCursor,
+    property_id: int,
+    text_ranges: list[tuple[int, int, QTextCharFormat]] | None = None,
+) -> bool:
     if not cursor.hasSelection():
         return inline_format_enabled(cursor.charFormat(), property_id)
 
+    ranges = text_ranges if text_ranges is not None else _selected_text_ranges(cursor)
+    return bool(ranges) and all(
+        inline_format_enabled(char_format, property_id)
+        for _start, _end, char_format in ranges
+    )
+
+
+def _selected_text_ranges(
+    cursor: QTextCursor,
+) -> list[tuple[int, int, QTextCharFormat]]:
+    if not cursor.hasSelection():
+        return []
     selection_start = cursor.selectionStart()
     selection_end = cursor.selectionEnd()
+    ranges: list[tuple[int, int, QTextCharFormat]] = []
     block = cursor.document().findBlock(selection_start)
-    found_text = False
     while block.isValid() and block.position() < selection_end:
         iterator = block.begin()
         while not iterator.atEnd():
             fragment = iterator.fragment()
             fragment_start = fragment.position()
             fragment_end = fragment_start + fragment.length()
-            if fragment_end > selection_start and fragment_start < selection_end:
-                found_text = True
-                if not inline_format_enabled(fragment.charFormat(), property_id):
-                    return False
+            if (
+                fragment.isValid()
+                and not fragment.charFormat().isImageFormat()
+                and fragment_end > selection_start
+                and fragment_start < selection_end
+            ):
+                ranges.append(
+                    (
+                        max(fragment_start, selection_start),
+                        min(fragment_end, selection_end),
+                        fragment.charFormat(),
+                    )
+                )
             iterator += 1
         block = block.next()
-    return found_text
+    return ranges
+
+
+def _merge_text_char_format(
+    editor: QTextEdit,
+    char_format: QTextCharFormat,
+    *,
+    text_ranges: list[tuple[int, int, QTextCharFormat]] | None = None,
+) -> bool:
+    selection = editor.textCursor()
+    if not selection.hasSelection():
+        if selection.charFormat().isImageFormat():
+            return False
+        selection.beginEditBlock()
+        selection.mergeCharFormat(char_format)
+        selection.endEditBlock()
+        editor.setTextCursor(selection)
+        return True
+
+    ranges = text_ranges if text_ranges is not None else _selected_text_ranges(selection)
+    if not ranges:
+        return False
+    edit_block = QTextCursor(selection.document())
+    edit_block.beginEditBlock()
+    try:
+        for start, end, _existing_format in ranges:
+            text_cursor = QTextCursor(selection.document())
+            text_cursor.setPosition(start)
+            text_cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            text_cursor.mergeCharFormat(char_format)
+    finally:
+        edit_block.endEditBlock()
+    editor.setTextCursor(selection)
+    return True
 
 
 def _selected_blocks(document, cursor: QTextCursor):

@@ -227,6 +227,29 @@ répertoire d’images configuré. Elle copie le fichier avec
 `InlineRun` via `insert_blocks`. Undo/redo porte sur le document Qt ; la copie
 physique reste volontairement sur disque après undo.
 
+Une image Mérope est ciblée par la plage exacte de son caractère objet Qt et
+par ses métadonnées reconstruites avec l’adaptateur commun. Une sélection ne
+devient éditable que si elle contient exactement une image ; un curseur sans
+sélection peut cibler son unique image adjacente, mais la frontière entre deux
+images reste volontairement ambiguë. Un clic dans les limites visuelles de
+l’objet sélectionne exactement cette plage, sans widget superposé. Les images
+Qt étrangères sans marqueur Mérope sont refusées.
+
+L’action « Image... » ouvre un dialogue simple : `src` en lecture seule,
+`image_alt`, largeur, hauteur et alignement. Elle remplace l’objet ciblé par un
+`QTextImageFormat` neuf produit par `make_image_format`, dans une seule
+opération undo. Cette reconstruction élimine notamment toute ancienne taille
+visuelle lorsqu’une dimension devient `None`, vide ou non numérique. Les
+champs non touchés conservent exactement `None` ou `""`; vider explicitement
+une largeur ou une hauteur signifie `None`, tandis qu’une légende vidée reste
+la chaîne vide.
+
+Les commandes gras, italique, barré, exposant et lien parcourent désormais
+seulement les intervalles textuels d’une sélection. Une image traversée reste
+strictement inchangée ; une sélection composée uniquement d’une image est un
+no-op sans entrée undo. La suppression avec Delete/Backspace reste native Qt,
+et ne touche jamais au fichier physique.
+
 Les images venant du collage HTML (`img`, `v:imagedata`, `v:shape`) et les
 bitmaps seuls du presse-papiers restent refusés : leur extraction et leur
 copie transactionnelle feront l’objet d’un autre lot.
@@ -246,8 +269,8 @@ refusé n’est ni réécrit ni archivé.
 
 - vérifier manuellement les formats MIME réellement exposés par Word et Google
   Docs sous Windows ;
-- vérifier la sélection et la modification contrôlée des métadonnées d’une
-  image Qt avant d’envisager redimensionnement ou recadrage interactif ;
+- éprouver ensuite une interaction visuelle de redimensionnement qui mette à
+  jour les mêmes métadonnées sans introduire de second chemin documentaire ;
 - éprouver le lancement et le timeout sur les plateformes distribuées ainsi
   que le conditionnement de l’extra PySide6 ;
 - conserver Tkinter comme éditeur principal et fallback tant que la couverture

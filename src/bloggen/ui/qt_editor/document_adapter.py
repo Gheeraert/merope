@@ -278,6 +278,25 @@ def make_image_format(run: InlineRun) -> QTextImageFormat:
     return image_format
 
 
+def image_run_from_format(char_format: QTextCharFormat) -> InlineRun:
+    """Reconstruct one canonical image run from a marked Qt image format."""
+
+    if not char_format.isImageFormat() or not bool(
+        char_format.property(IMAGE_MARKER_PROPERTY)
+    ):
+        raise UnsupportedInlineError("Image Qt etrangere sans metadonnees Merope")
+    _validate_image_char_format(char_format)
+    run = InlineRun(
+        image_src=_required_image_property(char_format, IMAGE_SRC_PROPERTY, "src"),
+        image_alt=_optional_image_property(char_format, IMAGE_ALT_PROPERTY),
+        image_width=_optional_image_property(char_format, IMAGE_WIDTH_PROPERTY),
+        image_height=_optional_image_property(char_format, IMAGE_HEIGHT_PROPERTY),
+        image_align=_optional_image_property(char_format, IMAGE_ALIGN_PROPERTY),
+    )
+    _validate_image_run(run)
+    return run
+
+
 def refresh_block_visuals(block: QTextBlock) -> None:
     """Refresh heading/body size without altering inline semantic properties."""
 
@@ -515,28 +534,8 @@ def _extract_runs(block: QTextBlock) -> list[InlineRun]:
         if fragment.isValid():
             char_format = fragment.charFormat()
             if char_format.isImageFormat():
-                if not bool(char_format.property(IMAGE_MARKER_PROPERTY)):
-                    raise UnsupportedInlineError(
-                        "Image Qt etrangere sans metadonnees Merope"
-                    )
-                _validate_image_char_format(char_format)
-                run = InlineRun(
-                    image_src=_required_image_property(
-                        char_format, IMAGE_SRC_PROPERTY, "src"
-                    ),
-                    image_alt=_optional_image_property(char_format, IMAGE_ALT_PROPERTY),
-                    image_width=_optional_image_property(
-                        char_format, IMAGE_WIDTH_PROPERTY
-                    ),
-                    image_height=_optional_image_property(
-                        char_format, IMAGE_HEIGHT_PROPERTY
-                    ),
-                    image_align=_optional_image_property(
-                        char_format, IMAGE_ALIGN_PROPERTY
-                    ),
-                )
-                _validate_image_run(run)
-                runs.append(run)
+                for _position in range(fragment.length()):
+                    runs.append(image_run_from_format(char_format))
                 iterator += 1
                 continue
             run = InlineRun(
