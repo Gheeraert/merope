@@ -72,6 +72,8 @@
     }
 
     var link = groupItems[state.index];
+    imageNode.style.width = "";
+    imageNode.style.height = "";
     imageNode.src = link.getAttribute("href") || "";
     imageNode.alt = (link.querySelector("img") && link.querySelector("img").alt) || "";
     captionNode.textContent = link.getAttribute("data-lightbox-caption") || "";
@@ -80,6 +82,31 @@
     prevButton.hidden = !multi;
     nextButton.hidden = !multi;
   }
+
+  // Plain max-width/max-height only ever shrinks an oversized image; a
+  // modest-resolution source photo (typical for a blog) would render at its
+  // native pixel size, small inside the dark overlay. Scale it up (as well
+  // as down) to fill the available viewport space instead, like a classic
+  // fancybox-style zoom.
+  function fitImageToViewport() {
+    var naturalWidth = imageNode.naturalWidth;
+    var naturalHeight = imageNode.naturalHeight;
+    if (!naturalWidth || !naturalHeight) {
+      return;
+    }
+    var maxWidth = Math.min(window.innerWidth * 0.9, 1500);
+    var maxHeight = window.innerHeight * 0.8;
+    var scale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight);
+    imageNode.style.width = Math.round(naturalWidth * scale) + "px";
+    imageNode.style.height = Math.round(naturalHeight * scale) + "px";
+  }
+
+  imageNode.addEventListener("load", fitImageToViewport);
+  window.addEventListener("resize", function () {
+    if (!overlay.hasAttribute("hidden")) {
+      fitImageToViewport();
+    }
+  });
 
   function move(offset) {
     state.index += offset;
