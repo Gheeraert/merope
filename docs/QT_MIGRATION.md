@@ -16,6 +16,38 @@ adaptateur GUI
 un parseur ni un sérialiseur Markdown pour Mérope. Le pipeline de publication
 reste inchangé : Markdown → Pandoc → TEI Commons Publishing → XSLT → HTML.
 
+## Isolation des processus
+
+```text
+processus principal = Tkinter
+processus enfant    = PySide6
+transport           = subprocess + JSON Lines sur stdout
+document            = lu et écrit directement par Qt
+Block / InlineRun   = jamais sérialisé sur IPC
+```
+
+Le processus Tk lance exactement le même interpréteur Python avec une commande
+de la forme :
+
+```text
+sys.executable -m bloggen.ui.qt_editor --ipc
+  --project-root ... --pages-dir ... --posts-dir ...
+  --images-dir ... --slugify-mode ...
+```
+
+Le launcher n’importe que la bibliothèque standard et le module de protocole.
+Il lit stdout et stderr dans des threads daemon, place les résultats dans une
+file, puis `MainWindow` les traite sur le thread Tk avec `after()`. Fermer
+Mérope ne tue jamais le processus Qt.
+
+En mode IPC, stdout est réservé à une ligne JSON UTF-8 par événement, flushée
+immédiatement. Le protocole version 1 autorise seulement `ready`, `opened`,
+`saved`, `open_refused`, `error` et `closed`, avec `path` ou `message` lorsque
+le type l’exige. stderr reste réservé aux diagnostics humains.
+
+Le protocole est volontairement unidirectionnel : Qt publie son état vers Tk,
+mais Tk ne lui envoie aucune commande après le lancement.
+
 ## Fonctionne maintenant
 
 - les services sans GUI extraits lors de la première phase : images,
@@ -43,6 +75,12 @@ reste inchangé : Markdown → Pandoc → TEI Commons Publishing → XSLT → HT
   préalable dans `.versions` par le service partagé avec Tkinter ;
 - l’état modifié natif `QTextDocument.isModified()` et les choix Enregistrer,
   Ne pas enregistrer ou Annuler avant ouverture et fermeture ;
+- le lancement expérimental depuis la fenêtre principale dans un processus
+  séparé, sans aucun import PySide6 côté Tkinter ;
+- une seule instance Qt expérimentale à la fois, avec détection des erreurs
+  avant `ready`, des crashs et de la fermeture, puis possibilité de relance ;
+- la conservation du bouton « Éditeur de contenu... » pour l’éditeur Tkinter
+  historique et un bouton distinct « Éditeur Qt (expérimental)... » ;
 - des propriétés Mérope centralisées fondées sur `QTextFormat.UserProperty`
   pour lever les ambiguïtés sémantiques ;
 - une erreur explicite avant toute modification du document pour les blocs ou
@@ -72,11 +110,12 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
-- définir le lancement du processus Qt depuis Tkinter et son cycle de vie ;
-- définir un échange explicite du chemin et du résultat entre les deux
-  processus, avec remontée des refus de compatibilité ;
-- conserver Tkinter comme éditeur principal tant que la couverture Qt n’est
-  pas équivalente.
+- éprouver le lancement expérimental sur les plateformes distribuées et le
+  conditionnement de l’extra PySide6 ;
+- décider, à partir de besoins réels, si une commande bidirectionnelle de
+  fermeture propre ou de configuration d’aperçu devient nécessaire ;
+- conserver Tkinter comme éditeur principal et fallback tant que la couverture
+  éditoriale Qt n’est pas équivalente.
 
 ## Volontairement différé
 
@@ -87,7 +126,8 @@ refusé n’est ni réécrit ni archivé.
 - autosauvegarde et récupération après incident ;
 - aperçu HTML par le pipeline réel, gestion complète des fichiers et
   métadonnées éditables ;
-- IPC et lancement de Qt depuis l’interface Tkinter, jusqu’au prochain lot.
+- toute extension bidirectionnelle du protocole, notamment la transmission
+  d’une configuration de preview modifiée pendant que Qt reste ouvert.
 
 Restent également liés à l’ancien adaptateur Tkinter : construction du widget
 `Text`, tags et marques, undo compensatoire, formatage GUI, affichage des
