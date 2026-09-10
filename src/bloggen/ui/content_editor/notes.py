@@ -265,14 +265,12 @@ class NotesMixin:
 
     def _register_new_footnote(self, note_content: str | list[InlineRun]) -> str:
         """Allocate the next free footnote id and record its definition.
-        Shared by the "Note..." dialog (always plain text — a simple input
-        box), the ((...)) typing shorthand, and ((...)) found in pasted/
-        imported content (both can carry real formatting, e.g. an italic
-        title inside the note — see
-        :func:`bloggen.markdown.note_shortcuts.split_double_paren_notes`)
-        — each needs a fresh, non-colliding id, and calling this repeatedly
-        (e.g. for several notes found in one paste) keeps allocating past
-        ids already handed out earlier in the same batch.
+        Used by the "Note..." dialog (always plain text — a simple input
+        box) — the only live path that inserts a real footnote reference
+        while typing. The "((note))" shorthand is deliberately left as
+        plain text instead (see :mod:`bloggen.markdown.note_shortcuts`) and
+        never goes through this method in the editor; it is resolved to a
+        footnote straight from Markdown, at preview/build time.
         """
         next_id = 1
         while str(next_id) in self.footnote_definitions:

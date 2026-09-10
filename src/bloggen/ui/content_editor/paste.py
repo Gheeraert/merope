@@ -8,11 +8,6 @@ import threading
 from tkinter import messagebox
 import tkinter as tk
 from bloggen.markdown.html_paste_import import html_to_blocks
-from bloggen.markdown.note_shortcuts import (
-    DOUBLE_PAREN_NOTE_RE,
-    convert_double_paren_notes_in_blocks,
-    split_double_paren_notes,
-)
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -34,12 +29,12 @@ class PasteMixin:
         Google Docs, or a browser puts there alongside plain text), convert
         and insert it with formatting instead of Tk's default plain-text
         paste. Falls through to that default (return ``None``) whenever
-        rich paste isn't applicable, so a normal ``Ctrl+V`` never breaks.
-
-        Either way, any "((note text))" shorthand found in the pasted
-        content (the Hypothèses/WordPress convention — see
-        :mod:`bloggen.markdown.note_shortcuts`) is converted to a real
-        footnote reference before insertion.
+        rich paste isn't applicable, so a normal ``Ctrl+V`` never breaks —
+        including plain-text clipboard content, which needs no special
+        handling here: the "((note))" shorthand (see
+        :mod:`bloggen.markdown.note_shortcuts`) is deliberately left
+        literal until preview/build time, so it does not need converting
+        on the way in.
         """
         if self._current_line_is_raw(self.text):
             return None
@@ -50,21 +45,7 @@ class PasteMixin:
         if html:
             self._start_async_html_paste(html)
             return "break"
-
-        # No HTML on the clipboard (e.g. copied from a plain-text editor):
-        # only take over the default plain-text paste when the shorthand is
-        # actually present, so the ordinary Ctrl+V path is left untouched
-        # otherwise.
-        try:
-            plain = self.clipboard_get()
-        except tk.TclError:
-            return None
-        if not DOUBLE_PAREN_NOTE_RE.search(plain):
-            return None
-        runs = split_double_paren_notes([InlineRun(text=plain)], self._register_new_footnote)
-        self._insert_runs_at_cursor(runs)
-        self._refresh_notes_panel()
-        return "break"
+        return None
 
     def _start_async_html_paste(self, html: str) -> None:
         """Parse (and insert) pasted HTML off the Tk main thread.
@@ -109,9 +90,7 @@ class PasteMixin:
         self.text.mark_unset(mark)
 
         if status == "ok" and blocks:
-            convert_double_paren_notes_in_blocks(blocks, self._register_new_footnote)
             self._insert_pasted_blocks_at_cursor(blocks)
-            self._refresh_notes_panel()
             return
 
         # Parsing failed or produced nothing usable: fall back to the
@@ -238,8 +217,7 @@ class PasteMixin:
         clipboard might also carry (bold/links/tables from Word, Google
         Docs, a browser...) — the counterpart to :meth:`_on_paste`'s
         automatic rich paste, for pasting content whose source formatting
-        should not carry over. Still recognizes the "((note))" shorthand,
-        like every other paste path.
+        should not carry over.
         """
         if self._current_line_is_raw(self.text):
             return
@@ -249,9 +227,7 @@ class PasteMixin:
             return
         if not plain:
             return
-        runs = split_double_paren_notes([InlineRun(text=plain)], self._register_new_footnote)
-        self._insert_runs_at_cursor(runs)
-        self._refresh_notes_panel()
+        self._insert_runs_at_cursor([InlineRun(text=plain)])
 
     def _shortcut_paste_plain(self, _event: tk.Event) -> str:
         self._paste_as_plain_text()

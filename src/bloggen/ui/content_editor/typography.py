@@ -1,12 +1,15 @@
 """Auto-formatting applied as the user types: French typographic
-quotes/spacing, century ordinals, ((note)) shorthand."""
+quotes/spacing, century ordinals. The ``((note))`` shorthand is
+deliberately left untouched here — it stays literal text while typing (so
+every formatting option keeps working on it) and is only converted to a
+real footnote when the Markdown is normalized, at preview/build time; see
+:func:`bloggen.markdown.note_shortcuts.convert_double_paren_notes_in_markdown_text`."""
 
 from __future__ import annotations
 
 import re
 from tkinter import messagebox
 import tkinter as tk
-from bloggen.markdown.note_shortcuts import strip_runs
 from bloggen.markdown.typography import (
     CENTURY_RE,
     CLOSING_GUILLEMET,
@@ -28,10 +31,6 @@ from bloggen.markdown.typography import (
 )
 
 _TYPOGRAPHY_TRIGGER_CHARS = '"' + OPENING_GUILLEMET + CLOSING_GUILLEMET + DOUBLE_PUNCTUATION
-# Same shorthand as bloggen.markdown.note_shortcuts.DOUBLE_PAREN_NOTE_RE, but
-# anchored to the end of the string: used to detect the pattern right as its
-# closing "))" is typed, one line-prefix at a time.
-_DOUBLE_PAREN_NOTE_TYPED_RE = re.compile(r"\(\((.+?)\)\)$")
 
 
 class TypographyMixin:
@@ -52,19 +51,16 @@ class TypographyMixin:
         self._quote_parity_opening = self._apply_typing_autoformat(
             self.text, char, opening_next=self._quote_parity_opening
         )
-        if char == ")":
-            self._autoformat_double_paren_note()
 
     def _apply_typing_autoformat(self, widget: tk.Text, char: str, *, opening_next: bool) -> bool:
         """The French-typography-as-you-type rules (quotes/guillemets,
         double-punctuation spacing, page numbers, period spacing, oe
         ligature, century ordinals) — everything :meth:`_on_key_release`
-        applies to the main body, minus the ``((note))`` shorthand (which
-        only makes sense at the body level). Shared with each footnote's
-        own ``Text`` widget (see :mod:`bloggen.ui.content_editor.notes`),
-        which has no other way to get these autocorrections. Returns the
-        updated quote-parity state (``opening_next``) for the caller to
-        keep, since it must be tracked per widget, not globally.
+        applies to the main body. Shared with each footnote's own ``Text``
+        widget (see :mod:`bloggen.ui.content_editor.notes`), which has no
+        other way to get these autocorrections. Returns the updated
+        quote-parity state (``opening_next``) for the caller to keep, since
+        it must be tracked per widget, not globally.
         """
         if char and char in _TYPOGRAPHY_TRIGGER_CHARS:
             opening_next = self._autoformat_last_typed_char(widget, char, opening_next=opening_next)
@@ -214,47 +210,6 @@ class TypographyMixin:
         word_start = widget.index(f"{cursor}-{len(word)}c")
         widget.delete(word_start, cursor)
         widget.insert(word_start, replacement)
-
-    def _autoformat_double_paren_note(self) -> None:
-        """Detect "((note text))" (Hypothèses/WordPress note shorthand)
-        just completed by the closing "))" that triggered this call, and
-        replace it in place with a real footnote reference — same
-        conversion as :func:`bloggen.markdown.note_shortcuts.
-        split_double_paren_notes` applied to pasted/imported content, but
-        driven off the live cursor instead of a static block tree. Not
-        gated on what follows (space, punctuation, end of line...): the
-        note is often placed right before the sentence's closing
-        punctuation, e.g. "((note)).".
-        """
-        cursor = self.text.index("insert")
-        line = int(cursor.split(".")[0])
-        text_before = self.text.get(f"{line}.0", cursor)
-        match = _DOUBLE_PAREN_NOTE_TYPED_RE.search(text_before)
-        if match is None:
-            return
-
-        # Resolve indices up front from the *current* buffer, for the same
-        # reason as _autoformat_last_typed_char: they must not be
-        # re-evaluated after the delete/insert below has changed line length.
-        chars_after_start = len(text_before) - match.start()
-        chars_after_note_start = len(text_before) - match.start(1)
-        chars_after_note_end = len(text_before) - match.end(1)
-        start_index = self.text.index(f"{cursor}-{chars_after_start}c")
-        note_start_index = self.text.index(f"{cursor}-{chars_after_note_start}c")
-        note_end_index = self.text.index(f"{cursor}-{chars_after_note_end}c")
-
-        # Extracted with tags intact (not the plain text_before string
-        # above), so formatting applied while typing the note — e.g. an
-        # italicized title — survives into the footnote definition instead
-        # of being flattened to plain text.
-        note_runs = strip_runs(self._extract_runs(note_start_index, note_end_index))
-        if not any(run.text for run in note_runs):
-            return
-
-        self.text.delete(start_index, cursor)
-        note_id = self._register_new_footnote(note_runs)
-        self._insert_footnote_marker(start_index, note_id)
-        self._refresh_notes_panel()
 
     def _apply_typography_to_selection(self) -> None:
         """Same rules as :func:`bloggen.markdown.typography.apply_french_typography`,

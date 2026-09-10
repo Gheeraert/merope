@@ -4,8 +4,14 @@
   used to be undone immediately by ``_refresh_notes_panel``'s own sync step,
   most visibly on an empty note.
 - footnote ids drift out of the text's reading order as a human editor adds
-  or removes ``((note))`` markers; :meth:`ContentEditorWindow._renumber_footnotes`
+  or removes footnote markers; :meth:`ContentEditorWindow._renumber_footnotes`
   (run at save time) must put them back in order 1, 2, 3, ...
+
+Footnotes are inserted here the way the "Note..." dialog does it
+(:meth:`ContentEditorWindow._register_new_footnote` +
+:meth:`ContentEditorWindow._insert_footnote_marker`) rather than via the
+"((note))" shorthand, which no longer converts live — see
+:mod:`bloggen.markdown.note_shortcuts`.
 """
 
 from __future__ import annotations
@@ -31,11 +37,14 @@ def editor(tk_root, tmp_path):
     window.destroy()
 
 
-def _type(editor: ContentEditorWindow, text: str) -> None:
-    for char in text:
-        editor.text.insert("insert", char)
-        if char == ")":
-            editor._autoformat_double_paren_note()
+def _insert_note(editor: ContentEditorWindow, text: str, note_text: str) -> None:
+    """Insert ``text`` at the cursor, followed by a real footnote marker
+    referencing a freshly-registered note containing ``note_text`` — the
+    same effect the "Note..." dialog has, but without the modal prompt.
+    """
+    editor.text.insert("insert", text)
+    note_id = editor._register_new_footnote(note_text)
+    editor._insert_footnote_marker(editor.text.index("insert"), note_id)
 
 
 def test_deleting_an_empty_note_actually_removes_it(editor):
@@ -49,7 +58,7 @@ def test_deleting_an_empty_note_actually_removes_it(editor):
 
 
 def test_deleting_a_note_with_text_actually_removes_it(editor):
-    _type(editor, "mot ((une remarque)) suite")
+    _insert_note(editor, "mot ", "une remarque")
     assert "1" in editor.footnote_definitions
 
     editor._delete_footnote("1")
@@ -74,7 +83,7 @@ def test_renumber_reorders_notes_to_match_text_order(editor):
 
 
 def test_renumber_keeps_an_unreferenced_note_after_referenced_ones(editor):
-    _type(editor, "texte ((note visible))")
+    _insert_note(editor, "texte ", "note visible")
     orphan_id = editor._register_new_footnote("plus de renvoi dans le texte")
 
     editor._renumber_footnotes()
@@ -85,7 +94,9 @@ def test_renumber_keeps_an_unreferenced_note_after_referenced_ones(editor):
 
 
 def test_renumber_is_noop_when_already_in_order(editor):
-    _type(editor, "un ((premier)) deux ((second))")
+    _insert_note(editor, "un ", "premier")
+    editor.text.insert("insert", " deux ")
+    _insert_note(editor, "", "second")
     before_text = editor.text.get("1.0", "end-1c")
 
     editor._renumber_footnotes()

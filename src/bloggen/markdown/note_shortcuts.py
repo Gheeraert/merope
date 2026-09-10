@@ -7,20 +7,27 @@ version of this module required one, which meant the extremely common
 "note right before the sentence's closing punctuation" case silently never
 converted).
 
-Two independent uses:
-- Live typing and pasted/imported rich content in
-  :mod:`bloggen.ui.content_editor`, via :func:`split_double_paren_notes` /
-  :func:`convert_double_paren_notes_in_blocks` (operate on the editor's
-  ``InlineRun``/``Block`` model; the two call sites just supply where new
-  footnote ids come from — allocating one and recording its definition
-  text needs the editor's own ``footnote_definitions`` state, which this
-  module knows nothing about).
-- Raw Markdown at build time, via
-  :func:`convert_double_paren_notes_in_markdown_text` (rewrites straight to
-  Pandoc's inline footnote syntax, ``^[note text]``), so content that was
-  hand-written or imported straight to Markdown — never touched the
-  WYSIWYG editor — still gets the shorthand recognized when the site is
-  generated.
+The shorthand is deliberately left untouched while typing or pasting in
+:mod:`bloggen.ui.content_editor` — converting it live used to flatten it
+to a resolved footnote reference immediately, which meant the note text
+could no longer be edited like normal body text (selecting it to toggle
+bold/italic, for instance, meant reopening the footnote panel). Instead
+the editor stores ``((note))`` as plain text, and it is only ever
+resolved at Markdown-normalization time, via
+:func:`convert_double_paren_notes_in_markdown_text` (rewrites straight to
+Pandoc's inline footnote syntax, ``^[note text]``) — see
+:func:`bloggen.markdown.normalizer.normalize_markdown_text`, called by
+both the real build (:mod:`bloggen.content.loader`) and the editor's own
+HTML preview (:mod:`bloggen.ui.content_editor.preview`), so the two stay
+in sync automatically.
+
+:func:`split_double_paren_notes` / :func:`convert_double_paren_notes_in_blocks`
+below operate on the editor's ``InlineRun``/``Block`` model instead of
+raw Markdown text (formatting inside a note — e.g. an italicized title —
+carries over into the footnote definition). They are not currently wired
+into any editor call site (see above), but stay covered by
+``tests/test_note_shortcuts.py`` as reusable, general-purpose building
+blocks should a future feature need block-level conversion again.
 """
 
 from __future__ import annotations
