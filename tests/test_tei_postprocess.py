@@ -308,3 +308,39 @@ def test_extract_heading_levels_ignores_a_table_separator_row():
 def test_extract_heading_levels_ignores_setext_looking_lines_inside_a_code_fence():
     markdown = "# Titre\n\n```\nCode\n====\n```\n\nTexte.\n"
     assert extract_heading_levels(markdown) == [1]
+
+
+def test_strip_duplicate_figure_caption_survives_differing_whitespace():
+    """Pandoc line-wraps its TEI writer's output at a fixed column, and
+    wraps the figure's caption and its duplicate sibling <p> (its "implicit
+    figure" quirk — see _strip_duplicate_figure_caption_paragraphs) at
+    different indentation depths, since the figure sits one level deeper.
+    A caption long/formatted enough to wrap (bold/italic runs split its
+    text across several <hi> elements, same effect) then ends up with
+    different raw whitespace in each copy even though the visible text is
+    identical — regression test for the resulting missed dedup, which
+    left the caption rendering twice on the page.
+    """
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body>'
+        "<div><p><figure>"
+        "<head>Une <hi>légende</hi> en\n    <hi>italique</hi></head>"
+        '<graphic url="x.jpg" />'
+        "</figure></p>"
+        "<p>Une <hi>légende</hi> en\n  <hi>italique</hi></p>"
+        "</div></body></text></TEI>"
+    )
+    processed = postprocess_tei_xml(raw, title="Titre Test")
+    root = ET.fromstring(processed)
+    # Excludes the <p><figure>...</figure></p> wrapper itself — its own
+    # itertext() also equals the caption text (it has nothing else inside),
+    # so only a figure-less <p> counts as the stray duplicate.
+    stray_paragraphs = [
+        node
+        for node in root.iter()
+        if node.tag == f"{_TEI_NS}p"
+        and not any(child.tag == f"{_TEI_NS}figure" for child in node)
+    ]
+    assert not any(
+        " ".join("".join(p.itertext()).split()) == "Une légende en italique" for p in stray_paragraphs
+    )

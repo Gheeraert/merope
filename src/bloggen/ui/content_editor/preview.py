@@ -31,7 +31,7 @@ from pathlib import Path
 from tkinter import messagebox
 from typing import Callable
 
-from bloggen.build.assets import copy_project_assets
+from bloggen.build.assets import copy_project_assets, copy_theme_resources
 from bloggen.build.reports import BuildReport
 from bloggen.build.site_builder import _build_single_item
 from bloggen.config.models import ProjectConfig
@@ -98,19 +98,22 @@ class PreviewMixin:
         return self._preview_scratch_dir
 
     def _sync_preview_static_assets(self, config: ProjectConfig) -> None:
-        """Mirrors the real build's static/ folder into the scratch dir once
-        per editor session, so the preview's CSS/JS resolve without ever
-        touching the real output directory. Only runs if the site has
-        already been generated at least once — otherwise the preview is
-        shown unstyled rather than blocking on a missing directory.
+        """Regenerates the built-in + theme static/ folder (CSS/JS/fonts)
+        into the scratch dir once per editor session, exactly as the real
+        "Générer le site" pipeline does (``site_builder.py``, right before
+        ``_generate_pages``/``_generate_posts``) — via ``copy_theme_resources``,
+        never by copying whatever happens to already sit in the project's
+        real output directory. That used to be a stale-content trap: a
+        previous full build's ``site/static/`` reflects whichever version of
+        bloggen produced it, so any CSS/JS fix shipped since then (or never
+        yet baked by a real build at all) silently failed to show up in
+        "Aperçu en direct" until the user reran "Générer le site" — even
+        though the preview otherwise always runs the current code.
         """
         scratch_static = self._preview_scratch() / "static"
         if scratch_static.exists():
             return
-        real_output = (self.project_root / config.paths.output_dir).resolve()
-        real_static = real_output / "static"
-        if real_static.is_dir():
-            shutil.copytree(real_static, scratch_static)
+        copy_theme_resources(self.project_root, config.paths.theme_dir, self._preview_scratch())
 
     def _sync_preview_project_assets(self, config: ProjectConfig) -> None:
         """Mirrors the real build's project-wide assets/ folder into the

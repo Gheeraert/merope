@@ -130,6 +130,30 @@ def test_preview_never_writes_into_the_real_output_directory(editor, project):
     assert not real_output.exists()
 
 
+def test_preview_uses_current_css_not_a_stale_real_build(editor, project):
+    # Regression test: the preview used to mirror whatever CSS/JS already
+    # sat in the project's real output/static/ folder (left there by a
+    # previous "Générer le site" run), instead of regenerating it from the
+    # package's current bundled resources the way the real build itself
+    # does (copy_theme_resources, called from site_builder.py right before
+    # _generate_pages). A real build predating a CSS fix — or never run at
+    # all — left "Aperçu en direct" silently stuck showing the old styling
+    # (e.g. the recent .article-figure image/caption alignment fix)
+    # regardless of how current the editor's own code was.
+    target_project, _config = project
+    stale_css_dir = target_project / "site" / "static" / "css"
+    stale_css_dir.mkdir(parents=True, exist_ok=True)
+    (stale_css_dir / "site.css").write_text("/* stale css from an old build */", encoding="utf-8")
+
+    editor.text.insert("insert", "Contenu")
+    editor.metadata = {"title": "Page", "slug": "page-css", "type": "page"}
+    editor._build_preview_html()
+
+    scratch_css = editor._preview_scratch() / "static" / "css" / "site.css"
+    current_css = Path("src/bloggen/resources/css/site.css").read_text(encoding="utf-8")
+    assert scratch_css.read_text(encoding="utf-8") == current_css
+
+
 def test_preview_copies_shared_assets_so_images_resolve(editor, project):
     # Regression test: _build_single_item rewrites <img src> pointing into
     # the project's shared assets/ folder on the assumption that

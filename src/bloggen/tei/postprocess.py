@@ -379,7 +379,7 @@ def _strip_duplicate_figure_caption_paragraphs(root: ET.Element) -> bool:
             if _local_name(figure.tag) != "figure":
                 continue
             captions = {
-                "".join(sub.itertext()).strip()
+                _normalize_caption_text(sub)
                 for sub in figure
                 if _local_name(sub.tag) in ("head", "figDesc")
             }
@@ -392,12 +392,26 @@ def _strip_duplicate_figure_caption_paragraphs(root: ET.Element) -> bool:
             sibling = children[next_index]
             if _local_name(sibling.tag) != "p":
                 continue
-            if "".join(sibling.itertext()).strip() in captions:
+            if _normalize_caption_text(sibling) in captions:
                 to_remove.append(sibling)
         for element in to_remove:
             parent.remove(element)
             changed = True
     return changed
+
+
+def _normalize_caption_text(element: ET.Element) -> str:
+    # Pandoc line-wraps its TEI output at a fixed column width, and wraps
+    # the figure's <head>/<figDesc> and the duplicate sibling <p> at
+    # different indentation depths (the figure being nested one level
+    # deeper) — so a caption long enough to wrap, or split across a run
+    # boundary by inline markup like <hi>, often ends up with a different
+    # mix of newlines/spaces in each copy even though the two are
+    # otherwise identical text. Comparing on collapsed whitespace (like
+    # normalize-space in XPath/XSLT) instead of raw text makes the dedup
+    # match regardless of pandoc's wrapping — the leading cause of
+    # unstripped duplicate captions with bold/italic runs.
+    return " ".join("".join(element.itertext()).split())
 
 
 def _local_name(tag: str) -> str:
