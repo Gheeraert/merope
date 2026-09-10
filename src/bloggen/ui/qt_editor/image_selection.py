@@ -112,6 +112,22 @@ def targeted_merope_image(cursor: QTextCursor) -> ImageTarget | None:
     return next(iter(candidates.values())) if len(candidates) == 1 else None
 
 
+def exactly_selected_merope_image(cursor: QTextCursor) -> ImageTarget | None:
+    """Return the target only when its one-character range is selected exactly."""
+
+    if not cursor.hasSelection():
+        return None
+    target = targeted_merope_image(cursor)
+    if target is None:
+        return None
+    if (
+        cursor.selectionStart() != target.start
+        or cursor.selectionEnd() != target.end
+    ):
+        return None
+    return target
+
+
 def replace_merope_image(
     document: QTextDocument,
     target: ImageTarget,

@@ -250,6 +250,39 @@ strictement inchangée ; une sélection composée uniquement d’une image est u
 no-op sans entrée undo. La suppression avec Delete/Backspace reste native Qt,
 et ne touche jamais au fichier physique.
 
+Le redimensionnement à la souris reste une interaction de viewport autour du
+même objet documentaire :
+
+```text
+ImageTarget
+  → rectangle visuel courant
+  → poignée inférieure droite
+  → drag à ratio constant
+  → nouvel InlineRun (width/height)
+  → make_image_format
+  → QTextImageFormat
+```
+
+Le cadre et la poignée ne sont dessinés que pour la sélection exacte d’une
+unique image Mérope dont la ressource possède une taille réellement lisible.
+Ils sont repeints depuis les coordonnées courantes du viewport après sélection,
+scroll, redimensionnement de fenêtre ou changement du document ; aucune
+géométrie d’écran n’entre dans le modèle. Une image manquante reste
+sélectionnable et éditable avec « Image... », mais ne propose pas de resize.
+
+Le ratio de départ est celui de la taille effectivement affichée. Après un
+geste volontaire, y compris lorsque les valeurs initiales étaient `None` ou
+`50%`, largeur et hauteur deviennent deux chaînes de pixels explicites. Le
+minimum de 40 px est appliqué par un facteur d’échelle commun afin de ne pas
+déformer le ratio. `src`, `image_alt` et `align` restent inchangés.
+
+La mutation documentaire commence seulement au-delà d’un seuil de déplacement
+de 3 px. Tout le drag est enveloppé dans un bloc d’édition Qt extérieur : les
+mises à jour visuelles intermédiaires forment une seule opération undo/redo.
+Un clic sans déplacement effectif ne modifie ni le document, ni son état dirty,
+ni sa pile undo. Le resize ne modifie jamais le fichier bitmap ; undo/redo ne
+porte que sur les métadonnées documentaires.
+
 Les images venant du collage HTML (`img`, `v:imagedata`, `v:shape`) et les
 bitmaps seuls du presse-papiers restent refusés : leur extraction et leur
 copie transactionnelle feront l’objet d’un autre lot.
@@ -269,8 +302,8 @@ refusé n’est ni réécrit ni archivé.
 
 - vérifier manuellement les formats MIME réellement exposés par Word et Google
   Docs sous Windows ;
-- éprouver ensuite une interaction visuelle de redimensionnement qui mette à
-  jour les mêmes métadonnées sans introduire de second chemin documentaire ;
+- éprouver le redimensionnement sous les facteurs d’échelle d’écran réellement
+  utilisés sous Windows, avant d’ajouter une autre interaction image isolée ;
 - éprouver le lancement et le timeout sur les plateformes distribuées ainsi
   que le conditionnement de l’extra PySide6 ;
 - conserver Tkinter comme éditeur principal et fallback tant que la couverture
@@ -278,8 +311,8 @@ refusé n’est ni réécrit ni archivé.
 
 ## Volontairement différé
 
-- images interactives, redimensionnement, recadrage, remplacement et édition
-  riche des légendes ;
+- recadrage, remplacement de source, collage d’images et édition riche des
+  légendes ;
 - notes de bas de page et raccourci `((note))` dans l’interface Qt ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;

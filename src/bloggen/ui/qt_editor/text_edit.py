@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
 from typing import Callable
 
-from PySide6.QtCore import QMimeData, Qt, Signal
-from PySide6.QtGui import QFont, QKeyEvent, QMouseEvent, QTextCharFormat, QTextCursor
+from PySide6.QtCore import QMimeData, QPoint, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QKeyEvent,
+    QMouseEvent,
+    QPaintEvent,
+    QPainter,
+    QPen,
+    QResizeEvent,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PySide6.QtWidgets import QTextEdit
 
 from bloggen.markdown.html_paste_import import (
@@ -46,13 +58,32 @@ from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
     insert_blocks,
 )
-from bloggen.ui.qt_editor.image_selection import merope_image_at_position
+from bloggen.ui.qt_editor.image_resize import (
+    ImageResizeGeometry,
+    image_viewport_rect,
+    resize_drag_is_effective,
+    ratio_preserving_size,
+    selected_image_resize_geometry,
+)
+from bloggen.ui.qt_editor.image_selection import (
+    ImageTarget,
+    merope_image_at_position,
+    replace_merope_image,
+)
 
 
 _OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
 _REJECTED_RICH_PASTE_TAGS = frozenset(
     {"img", "pre", "table", "v:imagedata", "v:shape"}
 )
+
+
+@dataclass
+class _ImageResizeState:
+    target: ImageTarget
+    origin: QPoint
+    initial_size: QSize
+    edit_cursor: QTextCursor | None = None
 
 
 class MeropeTextEdit(QTextEdit):
@@ -67,6 +98,10 @@ class MeropeTextEdit(QTextEdit):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setAcceptRichText(False)
+        self.viewport().setMouseTracking(True)
+        self._image_resize_state: _ImageResizeState | None = None
+        self.selectionChanged.connect(self.viewport().update)
+        self.document().contentsChanged.connect(self.viewport().update)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         char = event.text()
@@ -89,14 +124,23 @@ class MeropeTextEdit(QTextEdit):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            geometry = self.image_resize_geometry()
+            if geometry is not None and geometry.handle_rect.contains(
+                event.position().toPoint()
+            ):
+                self._start_image_resize(geometry, event.position().toPoint())
+                event.accept()
+                return
+
             target = self._image_at_viewport_point(event.position().toPoint())
             if target is not None:
                 self.setTextCursor(target.cursor(self.document()))
+                self.viewport().update()
                 event.accept()
                 return
         super().mousePressEvent(event)
 
-    def _image_at_viewport_point(self, point):
+    def _image_at_viewport_point(self, point: QPoint) -> ImageTarget | None:
         hit_cursor = self.cursorForPosition(point)
         candidates = {}
         for position in (hit_cursor.position() - 1, hit_cursor.position()):
@@ -108,19 +152,117 @@ class MeropeTextEdit(QTextEdit):
                 candidates[target.start] = target
 
         for target in candidates.values():
-            start_cursor = QTextCursor(self.document())
-            start_cursor.setPosition(target.start)
-            end_cursor = QTextCursor(self.document())
-            end_cursor.setPosition(target.end)
-            start_rect = self.cursorRect(start_cursor)
-            end_rect = self.cursorRect(end_cursor)
-            left = min(start_rect.center().x(), end_rect.center().x())
-            right = max(start_rect.center().x(), end_rect.center().x())
-            top = min(start_rect.top(), end_rect.top())
-            bottom = max(start_rect.bottom(), end_rect.bottom())
-            if left <= point.x() <= right and top <= point.y() <= bottom:
+            rect = image_viewport_rect(self, target)
+            if rect is not None and rect.contains(point):
                 return target
         return None
+
+    def image_resize_geometry(self) -> ImageResizeGeometry | None:
+        """Return viewport geometry for an exactly selected, renderable image."""
+
+        return selected_image_resize_geometry(self)
+
+    def _set_normal_viewport_cursor(self) -> None:
+        self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+
+    def _update_resize_cursor(self, point: QPoint | None = None) -> None:
+        if self._image_resize_state is not None:
+            self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+            return
+        geometry = self.image_resize_geometry()
+        if (
+            point is not None
+            and geometry is not None
+            and geometry.handle_rect.contains(point)
+        ):
+            self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+        else:
+            self._set_normal_viewport_cursor()
+
+    def _start_image_resize(self, geometry: ImageResizeGeometry, point: QPoint) -> None:
+        self._image_resize_state = _ImageResizeState(
+            target=geometry.target,
+            origin=QPoint(point),
+            initial_size=geometry.image_rect.size(),
+        )
+        self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+
+    def _resize_selected_image_to(self, point: QPoint) -> None:
+        state = self._image_resize_state
+        if state is None or not resize_drag_is_effective(state.origin, point):
+            return
+
+        size = ratio_preserving_size(state.initial_size, point - state.origin)
+        new_run = replace(
+            state.target.run,
+            image_width=str(size.width()),
+            image_height=str(size.height()),
+        )
+        if new_run == state.target.run:
+            return
+
+        if state.edit_cursor is None:
+            state.edit_cursor = QTextCursor(self.document())
+            state.edit_cursor.beginEditBlock()
+
+        selected = replace_merope_image(self.document(), state.target, new_run)
+        state.target = ImageTarget(state.target.start, state.target.end, new_run)
+        self.setTextCursor(selected)
+        self.viewport().update()
+
+    def _finish_image_resize(self) -> None:
+        state = self._image_resize_state
+        self._image_resize_state = None
+        if state is not None and state.edit_cursor is not None:
+            state.edit_cursor.endEditBlock()
+        self._set_normal_viewport_cursor()
+        self.viewport().update()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._image_resize_state is not None:
+            self._resize_selected_image_to(event.position().toPoint())
+            event.accept()
+            return
+        self._update_resize_cursor(event.position().toPoint())
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._image_resize_state is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._resize_selected_image_to(event.position().toPoint())
+            self._finish_image_resize()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if self._image_resize_state is None:
+            self._set_normal_viewport_cursor()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        super().paintEvent(event)
+        geometry = self.image_resize_geometry()
+        if geometry is None:
+            return
+
+        painter = QPainter(self.viewport())
+        pen = QPen(QColor(42, 109, 181))
+        pen.setStyle(Qt.PenStyle.DashLine)
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawRect(geometry.image_rect.adjusted(0, 0, -1, -1))
+        painter.fillRect(geometry.handle_rect, QColor(42, 109, 181))
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        super().scrollContentsBy(dx, dy)
+        self.viewport().update()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self.viewport().update()
 
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         """Accept only MIME content that Merope can inspect safely itself."""
