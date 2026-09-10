@@ -623,10 +623,6 @@ button:focus-visible {
   width: fit-content;
   max-width: 100%;
   margin: 1.5rem 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: #f9f9f9;
 }
 
 .article-figure.align-left {
@@ -683,10 +679,21 @@ button:focus-visible {
 }
 
 .article-figure figcaption {
-  padding: 0.65rem 0.9rem 0.75rem;
+  /* The figure's own width is shrink-to-fit around its widest child. An
+     auto-width figcaption would let its caption text (often wider than
+     the image on one unwrapped line) size that box, leaving the image
+     stranded at the left edge instead of matching the caption's width.
+     width: 0 excludes the caption from that shrink-to-fit measurement,
+     so only the image sets the figure's width; min-width: 100% then
+     stretches the caption back out to match it. */
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.1rem 0;
+  border-top: 1px solid var(--border);
   font-size: 0.85rem;
   color: var(--muted);
-  border-top: 1px solid var(--border);
 }
 
 .external-embed-notice {
