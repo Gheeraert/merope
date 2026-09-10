@@ -14,15 +14,23 @@ float visually; it only shows which alignment is currently set.
 
 from __future__ import annotations
 
-import os
-import shutil
-from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, simpledialog, ttk
 import tkinter as tk
 
 from PIL import Image, ImageTk
 
+from bloggen.content.image_service import (
+    DEFAULT_SIZE_PRESET as _DEFAULT_SIZE,
+    SIZE_PRESETS,
+    calculate_display_size,
+    copy_into_images_dir,
+    grab_clipboard_image,
+    load_image_or_placeholder,
+    relative_image_src as _relative_src,
+    save_clipboard_image,
+    write_cropped_copy as _write_cropped_copy,
+)
 from bloggen.ui.tooltip import add_tooltip
 
 _HANDLE_SIZE = 8
@@ -31,85 +39,12 @@ _MIN_SIZE = 40
 _MAX_CROP_PREVIEW_DIM = 700
 _ALIGN_LABELS = {"left": "gauche", "center": "centré", "right": "droite"}
 
-# Display-size presets offered when inserting an image's caption, and the
-# default cap applied when none is chosen (e.g. a pasted clipboard image
-# inserted without going through the size-picking dialog). Width in pixels;
-# ``None`` (taille originale) means no cap at all.
-SIZE_PRESETS: dict[str, int | None] = {
-    "petit": 240,
-    "moyen": 420,
-    "grand": 700,
-    "original": None,
-}
 _SIZE_LABELS = {
     "petit": "Petit",
     "moyen": "Moyen",
     "grand": "Grand",
     "original": "Taille originale",
 }
-_DEFAULT_SIZE = "petit"
-
-
-def copy_into_images_dir(source: Path, images_dir: Path, doc_dir: Path) -> str:
-    """Copy ``source`` into ``images_dir`` (avoiding collisions) and return
-    the path to reference from Markdown, relative to ``doc_dir`` (the
-    directory of the post/page Markdown file the image is inserted into —
-    the same base the Pandoc/TEI/site-build pipeline resolves image
-    references against, so the two must agree or the generated link 404s).
-    """
-    images_dir.mkdir(parents=True, exist_ok=True)
-    destination = images_dir / source.name
-    counter = 2
-    while destination.exists() and source.resolve() != destination.resolve():
-        destination = images_dir / f"{source.stem}-{counter}{source.suffix}"
-        counter += 1
-    if not destination.exists():
-        shutil.copyfile(source, destination)
-    return _relative_src(destination, doc_dir)
-
-
-def grab_clipboard_image() -> Image.Image | None:
-    """Return the image currently on the system clipboard, if any.
-
-    Covers both a raw bitmap (e.g. a screenshot, or an image copied from a
-    browser/editor) and a copied image file (e.g. from Explorer, which puts
-    a file path list on the clipboard instead of pixel data). Returns
-    ``None`` on any other platform, when the clipboard holds something else
-    (plain text, multiple/non-image files...), or on any grab failure —
-    callers should fall back to their normal paste handling.
-    """
-    try:
-        from PIL import ImageGrab
-
-        content = ImageGrab.grabclipboard()
-    except Exception:
-        return None
-    if isinstance(content, Image.Image):
-        return content
-    if isinstance(content, list) and len(content) == 1:
-        try:
-            return Image.open(content[0])
-        except Exception:
-            return None
-    return None
-
-
-def save_clipboard_image(image: Image.Image, images_dir: Path, doc_dir: Path) -> str:
-    """Save a clipboard image to ``images_dir`` and return its Markdown src
-    (relative to ``doc_dir``, see :func:`copy_into_images_dir`), the paste
-    counterpart to :func:`copy_into_images_dir` for a file already on disk.
-    """
-    images_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    destination = images_dir / f"presse-papiers-{timestamp}.png"
-    counter = 2
-    while destination.exists():
-        destination = images_dir / f"presse-papiers-{timestamp}-{counter}.png"
-        counter += 1
-    if image.mode not in ("RGB", "RGBA", "L", "LA", "P"):
-        image = image.convert("RGBA")
-    image.save(destination, "PNG")
-    return _relative_src(destination, doc_dir)
 
 
 def ask_caption(
@@ -198,24 +133,6 @@ def ask_caption(
     return result["value"]
 
 
-def _relative_src(path: Path, doc_dir: Path) -> str:
-    return Path(os.path.relpath(path, doc_dir)).as_posix()
-
-
-def _write_cropped_copy(
-    source_path: Path, box: tuple[int, int, int, int], doc_dir: Path
-) -> str:
-    image = Image.open(source_path)
-    cropped = image.crop(box)
-    counter = 1
-    candidate = source_path.with_name(f"{source_path.stem}-crop{counter}{source_path.suffix}")
-    while candidate.exists():
-        counter += 1
-        candidate = source_path.with_name(f"{source_path.stem}-crop{counter}{source_path.suffix}")
-    cropped.convert("RGB").save(candidate)
-    return _relative_src(candidate, doc_dir)
-
-
 class ImageWidget(tk.Frame):
     def __init__(
         self,
@@ -241,13 +158,12 @@ class ImageWidget(tk.Frame):
         self._resize_start_size = (0, 0)
 
         self._source_image = self._load_source_image()
-        natural_width, natural_height = self._source_image.size
-        if width and height:
-            self.width, self.height = width, height
-        else:
-            cap = SIZE_PRESETS.get(size_preset or _DEFAULT_SIZE, SIZE_PRESETS[_DEFAULT_SIZE])
-            self.width = min(natural_width, cap) if cap is not None else natural_width
-            self.height = round(natural_height * (self.width / natural_width)) if natural_width else natural_height
+        self.width, self.height = calculate_display_size(
+            self._source_image.size,
+            width=width,
+            height=height,
+            size_preset=size_preset,
+        )
 
         self._build_ui()
         self._render_preview()
@@ -256,10 +172,7 @@ class ImageWidget(tk.Frame):
         return (self.doc_dir / self.src).resolve()
 
     def _load_source_image(self) -> Image.Image:
-        try:
-            return Image.open(self._resolve_path()).convert("RGB")
-        except Exception:
-            return Image.new("RGB", (200, 150), color="#cccccc")
+        return load_image_or_placeholder(self._resolve_path())
 
     def _build_ui(self) -> None:
         toolbar = ttk.Frame(self)

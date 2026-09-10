@@ -7,6 +7,7 @@ import queue
 import threading
 from tkinter import messagebox
 import tkinter as tk
+from bloggen.content.image_service import grab_clipboard_image, save_clipboard_image
 from bloggen.markdown.html_paste_import import html_to_blocks
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
@@ -18,7 +19,7 @@ from bloggen.markdown.rich_text_model import (
     InlineRun,
 )
 from bloggen.ui.clipboard_html import read_html_clipboard
-from bloggen.ui.image_widget import ask_caption, grab_clipboard_image, save_clipboard_image
+from bloggen.ui.image_widget import ask_caption
 
 class PasteMixin:
     """Clipboard paste handling: rich HTML (async, off the Tk main
