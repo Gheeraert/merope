@@ -53,6 +53,12 @@ preview = [
 ftp_credentials = [
     "keyring>=24.0",
 ]
+# Prototype autonome de l’éditeur de contenu Qt. Aucun module générique de
+# bloggen ne l’importe, afin que le CLI, le build et l’éditeur Tkinter restent
+# utilisables sans les bibliothèques Qt.
+qt_editor = [
+    "PySide6>=6.8",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
