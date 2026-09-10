@@ -5,6 +5,11 @@ from __future__ import annotations
 
 from tkinter import font as tkfont, messagebox, simpledialog, ttk
 import tkinter as tk
+from bloggen.content.footnotes import (
+    plan_footnote_renumbering,
+    register_footnote,
+    remove_footnote,
+)
 from bloggen.markdown.rich_text_model import InlineRun
 from bloggen.ui.tooltip import add_tooltip
 
@@ -240,7 +245,7 @@ class NotesMixin:
         # widget and writes it straight back into footnote_definitions,
         # silently undoing the deletion — most visible on an empty note,
         # where "deleting" it just brings back an identical empty row.
-        self.footnote_definitions.pop(note_id, None)
+        remove_footnote(self.footnote_definitions, note_id)
         self._footnote_text_widgets.pop(note_id, None)
         self._footnote_rows.pop(note_id, None)
         self._refresh_notes_panel()
@@ -272,13 +277,7 @@ class NotesMixin:
         never goes through this method in the editor; it is resolved to a
         footnote straight from Markdown, at preview/build time.
         """
-        next_id = 1
-        while str(next_id) in self.footnote_definitions:
-            next_id += 1
-        note_id = str(next_id)
-        runs = [InlineRun(text=note_content)] if isinstance(note_content, str) else note_content
-        self.footnote_definitions[note_id] = runs or [InlineRun(text="")]
-        return note_id
+        return register_footnote(self.footnote_definitions, note_content)
 
     def _insert_footnote_marker(self, index: str, note_id: str) -> str:
         """Insert a clickable "[id]" footnote marker at ``index`` (a
@@ -318,11 +317,10 @@ class NotesMixin:
                 if note_id not in seen:
                     seen.append(note_id)
 
-        orphans = sorted((nid for nid in self.footnote_definitions if nid not in seen), key=int)
-        ordered_old_ids = seen + orphans
-        mapping = {old: str(i + 1) for i, old in enumerate(ordered_old_ids)}
+        renumbering = plan_footnote_renumbering(self.footnote_definitions, seen)
+        mapping = renumbering.mapping
 
-        if all(old == new for old, new in mapping.items()):
+        if not renumbering.changed:
             return
 
         def sort_key(index: str) -> tuple[int, int]:
@@ -349,9 +347,7 @@ class NotesMixin:
             self.text.tag_delete(old_tag)
             self.footnote_ref_data.pop(old_tag, None)
 
-        self.footnote_definitions = {
-            mapping[old_id]: runs for old_id, runs in self.footnote_definitions.items() if old_id in mapping
-        }
+        self.footnote_definitions = renumbering.definitions
         self._refresh_notes_panel()
 
     # -- extraction (Text widget -> Block model) ---------------------------
