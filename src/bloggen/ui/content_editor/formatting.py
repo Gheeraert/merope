@@ -27,7 +27,13 @@ _HEADING_TAGS = ("h1", "h2", "h3", "h4")
 # (where <i> nests correctly inside <h2>) always looked right. Dynamically
 # generated tags below, raised above every component tag, patch the visual
 # gap for the one combination the toolbar lets users create this way:
-# bold+italic (a heading is bold for this purpose).
+# bold+italic (a heading is bold for this purpose). Every caller that adds,
+# removes, or restores (undo/redo) h1-h4/bold/italic must call
+# _refresh_combined_fonts afterwards, or a stale/missing cf_* tag lingers.
+# This whole patch-up is a stopgap: it's slated to be replaced by computing
+# one effective font per segment from the semantic tags directly, which
+# would also cover combinations (e.g. heading+italic+superscript) this
+# mechanism doesn't.
 _COMBINED_FONT_TAG_PREFIX = "cf_"
 
 
@@ -136,10 +142,23 @@ class FormattingMixin:
             is_italic = "italic" in active
             if not (is_bold and is_italic):
                 continue
-            size = sizes[heading] if heading else sizes["body"]
-            combo_tag = f"{_COMBINED_FONT_TAG_PREFIX}{size}"
-            if combo_tag not in text.tag_names():
-                text.tag_configure(combo_tag, font=("TkDefaultFont", size, "bold italic"))
+            # A superscript is also font-bearing.  If it overlaps a heading
+            # and italic, it must be part of the effective font tag too;
+            # otherwise the last-priority tag silently replaces the heading's
+            # size/weight again.  Keep the semantic tags separate for export,
+            # but make the displayed font a single, explicit combination.
+            is_superscript = "superscript" in active
+            size = sizes["superscript"] if is_superscript else (sizes[heading] if heading else sizes["body"])
+            combo_tag = f"{_COMBINED_FONT_TAG_PREFIX}{size}_{int(is_superscript)}"
+            font_style = "bold italic"
+            # Reconfigure even an existing tag.  The zoom handler changes
+            # _current_sizes in place; retaining an old cf_* configuration
+            # leaves the affected selection at its previous body/title size.
+            text.tag_configure(
+                combo_tag,
+                font=("TkDefaultFont", size, font_style),
+                offset=sizes["superscript_offset"] if is_superscript else 0,
+            )
             text.tag_add(combo_tag, span_start, span_end)
             text.tag_raise(combo_tag)
 
@@ -284,6 +303,7 @@ class FormattingMixin:
                 lambda: apply_char_changes(True),
                 lambda: apply_char_changes(False),
             )
+        self._refresh_combined_fonts()
         self._update_toolbar_block_state()
         self._update_toolbar_char_state()
 

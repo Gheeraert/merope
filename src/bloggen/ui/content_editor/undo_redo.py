@@ -202,6 +202,14 @@ class UndoRedoMixin:
         self._trim_undo_stack(self._redo_stack)
         self._current_edit_kind = None
         self._last_char_count = self._char_count()
+        # Undo/redo restore h1-h4/bold/italic tags directly (native Tk undo,
+        # or the "format" closures above) without going through the toolbar
+        # commands that normally keep the derived cf_* combined-font tags
+        # (see formatting._refresh_combined_fonts) in sync — resync here so
+        # a Ctrl+Z/Ctrl+Y doesn't leave a stale cf_* behind. TODO: this
+        # whole cf_* patch-up is slated to be replaced by per-segment font
+        # computation (no more Tk tag-priority font conflicts to reconcile).
+        self._refresh_combined_fonts()
 
     def _perform_redo(self) -> None:
         if not self._redo_stack:
@@ -217,4 +225,5 @@ class UndoRedoMixin:
         self._undo_stack.append(entry)
         self._trim_undo_stack(self._undo_stack)
         self._current_edit_kind = None
+        self._refresh_combined_fonts()
         self._last_char_count = self._char_count()
