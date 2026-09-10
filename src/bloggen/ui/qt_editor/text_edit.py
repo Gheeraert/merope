@@ -6,9 +6,14 @@ import re
 from difflib import SequenceMatcher
 from typing import Callable
 
+from PySide6.QtCore import QMimeData, Signal
 from PySide6.QtGui import QFont, QKeyEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QTextEdit
 
+from bloggen.markdown.html_paste_import import (
+    UnsupportedHtmlStructureError,
+    html_to_blocks,
+)
 from bloggen.markdown.typography import (
     CENTURY_RE,
     CLOSING_GUILLEMET,
@@ -36,10 +41,15 @@ from bloggen.ui.qt_editor.constants import (
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
 )
-from bloggen.ui.qt_editor.document_adapter import inline_format_enabled
+from bloggen.ui.qt_editor.document_adapter import (
+    UnsupportedDocumentError,
+    inline_format_enabled,
+    insert_blocks,
+)
 
 
 _OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
+_REJECTED_RICH_PASTE_TAGS = frozenset({"img", "pre", "table"})
 
 
 class MeropeTextEdit(QTextEdit):
@@ -48,6 +58,8 @@ class MeropeTextEdit(QTextEdit):
     The widget owns interaction behaviour only.  ``Block`` / ``InlineRun``
     remain canonical and are still converted by ``document_adapter``.
     """
+
+    pasteRefused = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -71,6 +83,46 @@ class MeropeTextEdit(QTextEdit):
             return
 
         super().keyPressEvent(event)
+
+    def insertFromMimeData(self, source: QMimeData) -> None:
+        """Insert clipboard data without letting Qt interpret rich HTML.
+
+        HTML always goes through Merope's canonical ``html_to_blocks``
+        importer, then through the validated document adapter.  Unsupported
+        semantic structures refuse the entire paste before the selection or
+        document is touched.
+        """
+
+        if source.hasHtml() and source.html().strip():
+            try:
+                blocks = html_to_blocks(
+                    source.html(),
+                    reject_tags=_REJECTED_RICH_PASTE_TAGS,
+                )
+                if blocks:
+                    cursor = insert_blocks(self.textCursor(), blocks)
+                    self.setTextCursor(cursor)
+                    return
+            except (UnsupportedHtmlStructureError, UnsupportedDocumentError) as exc:
+                self.pasteRefused.emit(str(exc))
+                return
+            except Exception as exc:
+                self.pasteRefused.emit(f"Le collage HTML n’a pas pu être analysé : {exc}")
+                return
+
+        if source.hasText():
+            cursor = self.textCursor()
+            cursor.beginEditBlock()
+            try:
+                cursor.insertText(source.text())
+            finally:
+                cursor.endEditBlock()
+            self.setTextCursor(cursor)
+            return
+
+        self.pasteRefused.emit(
+            "Ce format de presse-papiers n’est pas encore pris en charge par l’éditeur Qt"
+        )
 
     def apply_typography_to_selection(self) -> bool:
         """Apply shared pure typography rules while retaining Qt formats.

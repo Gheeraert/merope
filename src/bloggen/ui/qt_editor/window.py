@@ -63,6 +63,7 @@ class QtEditorWindow(QMainWindow):
         self.ipc = ipc
         self.resize(920, 700)
         self.editor = MeropeTextEdit(self)
+        self.editor.pasteRefused.connect(self._show_paste_refused)
         self.setCentralWidget(self.editor)
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
@@ -190,6 +191,13 @@ class QtEditorWindow(QMainWindow):
         href, accepted = QInputDialog.getText(self, "Lien", "Adresse du lien :")
         if accepted:
             set_link(self.editor, href.strip() or None)
+
+    def _show_paste_refused(self, message: str) -> None:
+        QMessageBox.warning(
+            self,
+            "Collage impossible",
+            f"Le contenu n’a pas été collé afin d’éviter une perte de données.\n\n{message}",
+        )
 
     def _open_from_dialog(self) -> None:
         path, _selected_filter = QFileDialog.getOpenFileName(

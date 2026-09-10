@@ -1,7 +1,12 @@
 import base64
 from pathlib import Path
 
-from bloggen.markdown.html_paste_import import html_to_blocks
+import pytest
+
+from bloggen.markdown.html_paste_import import (
+    UnsupportedHtmlStructureError,
+    html_to_blocks,
+)
 from bloggen.markdown.note_shortcuts import convert_double_paren_notes_in_blocks
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.typography import CLOSING_GUILLEMET, NBSP, OPENING_GUILLEMET
@@ -18,6 +23,15 @@ def _export(html: str, **kwargs) -> str:
 
 def test_plain_paragraph():
     assert _export("<p>Un simple paragraphe.</p>") == "Un simple paragraphe.\n"
+
+
+def test_strict_caller_can_reject_an_image_without_changing_default_behaviour():
+    html = '<p>Avant<img src="cid:image">Après</p>'
+
+    with pytest.raises(UnsupportedHtmlStructureError, match="<img>"):
+        html_to_blocks(html, reject_tags={"img"})
+
+    assert _export(html) == "AvantAprès\n"
 
 
 def test_bold_and_italic_tags():

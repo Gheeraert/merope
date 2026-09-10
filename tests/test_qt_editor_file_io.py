@@ -55,6 +55,23 @@ def test_window_uses_merope_text_edit():
     window.close()
 
 
+def test_window_displays_rich_paste_refusal(monkeypatch):
+    messages = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *args, **kwargs: messages.append(args[2]),
+    )
+    window = QtEditorWindow()
+
+    window.editor.pasteRefused.emit("La structure HTML <img> n’est pas prise en charge")
+
+    assert len(messages) == 1
+    assert "éviter une perte de données" in messages[0]
+    assert "<img>" in messages[0]
+    window.close()
+
+
 def test_disk_open_edit_save_reopen_roundtrip(tmp_path):
     metadata = _metadata()
     path = write_content_file(tmp_path, "document.md", metadata, _supported_markdown())

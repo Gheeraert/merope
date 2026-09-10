@@ -20,6 +20,7 @@ import re
 import socket
 import urllib.request
 import uuid
+from collections.abc import Iterable
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -81,7 +82,17 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _BOLD_WEIGHTS = {"bold", "bolder", "600", "700", "800", "900"}
 
 
-def html_to_blocks(html: str, *, images_dir: Path | None = None, doc_dir: Path | None = None) -> list[Block]:
+class UnsupportedHtmlStructureError(ValueError):
+    """Raised when a caller requires lossless rejection of selected tags."""
+
+
+def html_to_blocks(
+    html: str,
+    *,
+    images_dir: Path | None = None,
+    doc_dir: Path | None = None,
+    reject_tags: Iterable[str] = (),
+) -> list[Block]:
     """Parse a pasted HTML fragment into a list of ``Block``.
 
     ``images_dir`` is where any ``data:``/``http(s)://`` images found in the
@@ -93,8 +104,16 @@ def html_to_blocks(html: str, *, images_dir: Path | None = None, doc_dir: Path |
     resolves image references against; see
     :func:`bloggen.ui.image_widget.copy_into_images_dir` for the same
     convention on the file-based insert path.
+
+    ``reject_tags`` lets a stricter adapter refuse structures it cannot yet
+    preserve before parsing has any side effect.  The default remains empty,
+    preserving the historical Tk import behaviour.
     """
-    builder = _HtmlBlockBuilder(images_dir=images_dir, doc_dir=doc_dir or images_dir)
+    builder = _HtmlBlockBuilder(
+        images_dir=images_dir,
+        doc_dir=doc_dir or images_dir,
+        reject_tags=reject_tags,
+    )
     builder.feed(html)
     builder.close()
     blocks = builder.finish()
@@ -113,10 +132,17 @@ class _Frame:
 
 
 class _HtmlBlockBuilder(HTMLParser):
-    def __init__(self, *, images_dir: Path | None, doc_dir: Path | None) -> None:
+    def __init__(
+        self,
+        *,
+        images_dir: Path | None,
+        doc_dir: Path | None,
+        reject_tags: Iterable[str],
+    ) -> None:
         super().__init__(convert_charrefs=True)
         self.images_dir = images_dir
         self.doc_dir = doc_dir
+        self.reject_tags = frozenset(tag.lower() for tag in reject_tags)
         self.result: list[Block] = []
         self.frame_stack: list[_Frame] = []
         self.inline_stack: list[dict] = []
@@ -287,6 +313,10 @@ class _HtmlBlockBuilder(HTMLParser):
         self._handle_start(tag, attrs, self_closing=True)
 
     def _handle_start(self, tag: str, attrs: list[tuple[str, str | None]], *, self_closing: bool) -> None:
+        if tag in self.reject_tags:
+            raise UnsupportedHtmlStructureError(
+                f"La structure HTML <{tag}> n’est pas encore prise en charge par l’éditeur Qt"
+            )
         attrs_dict = {k: (v or "") for k, v in attrs}
 
         if tag == "img":

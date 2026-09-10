@@ -130,6 +130,47 @@ explicite ; les changements typographiques sont rattachés avec
 seul `beginEditBlock()` / `endEditBlock()`. L’undo/redo reste exclusivement
 celui de Qt.
 
+### Collage riche Word / Google Docs
+
+Le chemin Qt est désormais explicite et ne délègue jamais l’interprétation du
+HTML à `QTextEdit` :
+
+```text
+QMimeData
+  → HTML
+  → html_to_blocks
+  → Block / InlineRun
+  → insert_blocks
+  → QTextDocument
+```
+
+`MeropeTextEdit.insertFromMimeData()` préfère le HTML disponible dans le MIME
+Qt natif. Le parseur partagé conserve ses traitements Word, Google Docs,
+styles inline, liens, listes, citations et typographie française. Aucune
+réintroduction du contournement Win32 propre à Tk n’a été nécessaire à ce
+stade.
+
+La primitive `insert_blocks(cursor, blocks)` valide d’abord tout le modèle. Un
+paragraphe unique s’insère inline au milieu du bloc courant. Pour plusieurs
+blocs ou une structure comme un titre, une citation ou une liste, le préfixe
+et le suffixe autour du curseur restent dans leurs propres blocs et conservent
+leur sémantique ; les blocs collés sont insérés entre eux. Une sélection est
+supprimée seulement après validation complète.
+
+Le collage complet utilise un seul bloc d’édition natif Qt : undo restaure la
+sélection, les formats et les structures antérieures, et redo réapplique tout
+le collage.
+
+Le texte brut est inséré littéralement, sans normalisation typographique
+globale immédiate, comme le fallback historique Tk. La typographie à la frappe
+et la commande explicite sur sélection restent disponibles ensuite.
+
+Les balises `<img>`, `<table>` et `<pre>` refusent intégralement le collage
+riche, même si le MIME fournit aussi un texte alternatif. La fenêtre explique
+que rien n’a été inséré afin d’éviter une perte de données. L’option stricte
+`reject_tags` a été ajoutée au parseur HTML canonique ; sa valeur par défaut
+reste vide, donc le comportement de l’éditeur Tk n’est pas modifié.
+
 Le round-trip expérimenté est exclusivement :
 
 ```text
@@ -154,9 +195,10 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
-- porter isolément le collage riche Word / Google Docs en branchant
-  `insertFromMimeData()` sur les services HTML et `Block` / `InlineRun`
-  existants, avec refus explicite de toute structure encore non représentable ;
+- vérifier manuellement les formats MIME réellement exposés par Word et Google
+  Docs sous Windows ;
+- préparer un lot séparé pour la représentation et le round-trip des images
+  Qt, avant d’autoriser leur collage riche ;
 - éprouver le lancement et le timeout sur les plateformes distribuées ainsi
   que le conditionnement de l’extra PySide6 ;
 - conserver Tkinter comme éditeur principal et fallback tant que la couverture
@@ -166,7 +208,6 @@ refusé n’est ni réécrit ni archivé.
 
 - images interactives, redimensionnement, recadrage et légendes ;
 - notes de bas de page et raccourci `((note))` dans l’interface Qt ;
-- collage riche Word / Google Docs et presse-papiers personnalisé ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;
 - aperçu HTML par le pipeline réel, gestion complète des fichiers et

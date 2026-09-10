@@ -70,21 +70,61 @@ def populate_document(document: QTextDocument, blocks: list[Block]) -> None:
     never leaves a partially populated document behind.
     """
 
-    _validate_blocks(blocks)
+    validate_blocks(blocks)
     document.clear()
     cursor = QTextCursor(document)
     first_block = True
 
-    for block in blocks:
-        if block.kind in SUPPORTED_LEAF_KINDS:
-            first_block = _populate_leaf_block(cursor, block, first_block)
-        elif block.kind in SUPPORTED_LIST_KINDS:
-            first_block = _populate_list(cursor, block, first_block)
-        else:  # Kept as a defensive guard if validation evolves separately.
-            raise UnsupportedBlockError(f"Type de bloc Qt non pris en charge : {block.kind}")
+    first_block = _write_blocks(cursor, blocks, first=first_block)
 
     cursor.movePosition(QTextCursor.MoveOperation.Start)
     document.clearUndoRedoStacks()
+
+
+def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
+    """Insert validated Merope blocks at ``cursor`` in one native edit block.
+
+    One plain paragraph is inserted inline, matching ordinary editor paste.
+    Structural content is isolated from any text before and after the cursor,
+    so its block kinds do not leak into the surrounding document.
+    """
+
+    validate_blocks(blocks)
+    insertion = QTextCursor(cursor)
+    if not blocks:
+        return insertion
+
+    insertion.beginEditBlock()
+    try:
+        if insertion.hasSelection():
+            insertion.removeSelectedText()
+
+        if len(blocks) == 1 and blocks[0].kind == PARAGRAPH:
+            heading_level = _heading_level(insertion.block())
+            _insert_runs(insertion, blocks[0].runs, heading_level=heading_level)
+            return insertion
+
+        original_block_format = QTextBlockFormat(insertion.blockFormat())
+        original_char_format = QTextCharFormat(insertion.blockCharFormat())
+        original_list = insertion.currentList()
+        block = insertion.block()
+        has_prefix = insertion.position() > block.position()
+        has_suffix = insertion.position() < block.position() + block.length() - 1
+
+        if has_prefix:
+            _insert_new_block(insertion, original_block_format, original_char_format)
+        elif original_list is not None:
+            original_list.remove(insertion.block())
+
+        _write_blocks(insertion, blocks, first=True)
+
+        if has_suffix:
+            _insert_new_block(insertion, original_block_format, original_char_format)
+            if original_list is not None:
+                original_list.add(insertion.block())
+    finally:
+        insertion.endEditBlock()
+    return insertion
 
 
 def extract_blocks(document: QTextDocument) -> list[Block]:
@@ -229,7 +269,9 @@ def refresh_block_visuals(block: QTextBlock) -> None:
     cursor.mergeCharFormat(visual_format)
 
 
-def _validate_blocks(blocks: Iterable[Block]) -> None:
+def validate_blocks(blocks: Iterable[Block]) -> None:
+    """Reject any model content that the Qt adapter cannot preserve."""
+
     for block in blocks:
         if block.kind in SUPPORTED_LEAF_KINDS:
             if block.children:
@@ -292,14 +334,11 @@ def _populate_leaf_block(cursor: QTextCursor, block: Block, first: bool) -> bool
         InlineRun(), heading_level=block.level if block.kind == HEADING else None
     )
     _begin_block(cursor, block_format, default_char_format, first)
-    for run in block.runs:
-        cursor.insertText(
-            run.text,
-            make_char_format(
-                run,
-                heading_level=block.level if block.kind == HEADING else None,
-            ),
-        )
+    _insert_runs(
+        cursor,
+        block.runs,
+        heading_level=block.level if block.kind == HEADING else None,
+    )
     return False
 
 
@@ -323,9 +362,29 @@ def _populate_list(cursor: QTextCursor, block: Block, first: bool) -> bool:
             qt_list = cursor.createList(list_format)
         else:
             qt_list.add(cursor.block())
-        for run in item.runs:
-            cursor.insertText(run.text, make_char_format(run))
+        _insert_runs(cursor, item.runs)
     return False
+
+
+def _write_blocks(cursor: QTextCursor, blocks: list[Block], *, first: bool) -> bool:
+    for block in blocks:
+        if block.kind in SUPPORTED_LEAF_KINDS:
+            first = _populate_leaf_block(cursor, block, first)
+        elif block.kind in SUPPORTED_LIST_KINDS:
+            first = _populate_list(cursor, block, first)
+        else:  # Kept as a defensive guard if validation evolves separately.
+            raise UnsupportedBlockError(f"Type de bloc Qt non pris en charge : {block.kind}")
+    return first
+
+
+def _insert_runs(
+    cursor: QTextCursor,
+    runs: Iterable[InlineRun],
+    *,
+    heading_level: int | None = None,
+) -> None:
+    for run in runs:
+        cursor.insertText(run.text, make_char_format(run, heading_level=heading_level))
 
 
 def _begin_block(
@@ -339,12 +398,30 @@ def _begin_block(
         cursor.setBlockCharFormat(char_format)
         return
 
-    cursor.movePosition(QTextCursor.MoveOperation.End)
+    _insert_new_block(cursor, block_format, char_format)
+
+
+def _insert_new_block(
+    cursor: QTextCursor,
+    block_format: QTextBlockFormat,
+    char_format: QTextCharFormat,
+) -> None:
     cursor.insertBlock(block_format, char_format)
     current_list = cursor.currentList()
     if current_list is not None:
         current_list.remove(cursor.block())
         cursor.setBlockFormat(block_format)
+
+
+def _heading_level(block: QTextBlock) -> int | None:
+    block_format = block.blockFormat()
+    if block_format.property(BLOCK_KIND_PROPERTY) != HEADING:
+        return None
+    return int(
+        block_format.property(HEADING_LEVEL_PROPERTY)
+        or block_format.headingLevel()
+        or 1
+    )
 
 
 def _make_block_format(kind: str, alignment: str, level: int | None) -> QTextBlockFormat:
