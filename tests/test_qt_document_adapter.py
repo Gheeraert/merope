@@ -43,6 +43,26 @@ def test_simple_paragraph_roundtrip():
     assert _round_trip(blocks) == blocks
 
 
+def test_empty_canonical_document_roundtrip():
+    document = QTextDocument()
+
+    populate_document(document, [])
+
+    assert document.blockCount() == 1
+    assert extract_blocks(document) == []
+
+
+def test_empty_markdown_complete_roundtrip():
+    document = QTextDocument()
+    blocks = markdown_to_blocks("")
+
+    populate_document(document, blocks)
+
+    assert blocks == []
+    assert extract_blocks(document) == []
+    assert blocks_to_markdown(extract_blocks(document)) == ""
+
+
 @pytest.mark.parametrize("level", [1, 2, 3, 4])
 def test_heading_levels_roundtrip(level: int):
     blocks = [Block(kind=HEADING, level=level, runs=[InlineRun(text=f"Titre H{level}")])]

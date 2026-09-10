@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QTextListFormat
+from PySide6.QtGui import QColor, QFont, QPalette, QTextCharFormat, QTextCursor, QTextListFormat
 from PySide6.QtWidgets import QTextEdit
 
 from bloggen.markdown.rich_text_model import (
@@ -26,7 +26,10 @@ from bloggen.ui.qt_editor.constants import (
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
 )
-from bloggen.ui.qt_editor.document_adapter import refresh_block_visuals
+from bloggen.ui.qt_editor.document_adapter import (
+    inline_format_enabled,
+    refresh_block_visuals,
+)
 
 
 def toggle_bold(editor: QTextEdit) -> None:
@@ -70,7 +73,7 @@ def set_link(editor: QTextEdit, href: str | None) -> None:
     if href is not None:
         char_format.setForeground(QColor("#1a5fb4"))
     else:
-        char_format.clearForeground()
+        char_format.setForeground(editor.palette().brush(QPalette.ColorRole.Text))
     cursor.beginEditBlock()
     cursor.mergeCharFormat(char_format)
     cursor.endEditBlock()
@@ -95,7 +98,23 @@ def set_list(editor: QTextEdit, kind: str) -> None:
     if kind not in {BULLET_LIST, ORDERED_LIST}:
         raise ValueError(f"Type de liste non pris en charge : {kind}")
     cursor = editor.textCursor()
+    blocks = _selected_blocks(editor.document(), cursor)
     cursor.beginEditBlock()
+    for block in blocks:
+        text_list = block.textList()
+        if text_list is not None:
+            text_list.remove(block)
+        block_cursor = QTextCursor(block)
+        block_format = block.blockFormat()
+        _clear_heading_state(block_format)
+        block_format.setLeftMargin(0.0)
+        block_format.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        block_format.setProperty(ALIGNMENT_PROPERTY, "left")
+        block_format.setProperty(BLOCK_KIND_PROPERTY, LIST_ITEM)
+        block_format.setProperty(LIST_KIND_PROPERTY, kind)
+        block_cursor.setBlockFormat(block_format)
+        refresh_block_visuals(block)
+
     list_format = QTextListFormat()
     list_format.setIndent(1)
     list_format.setStyle(
@@ -105,7 +124,7 @@ def set_list(editor: QTextEdit, kind: str) -> None:
     )
     list_format.setProperty(LIST_KIND_PROPERTY, kind)
     cursor.createList(list_format)
-    for block in _selected_blocks(editor.document(), cursor):
+    for block in blocks:
         block_cursor = QTextCursor(block)
         block_format = block.blockFormat()
         block_format.setProperty(BLOCK_KIND_PROPERTY, LIST_ITEM)
@@ -143,8 +162,7 @@ def _toggle_inline(
     apply_visual: Callable[[QTextCharFormat, bool], None],
 ) -> None:
     cursor = editor.textCursor()
-    current_format = cursor.charFormat()
-    enabled = not bool(current_format.property(property_id))
+    enabled = not _selection_all_has_format(cursor, property_id)
     char_format = QTextCharFormat()
     char_format.setProperty(property_id, enabled)
     apply_visual(char_format, enabled)
@@ -170,12 +188,39 @@ def _set_leaf_block_kind(editor: QTextEdit, kind: str, level: int | None = None)
             block_format.setProperty(HEADING_LEVEL_PROPERTY, level)
             block_format.setHeadingLevel(level)
         else:
-            block_format.clearProperty(HEADING_LEVEL_PROPERTY)
-            block_format.setHeadingLevel(0)
+            _clear_heading_state(block_format)
         block_format.setLeftMargin(24.0 if kind == BLOCKQUOTE else 0.0)
         block_cursor.setBlockFormat(block_format)
         refresh_block_visuals(block)
     cursor.endEditBlock()
+
+
+def _clear_heading_state(block_format) -> None:
+    block_format.clearProperty(HEADING_LEVEL_PROPERTY)
+    block_format.setHeadingLevel(0)
+
+
+def _selection_all_has_format(cursor: QTextCursor, property_id: int) -> bool:
+    if not cursor.hasSelection():
+        return inline_format_enabled(cursor.charFormat(), property_id)
+
+    selection_start = cursor.selectionStart()
+    selection_end = cursor.selectionEnd()
+    block = cursor.document().findBlock(selection_start)
+    found_text = False
+    while block.isValid() and block.position() < selection_end:
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            fragment_start = fragment.position()
+            fragment_end = fragment_start + fragment.length()
+            if fragment_end > selection_start and fragment_start < selection_end:
+                found_text = True
+                if not inline_format_enabled(fragment.charFormat(), property_id):
+                    return False
+            iterator += 1
+        block = block.next()
+    return found_text
 
 
 def _selected_blocks(document, cursor: QTextCursor):

@@ -33,6 +33,8 @@ _ESCAPE_CAPTION_RE = re.compile(r"([\\\[\]^])")
 def blocks_to_markdown(blocks: list[Block]) -> str:
     parts = [_block_to_md(block) for block in blocks]
     text = "\n\n".join(part for part in parts if part)
+    if not text:
+        return ""
     return text.rstrip("\n") + "\n"
 
 

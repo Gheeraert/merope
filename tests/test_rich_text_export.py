@@ -195,3 +195,7 @@ def test_multiple_blocks_separated_by_blank_line():
         Block(kind=PARAGRAPH, runs=[InlineRun(text="Corps.")]),
     ]
     assert blocks_to_markdown(blocks) == "# Titre\n\nCorps.\n"
+
+
+def test_empty_block_list_exports_to_empty_markdown():
+    assert blocks_to_markdown([]) == ""

@@ -99,6 +99,17 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
             "Les cadres et tableaux QTextDocument ne sont pas encore pris en charge"
         )
 
+    first_block = document.begin()
+    if (
+        document.blockCount() == 1
+        and first_block.isValid()
+        and first_block.textList() is None
+        and not _block_has_content(first_block)
+        and not first_block.blockFormat().property(BLOCK_KIND_PROPERTY)
+        and first_block.blockFormat().headingLevel() == 0
+    ):
+        return []
+
     result: list[Block] = []
     block = document.begin()
     while block.isValid():
@@ -112,7 +123,9 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
                 if current_list is None or current_list.objectIndex() != list_object_index:
                     break
                 if _list_kind(block) != list_kind:
-                    raise UnsupportedBlockError("Une meme liste Qt melange plusieurs types de listes")
+                    raise UnsupportedBlockError(
+                        "Une meme liste Qt melange plusieurs types de listes"
+                    )
                 stored_kind = block.blockFormat().property(BLOCK_KIND_PROPERTY)
                 if stored_kind not in (None, "", LIST_ITEM):
                     raise UnsupportedBlockError(
@@ -151,6 +164,18 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
         )
         block = block.next()
     return result
+
+
+def _block_has_content(block: QTextBlock) -> bool:
+    iterator = block.begin()
+    while not iterator.atEnd():
+        fragment = iterator.fragment()
+        if fragment.isValid() and (
+            fragment.length() > 0 or fragment.charFormat().isImageFormat()
+        ):
+            return True
+        iterator += 1
+    return False
 
 
 def make_char_format(run: InlineRun, *, heading_level: int | None = None) -> QTextCharFormat:
@@ -200,6 +225,7 @@ def refresh_block_visuals(block: QTextBlock) -> None:
     )
     visual_format = QTextCharFormat()
     visual_format.setFontPointSize(HEADING_POINT_SIZES.get(level, BODY_POINT_SIZE))
+    cursor.mergeBlockCharFormat(visual_format)
     cursor.mergeCharFormat(visual_format)
 
 
@@ -246,9 +272,13 @@ def _validate_runs(runs: Iterable[InlineRun]) -> None:
             value is not None
             for value in (run.image_alt, run.image_width, run.image_height, run.image_align)
         ):
-            raise UnsupportedInlineError("Les images ne sont pas encore prises en charge par Qt")
+            raise UnsupportedInlineError(
+                "Les images ne sont pas encore prises en charge par Qt"
+            )
         if run.footnote_ref is not None:
-            raise UnsupportedInlineError("Les appels de note ne sont pas encore pris en charge par Qt")
+            raise UnsupportedInlineError(
+                "Les appels de note ne sont pas encore pris en charge par Qt"
+            )
 
 
 def _validate_alignment(alignment: str) -> None:
@@ -343,25 +373,12 @@ def _extract_runs(block: QTextBlock) -> list[InlineRun]:
                 )
             run = InlineRun(
                 text=fragment.text(),
-                bold=_semantic_or_native(
-                    char_format,
-                    BOLD_PROPERTY,
-                    char_format.fontWeight() >= QFont.Weight.Bold.value,
+                bold=inline_format_enabled(char_format, BOLD_PROPERTY),
+                italic=inline_format_enabled(char_format, ITALIC_PROPERTY),
+                strikethrough=inline_format_enabled(
+                    char_format, STRIKETHROUGH_PROPERTY
                 ),
-                italic=_semantic_or_native(
-                    char_format, ITALIC_PROPERTY, char_format.fontItalic()
-                ),
-                strikethrough=_semantic_or_native(
-                    char_format,
-                    STRIKETHROUGH_PROPERTY,
-                    char_format.fontStrikeOut(),
-                ),
-                superscript=_semantic_or_native(
-                    char_format,
-                    SUPERSCRIPT_PROPERTY,
-                    char_format.verticalAlignment()
-                    == QTextCharFormat.VerticalAlignment.AlignSuperScript,
-                ),
+                superscript=inline_format_enabled(char_format, SUPERSCRIPT_PROPERTY),
                 link_href=char_format.anchorHref() if char_format.isAnchor() else None,
             )
             _append_semantic_run(runs, run)
@@ -392,14 +409,23 @@ def _same_inline_format(left: InlineRun, right: InlineRun) -> bool:
     )
 
 
-def _semantic_or_native(
-    char_format: QTextCharFormat,
-    property_id: int,
-    native_value: bool,
-) -> bool:
+def inline_format_enabled(char_format: QTextCharFormat, property_id: int) -> bool:
+    """Return a semantic inline state, falling back to native Qt formatting."""
+
     if char_format.hasProperty(property_id):
         return bool(char_format.property(property_id))
-    return native_value
+    if property_id == BOLD_PROPERTY:
+        return char_format.fontWeight() >= QFont.Weight.Bold.value
+    if property_id == ITALIC_PROPERTY:
+        return char_format.fontItalic()
+    if property_id == STRIKETHROUGH_PROPERTY:
+        return char_format.fontStrikeOut()
+    if property_id == SUPERSCRIPT_PROPERTY:
+        return (
+            char_format.verticalAlignment()
+            == QTextCharFormat.VerticalAlignment.AlignSuperScript
+        )
+    raise ValueError(f"Propriete inline Merope inconnue : {property_id}")
 
 
 def _list_kind(block: QTextBlock) -> str:
