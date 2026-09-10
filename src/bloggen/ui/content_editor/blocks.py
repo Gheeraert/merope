@@ -238,7 +238,10 @@ class BlocksMixin:
                     self.text.insert("end", "\n")
                 start = self.text.index("end-1c")
                 self.text.insert("end", self._list_marker_text(tag, i + 1))
-                self.text.tag_add("list_marker", start, self.text.index("end-1c"))
+                marker_end = self.text.index("end-1c")
+                self.text.tag_add("list_marker", start, marker_end)
+                if tag == "bullet_item":
+                    self.text.tag_add("bullet_marker", start, marker_end)
                 self._insert_runs(item.runs)
                 self.text.tag_add(tag, start, self.text.index("end-1c"))
         elif block.kind == TABLE:

@@ -144,7 +144,10 @@ class PasteMixin:
                     self.text.insert("insert", "\n")
                 start = self.text.index("insert")
                 self.text.insert("insert", self._list_marker_text(tag, i + 1))
-                self.text.tag_add("list_marker", start, self.text.index("insert"))
+                marker_end = self.text.index("insert")
+                self.text.tag_add("list_marker", start, marker_end)
+                if tag == "bullet_item":
+                    self.text.tag_add("bullet_marker", start, marker_end)
                 self._insert_runs_at_cursor(item.runs)
                 self.text.tag_add(tag, start, self.text.index("insert"))
 

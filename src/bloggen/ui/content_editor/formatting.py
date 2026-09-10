@@ -224,6 +224,8 @@ class FormattingMixin:
         self.text.insert(line_start, marker_text)
         marker_end = self.text.index(f"{line_start}+{len(marker_text)}c")
         self.text.tag_add("list_marker", line_start, marker_end)
+        if marker_text.startswith("•"):
+            self.text.tag_add("bullet_marker", line_start, marker_end)
 
     def _strip_list_marker(self, line: int) -> None:
         line_start, line_end = f"{line}.0", f"{line}.end"
