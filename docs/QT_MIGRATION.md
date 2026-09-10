@@ -1,4 +1,4 @@
-# Préparation de la migration de l’éditeur vers Qt
+# Migration de l’éditeur de contenu vers Qt
 
 ## Architecture cible
 
@@ -12,48 +12,62 @@ adaptateur GUI
    └── adaptateur Qt
 ```
 
-`Block` et `InlineRun` restent le pivot canonique de l’éditeur. Le pipeline
-de publication reste inchangé : Markdown → Pandoc → TEI Commons Publishing
-→ XSLT → HTML.
+`Block` et `InlineRun` restent le pivot canonique de l’éditeur. Qt n’est ni
+un parseur ni un sérialiseur Markdown pour Mérope. Le pipeline de publication
+reste inchangé : Markdown → Pandoc → TEI Commons Publishing → XSLT → HTML.
 
-## Ce qui est désormais indépendant de la GUI
+## Fonctionne maintenant
 
-- `content/image_service.py` : chemins relatifs des images, copie avec
-  gestion des collisions, lecture et sauvegarde d’une image du
-  presse-papiers via Pillow, calcul de la taille d’affichage, chargement de
-  secours et création des copies recadrées ;
-- `content/versioning.py` : inventaire et numérotation des archives
-  `.versions`, archivage, calcul explicite des versions à purger, suppression
-  après décision de l’appelant et conversion fichier page ↔ billet ;
-- `content/footnotes.py` : allocation et suppression des définitions de
-  notes, ordre documentaire des références et calcul du plan de
-  renumérotation, y compris les notes orphelines ;
-- les noyaux déjà portables restent inchangés : modèle `Block`/`InlineRun`,
-  import/export Markdown, import HTML riche, typographie, raccourci
-  `((note))`, attributs d’image, alignement et récupération après incident.
+- les services sans GUI extraits lors de la première phase : images,
+  versionnement et sémantique des notes ;
+- un prototype autonome lancé par `python -m bloggen.ui.qt_editor`, avec un
+  chemin Markdown facultatif en argument et sans commande d’enregistrement ;
+- l’adaptateur explicite `Block`/`InlineRun ↔ QTextDocument` pour les
+  paragraphes, titres H1 à H4, citations, listes simples à puces ou numérotées
+  et alignements ;
+- les formats inline gras, italique, barré, exposant et lien, y compris leurs
+  combinaisons ;
+- la préservation exacte des espaces insécables U+00A0 par parcours des
+  `QTextBlock` et `QTextFragment`, sans `QTextDocument.toPlainText()` ;
+- les listes, ancres, alignements, curseurs et piles undo/redo natifs de Qt ;
+- des propriétés Mérope centralisées fondées sur `QTextFormat.UserProperty`
+  pour lever les ambiguïtés sémantiques ;
+- une erreur explicite avant toute modification du document pour les blocs ou
+  feuilles inline que ce prototype ne sait pas conserver.
 
-## Ce qui reste dépendant de Tkinter
+Le round-trip expérimenté est exclusivement :
 
-- construction et parcours du widget `Text` ;
-- tags de caractères et de blocs, index et marques Tk ;
-- undo/redo compensatoire et tags de polices combinées ;
-- commandes et état visuel de mise en forme ;
-- affichage interactif des images, poignées et dialogue de recadrage ;
-- panneau, champs, focus et marqueurs cliquables des notes ;
-- dialogues, boîtes de messages et sélecteurs de fichiers ;
-- bindings clavier/souris et accès au presse-papiers de l’adaptateur ;
-- timers d’autosauvegarde et d’aperçu, ainsi que la fenêtre d’aperçu.
+```text
+Markdown → rich_text_import → Block / InlineRun
+         → QTextDocument
+         → Block / InlineRun → rich_text_export → Markdown
+```
 
-`autosave.py`, `preview.py`, `dialogs.py`, `paste.py`, `typography.py` et
-`formatting.py` ont été examinés. Leur logique réutilisable est déjà dans
-des modules sans GUI, ou leur extraction demanderait de modifier le contrat
-de l’éditeur. Ils restent donc volontairement inchangés hors branchement aux
-nouveaux services.
+Les fonctions Qt `toMarkdown`, `setMarkdown`, `toHtml` et `setHtml` ne font
+pas partie de ce chemin.
 
-## Étape suivante recommandée
+## À faire dans le prochain lot
 
-Créer un éditeur Qt autonome minimal, lancé dans un processus séparé, qui ne
-gère d’abord que la conversion `Block`/`InlineRun ↔ QTextDocument`. Le garder
-en parallèle de l’éditeur Tkinter jusqu’à ce que les tests de round-trip
-Markdown et les cas de non-régression soient équivalents. PySide6 ne doit
-être introduit qu’à cette étape.
+- valider davantage les commandes de bloc sur des sélections couvrant
+  plusieurs paragraphes et listes ;
+- définir le contrat d’ouverture du prototype depuis Tkinter et le cycle de
+  vie du processus, sans encore fusionner les deux boucles d’événements ;
+- choisir un format d’échange explicite pour transmettre le modèle canonique
+  et signaler les contenus encore non pris en charge ;
+- conserver l’éditeur Tkinter comme solution principale tant que la couverture
+  fonctionnelle Qt n’est pas équivalente.
+
+## Volontairement différé
+
+- images interactives, redimensionnement, recadrage et légendes ;
+- notes de bas de page et raccourci `((note))` dans l’interface Qt ;
+- collage riche Word / Google Docs et presse-papiers personnalisé ;
+- tableaux WYSIWYG et blocs `verbatim` ;
+- autosauvegarde, récupération après incident et versions `.versions` ;
+- aperçu HTML par le pipeline réel, gestion complète des fichiers et
+  métadonnées éditables ;
+- IPC et lancement de Qt depuis l’interface Tkinter.
+
+Restent également liés à l’ancien adaptateur Tkinter : construction du widget
+`Text`, tags et marques, undo compensatoire, formatage GUI, affichage des
+images, panneaux de notes, dialogues et bindings.
