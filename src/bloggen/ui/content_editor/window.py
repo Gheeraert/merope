@@ -367,7 +367,7 @@ class ContentEditorWindow(
                 "Espace insécable : insère une espace insécable au curseur (empêche la "
                 "coupure entre deux mots, ex. avant « : » ou dans « 10 km »). Déjà posée "
                 "automatiquement par la typographie française avant ; : ! ? et dans les "
-                "guillemets. Raccourci : Alt+Espace.",
+                "guillemets. Raccourci : Ctrl+Espace (ou Alt+Espace).",
             ),
             (None, toolbar_icons.icon_link(), self._insert_link, "Lien : transforme la sélection en lien hypertexte."),
             (None, toolbar_icons.icon_image(), self._insert_image, "Image : insère une image depuis un fichier existant."),
@@ -491,8 +491,8 @@ class ContentEditorWindow(
             self.text,
             "Ctrl+molette : agrandit/réduit le texte et les notes. "
             "Raccourcis : Ctrl+B (gras), Ctrl+I (italique), Ctrl+Maj+S (barré), "
-            "Ctrl+Maj+= (exposant), Alt+Espace (espace insécable), "
-            "Alt+J (bascule gauche/justifié).",
+            "Ctrl+Maj+= (exposant), Ctrl+Espace (espace insécable), "
+            "Ctrl+Maj+V (coller en texte brut), Alt+J (bascule gauche/justifié).",
         )
         self._configure_tags()
         self._init_zoom()
@@ -509,6 +509,7 @@ class ContentEditorWindow(
         self.text.bind("<Control-Shift-S>", self._shortcut_strike)
         self.text.bind("<Control-plus>", self._shortcut_superscript)
         self.text.bind("<Alt-space>", self._shortcut_nbsp)
+        self.text.bind("<Control-space>", self._shortcut_nbsp)
         self.text.bind("<Alt-j>", self._shortcut_toggle_justify)
         self.text.bind("<Control-f>", self._shortcut_find)
         self.text.bind("<Control-h>", self._shortcut_replace)
