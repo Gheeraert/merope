@@ -3,11 +3,20 @@ creating/saving documents (including .versions archiving)."""
 
 from __future__ import annotations
 
-import re
 from datetime import date
 from pathlib import Path
 from tkinter import messagebox, filedialog, simpledialog
 from bloggen.content.metadata import is_valid_iso_date
+from bloggen.content.versioning import (
+    MAX_VERSIONS_PER_DOCUMENT,
+    VERSION_PURGE_PROMPT_INTERVAL,
+    VERSIONS_DIRNAME,
+    archive_previous_version,
+    convert_content_file,
+    list_versions,
+    purge_versions,
+    versions_to_purge,
+)
 from bloggen.content.writer import (
     default_filename,
     read_content_file,
@@ -22,16 +31,15 @@ from .dialogs import ContentMetadataDialog
 
 # Name of the sibling folder (next to the .md file itself) where each save
 # archives the previous on-disk version before overwriting it.
-_VERSIONS_DIRNAME = ".versions"
-_VERSION_FILENAME_RE_TEMPLATE = r"^{stem}\.v(\d+){suffix}$"
+_VERSIONS_DIRNAME = VERSIONS_DIRNAME
 # .versions/ grows by one file per save, for the life of a document —
 # every _VERSION_PURGE_PROMPT_INTERVAL saves, the user is offered the
 # choice to prune the oldest ones down to _MAX_VERSIONS_PER_DOCUMENT.
 # Never automatic: a user who wants every single version kept forever
 # can simply decline every time, indefinitely — this only ever deletes
 # on an explicit "yes".
-_MAX_VERSIONS_PER_DOCUMENT = 20
-_VERSION_PURGE_PROMPT_INTERVAL = 50
+_MAX_VERSIONS_PER_DOCUMENT = MAX_VERSIONS_PER_DOCUMENT
+_VERSION_PURGE_PROMPT_INTERVAL = VERSION_PURGE_PROMPT_INTERVAL
 
 
 class FileOpsMixin:
@@ -171,23 +179,21 @@ class FileOpsMixin:
         ):
             return
 
-        metadata = dict(metadata)
-        metadata["type"] = new_kind
-        if new_kind == "post":
-            metadata["date"] = date_value
-        else:
-            metadata.pop("date", None)
-
         target_dir = self.posts_dir if new_kind == "post" else self.pages_dir
-        filename = default_filename(new_kind, metadata.get("slug", "").strip(), date=metadata.get("date"))
-
         try:
-            written = write_content_file(target_dir, filename, metadata, body)
-            if written != path:
-                path.unlink(missing_ok=True)
+            conversion = convert_content_file(
+                path,
+                new_kind=new_kind,
+                target_dir=target_dir,
+                date_value=date_value,
+                metadata=metadata,
+                body=body,
+            )
         except OSError as exc:
             messagebox.showerror("Convertir", f"Impossible d'écrire le fichier :\n{exc}")
             return
+        written = conversion.path
+        metadata = conversion.metadata
 
         if self.current_path == path:
             self.current_path = written
@@ -258,16 +264,7 @@ class FileOpsMixin:
     def _existing_versions(self, versions_dir: Path, path: Path) -> list[tuple[int, Path]]:
         """(version number, path) for every archived version of ``path``
         found in ``versions_dir``, sorted oldest first."""
-        pattern = re.compile(
-            _VERSION_FILENAME_RE_TEMPLATE.format(stem=re.escape(path.stem), suffix=re.escape(path.suffix))
-        )
-        numbered: list[tuple[int, Path]] = []
-        for existing in versions_dir.glob(f"{path.stem}.v*{path.suffix}"):
-            match = pattern.match(existing.name)
-            if match:
-                numbered.append((int(match.group(1)), existing))
-        numbered.sort(key=lambda item: item[0])
-        return numbered
+        return list_versions(path, versions_dir)
 
     def _archive_previous_version(self, path: Path) -> None:
         """Before a save overwrites ``path``, copy its current on-disk
@@ -281,27 +278,23 @@ class FileOpsMixin:
         ``_MAX_VERSIONS_PER_DOCUMENT`` — never automatic, so a user who
         wants every version kept forever can simply decline each time.
         """
-        if not path.exists():
-            return
-        versions_dir = path.parent / _VERSIONS_DIRNAME
-        versions_dir.mkdir(exist_ok=True)
-        existing_versions = self._existing_versions(versions_dir, path)
-        next_number = (existing_versions[-1][0] + 1) if existing_versions else 1
-        version_path = versions_dir / f"{path.stem}.v{next_number}{path.suffix}"
-        version_path.write_bytes(path.read_bytes())
-
-        existing_versions.append((next_number, version_path))
-        if len(existing_versions) % _VERSION_PURGE_PROMPT_INTERVAL == 0:
-            self._offer_version_purge(path, existing_versions)
+        result = archive_previous_version(
+            path,
+            prompt_interval=_VERSION_PURGE_PROMPT_INTERVAL,
+        )
+        if result.should_offer_purge:
+            self._offer_version_purge(path, list(result.versions))
 
     def _offer_version_purge(self, path: Path, existing_versions: list[tuple[int, Path]]) -> None:
         """Ask the user whether to prune the oldest archived versions of
         ``path`` down to ``_MAX_VERSIONS_PER_DOCUMENT``. Declining leaves
         every version on disk untouched."""
-        overflow = len(existing_versions) - _MAX_VERSIONS_PER_DOCUMENT
-        if overflow <= 0:
+        to_delete = versions_to_purge(
+            existing_versions,
+            keep=_MAX_VERSIONS_PER_DOCUMENT,
+        )
+        if not to_delete:
             return
-        to_delete = existing_versions[:overflow]
         if not messagebox.askyesno(
             "Versions archivées",
             f"{path.name} compte désormais {len(existing_versions)} versions archivées.\n\n"
@@ -310,8 +303,7 @@ class FileOpsMixin:
             "Vous pouvez refuser pour conserver l'ensemble des versions archivées.",
         ):
             return
-        for _, old_path in to_delete:
-            old_path.unlink(missing_ok=True)
+        purge_versions(to_delete)
 
     def _save(self) -> None:
         if not self.metadata.get("title") or not self.metadata.get("slug"):
