@@ -132,10 +132,16 @@ def replace_merope_image(
     document: QTextDocument,
     target: ImageTarget,
     run: InlineRun,
+    *,
+    allow_source_change: bool = False,
 ) -> QTextCursor:
-    """Replace exactly one image with a fresh canonical format in one undo."""
+    """Replace exactly one image with a fresh canonical format in one undo.
 
-    if run.image_src != target.run.image_src:
+    Metadata editing remains protected against accidental source changes.
+    The dedicated file-replacement workflow must opt in explicitly.
+    """
+
+    if not allow_source_change and run.image_src != target.run.image_src:
         raise UnsupportedInlineError("Le src d'une image ne peut pas etre modifie ici")
     current = merope_image_at_position(document, target.start)
     if current != target:

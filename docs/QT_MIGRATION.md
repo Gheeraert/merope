@@ -283,6 +283,37 @@ Un clic sans déplacement effectif ne modifie ni le document, ni son état dirty
 ni sa pile undo. Le resize ne modifie jamais le fichier bitmap ; undo/redo ne
 porte que sur les métadonnées documentaires.
 
+Le remplacement contrôlé du fichier source suit le même ciblage sémantique :
+
+```text
+ImageTarget
+  → choix d’un nouveau fichier
+  → copy_into_images_dir
+  → nouvel image_src
+  → make_image_format
+  → QTextImageFormat
+```
+
+L’action « Remplacer l’image... » n’est active que pour une image Mérope ciblée
+sans ambiguïté. Elle exige un fichier Markdown réellement ouvert et le
+répertoire `images_dir` du projet. Le fichier choisi doit être lisible par Qt ;
+il est ensuite copié sans collision et son chemin reste relatif au dossier du
+Markdown grâce au service partagé avec Tkinter. Aucun chemin absolu n’entre
+dans `InlineRun`.
+
+Seul `image_src` change. La légende historique `image_alt`, la largeur, la
+hauteur et l’alignement restent strictement identiques : le ratio naturel du
+nouveau bitmap ne provoque aucun recalcul documentaire. Un remplacement peut
+donc réparer une référence manquante, et le resize reste disponible ensuite si
+l’utilisateur souhaite adapter explicitement les dimensions.
+
+Le changement de source est une autorisation explicite de
+`replace_merope_image`; le chemin ordinaire du dialogue « Image... » continue
+de refuser toute modification accidentelle de `src`. Undo/redo porte sur la
+référence du document seulement. Comme pour l’insertion, la nouvelle copie
+physique reste sur disque après undo. Un choix annulé ou une source aboutissant
+au même chemin relatif reste un no-op sans dirty state ni entrée undo.
+
 Les images venant du collage HTML (`img`, `v:imagedata`, `v:shape`) et les
 bitmaps seuls du presse-papiers restent refusés : leur extraction et leur
 copie transactionnelle feront l’objet d’un autre lot.
@@ -303,7 +334,9 @@ refusé n’est ni réécrit ni archivé.
 - vérifier manuellement les formats MIME réellement exposés par Word et Google
   Docs sous Windows ;
 - éprouver le redimensionnement sous les facteurs d’échelle d’écran réellement
-  utilisés sous Windows, avant d’ajouter une autre interaction image isolée ;
+  utilisés sous Windows ;
+- isoler ensuite le recadrage autour du service d’images partagé, sans le
+  confondre avec le remplacement de source désormais disponible ;
 - éprouver le lancement et le timeout sur les plateformes distribuées ainsi
   que le conditionnement de l’extra PySide6 ;
 - conserver Tkinter comme éditeur principal et fallback tant que la couverture
@@ -311,8 +344,7 @@ refusé n’est ni réécrit ni archivé.
 
 ## Volontairement différé
 
-- recadrage, remplacement de source, collage d’images et édition riche des
-  légendes ;
+- recadrage, collage d’images et édition riche des légendes ;
 - notes de bas de page et raccourci `((note))` dans l’interface Qt ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;

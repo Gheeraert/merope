@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QImageReader
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -172,6 +173,12 @@ class QtEditorWindow(QMainWindow):
             self._edit_targeted_image,
         )
         self.image_action.setEnabled(False)
+        self.replace_image_action = self._add_action(
+            toolbar,
+            "Remplacer l’image...",
+            self._replace_image_from_dialog,
+        )
+        self.replace_image_action.setEnabled(False)
         toolbar.addSeparator()
 
         block_group = QActionGroup(self)
@@ -285,6 +292,72 @@ class QtEditorWindow(QMainWindow):
         self.editor.setTextCursor(cursor)
         return run != target.run
 
+    def replace_targeted_image_file(self, source: Path) -> bool:
+        """Copy a new bitmap and change only one targeted image's source."""
+
+        if self.current_path is None:
+            raise ValueError("Ouvrez d’abord un fichier Mérope.")
+        if self.images_dir is None:
+            raise ValueError("Le répertoire d’images du projet n’est pas configuré.")
+        try:
+            target = targeted_merope_image(self.editor.textCursor())
+        except UnsupportedDocumentError:
+            return False
+        if target is None:
+            return False
+
+        source = Path(source)
+        reader = QImageReader(str(source))
+        if not reader.canRead():
+            raise ValueError("Le fichier choisi n’est pas une image lisible par Qt.")
+
+        src = copy_into_images_dir(source, self.images_dir, self.current_path.parent)
+        run = replace(target.run, image_src=src)
+        cursor = replace_merope_image(
+            self.editor.document(),
+            target,
+            run,
+            allow_source_change=True,
+        )
+        self.editor.setTextCursor(cursor)
+        return run != target.run
+
+    def _replace_image_from_dialog(self) -> bool:
+        try:
+            target = targeted_merope_image(self.editor.textCursor())
+        except UnsupportedDocumentError:
+            return False
+        if target is None:
+            return False
+        if self.current_path is None:
+            QMessageBox.warning(
+                self,
+                "Remplacer l’image",
+                "Ouvrez d’abord un fichier Mérope afin de calculer le chemin de l’image.",
+            )
+            return False
+        if self.images_dir is None:
+            QMessageBox.warning(
+                self,
+                "Remplacer l’image",
+                "Le répertoire d’images du projet n’est pas configuré.",
+            )
+            return False
+
+        source, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Choisir la nouvelle image",
+            str(self.current_path.parent),
+            "Images (*.jpg *.jpeg *.png *.gif *.webp);;Tous les fichiers (*)",
+        )
+        if not source:
+            return False
+        try:
+            return self.replace_targeted_image_file(Path(source))
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Remplacement impossible", str(exc))
+            return False
+
     def _edit_targeted_image(self) -> bool:
         try:
             target = targeted_merope_image(self.editor.textCursor())
@@ -303,6 +376,7 @@ class QtEditorWindow(QMainWindow):
         except UnsupportedDocumentError:
             enabled = False
         self.image_action.setEnabled(enabled)
+        self.replace_image_action.setEnabled(enabled)
 
     def _show_paste_refused(self, message: str) -> None:
         QMessageBox.warning(
