@@ -21,6 +21,7 @@ from bloggen.ui.qt_editor.file_io import (
 )
 from bloggen.ui.qt_editor import window as qt_window_module
 from bloggen.ui.qt_editor.window import QtEditorWindow
+from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -45,6 +46,13 @@ def _supported_markdown() -> str:
         "[lien](https://example.org).\n\n"
         "> Une citation.\n"
     )
+
+
+def test_window_uses_merope_text_edit():
+    window = QtEditorWindow()
+
+    assert isinstance(window.editor, MeropeTextEdit)
+    window.close()
 
 
 def test_disk_open_edit_save_reopen_roundtrip(tmp_path):

@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
-    QTextEdit,
     QToolBar,
     QVBoxLayout,
 )
@@ -43,6 +42,7 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_strikethrough,
     toggle_superscript,
 )
+from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor_protocol import emit_event
 
 
@@ -62,8 +62,7 @@ class QtEditorWindow(QMainWindow):
         self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
         self.ipc = ipc
         self.resize(920, 700)
-        self.editor = QTextEdit(self)
-        self.editor.setAcceptRichText(False)
+        self.editor = MeropeTextEdit(self)
         self.setCentralWidget(self.editor)
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
@@ -180,6 +179,11 @@ class QtEditorWindow(QMainWindow):
         toolbar.addSeparator()
         self._add_action(toolbar, "Annuler", self.editor.undo, "Ctrl+Z")
         self._add_action(toolbar, "Retablir", self.editor.redo, "Ctrl+Shift+Z")
+        self._add_action(
+            toolbar,
+            "Typographie",
+            self.editor.apply_typography_to_selection,
+        )
         self._add_action(toolbar, "Voir Markdown", self.show_reconstructed_markdown)
 
     def _prompt_for_link(self) -> None:

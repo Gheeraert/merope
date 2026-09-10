@@ -40,6 +40,12 @@ Il lit stdout et stderr dans des threads daemon, place les résultats dans une
 file, puis `MainWindow` les traite sur le thread Tk avec `after()`. Fermer
 Mérope ne tue jamais le processus Qt.
 
+Le démarrage possède un délai maximal centralisé de 10 secondes, mesuré avec
+`time.monotonic()`. Le polling `after()` contrôle ce délai sans bloquer Tk. Si
+un enfant vivant n’émet jamais `ready`, le launcher le termine (il ne possède
+encore aucun document éditable), libère l’instance expérimentale et propose le
+fallback Tkinter.
+
 En mode IPC, stdout est réservé à une ligne JSON UTF-8 par événement, flushée
 immédiatement. Le protocole version 1 autorise seulement `ready`, `opened`,
 `saved`, `open_refused`, `error` et `closed`, avec `path` ou `message` lorsque
@@ -55,6 +61,9 @@ mais Tk ne lui envoie aucune commande après le lancement.
 - un prototype autonome lancé par `python -m bloggen.ui.qt_editor`, avec un
   chemin Markdown facultatif en argument, ouverture et enregistrement du
   sous-ensemble documentaire validé ;
+- `MeropeTextEdit`, sous-classe de `QTextEdit` dédiée aux interactions de
+  Mérope, sans devenir un modèle documentaire ni remplacer l’adaptateur
+  `Block` / `InlineRun ↔ QTextDocument` ;
 - l’adaptateur explicite `Block`/`InlineRun ↔ QTextDocument` pour les
   paragraphes, titres H1 à H4, citations, listes simples à puces ou numérotées
   et alignements ;
@@ -86,6 +95,41 @@ mais Tk ne lui envoie aucune commande après le lancement.
 - une erreur explicite avant toute modification du document pour les blocs ou
   feuilles inline que ce prototype ne sait pas conserver.
 
+### Typographie française dans `MeropeTextEdit`
+
+Les règles restent définies dans le module pur `markdown/typography.py`. Les
+adaptateurs Tk et Qt réutilisent les mêmes constantes, expressions régulières
+et transformations pour les guillemets, la ponctuation, les numéros de page,
+les espaces avant le point, les ligatures `œ` et les ordinaux de siècles.
+
+À la frappe, Qt prend maintenant en charge :
+
+- les guillemets droits convertis en `«` / `»` et leurs espaces insécables
+  intérieures U+00A0, ainsi que la normalisation des guillemets français saisis
+  directement ;
+- un U+00A0 unique avant `; : ! ?`, qu’une espace ordinaire ait été saisie ou non ;
+- `p. 12` et `pp. 123` avec U+00A0, et la suppression des espaces avant `.` ;
+- les ligatures des mots reconnus par la règle commune (`oeuvre`, `soeur`, etc.) ;
+- les suffixes d’ordinaux de siècles comme un vrai format Mérope
+  `superscript=True`, jamais comme un caractère Unicode de remplacement.
+
+Le choix ouvrant/fermant d’un guillemet est calculé depuis le contenu situé
+avant le curseur. Il reste donc cohérent après un déplacement, un undo ou un
+redo, sans état de parité global susceptible de se désynchroniser. Une frappe
+de `"` sur une sélection l’entoure d’une paire de guillemets français sans
+aplatir ses formats.
+
+La commande « Typographie » travaille sur toute la sélection, y compris quand
+une paire de guillemets traverse plusieurs fragments formatés. Elle calcule le
+texte avec les fonctions pures, puis applique seulement les différences, de
+droite à gauche, en conservant les formats Qt des caractères inchangés.
+
+Les frappes nécessitant une correction sont insérées dans un bloc d’édition Qt
+explicite ; les changements typographiques sont rattachés avec
+`QTextCursor.joinPreviousEditBlock()`. La commande sur sélection utilise un
+seul `beginEditBlock()` / `endEditBlock()`. L’undo/redo reste exclusivement
+celui de Qt.
+
 Le round-trip expérimenté est exclusivement :
 
 ```text
@@ -110,10 +154,11 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
-- éprouver le lancement expérimental sur les plateformes distribuées et le
-  conditionnement de l’extra PySide6 ;
-- décider, à partir de besoins réels, si une commande bidirectionnelle de
-  fermeture propre ou de configuration d’aperçu devient nécessaire ;
+- porter isolément le collage riche Word / Google Docs en branchant
+  `insertFromMimeData()` sur les services HTML et `Block` / `InlineRun`
+  existants, avec refus explicite de toute structure encore non représentable ;
+- éprouver le lancement et le timeout sur les plateformes distribuées ainsi
+  que le conditionnement de l’extra PySide6 ;
 - conserver Tkinter comme éditeur principal et fallback tant que la couverture
   éditoriale Qt n’est pas équivalente.
 
