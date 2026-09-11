@@ -10,6 +10,34 @@ from bloggen.markdown.rich_text_model import FOOTNOTE_DEFINITION, Block, InlineR
 FootnoteDefinitions = dict[str, list[InlineRun]]
 
 
+def footnote_reference_order(blocks: list[Block]) -> list[str]:
+    """Return every semantic reference ID in document reading order."""
+
+    references: list[str] = []
+
+    def visit(block: Block) -> None:
+        references.extend(
+            run.footnote_ref
+            for run in block.runs
+            if run.footnote_ref is not None
+        )
+        for child in block.children:
+            visit(child)
+
+    for block in blocks:
+        visit(block)
+    return references
+
+
+def footnote_reference_counts(blocks: list[Block]) -> dict[str, int]:
+    """Count semantic references without inspecting their visible marker text."""
+
+    counts: dict[str, int] = {}
+    for note_id in footnote_reference_order(blocks):
+        counts[note_id] = counts.get(note_id, 0) + 1
+    return counts
+
+
 def separate_footnote_definitions(
     blocks: list[Block],
 ) -> tuple[list[Block], FootnoteDefinitions]:

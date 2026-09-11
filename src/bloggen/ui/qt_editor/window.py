@@ -3,26 +3,36 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QImageReader
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QImageReader, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDockWidget,
     QFileDialog,
+    QHBoxLayout,
     QInputDialog,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QToolBar,
     QVBoxLayout,
+    QWidget,
 )
 
-from bloggen.content.footnotes import FootnoteDefinitions, footnote_definition_blocks
+from bloggen.content.footnotes import (
+    FootnoteDefinitions,
+    footnote_definition_blocks,
+    footnote_reference_counts,
+    footnote_reference_order,
+    plan_footnote_renumbering,
+)
 from bloggen.content.image_service import copy_into_images_dir, write_cropped_copy
 from bloggen.content.versioning import purge_versions, versions_to_purge
 from bloggen.markdown.rich_text_export import blocks_to_markdown
@@ -36,8 +46,10 @@ from bloggen.markdown.rich_text_model import (
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
     extract_blocks,
+    insert_footnote_reference,
     insert_blocks,
     populate_document,
+    renumber_footnote_references,
 )
 from bloggen.ui.qt_editor.file_io import (
     load_content_document,
@@ -64,8 +76,22 @@ from bloggen.ui.qt_editor.image_selection import (
     targeted_merope_image,
 )
 from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
+from bloggen.ui.qt_editor.footnote_store import (
+    FootnoteStore,
+    FootnoteStoreSnapshot,
+    plain_footnote_text,
+)
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor_protocol import emit_event
+
+
+@dataclass(frozen=True, slots=True)
+class _RenumberSaveSnapshot:
+    body_blocks: list[Block]
+    store: FootnoteStoreSnapshot
+    body_modified: bool
+    cursor_position: int
+    cursor_anchor: int
 
 
 class QtEditorWindow(QMainWindow):
@@ -82,7 +108,7 @@ class QtEditorWindow(QMainWindow):
         super().__init__()
         self.current_path: Path | None = None
         self.metadata: dict[str, str] = {}
-        self.footnote_definitions: FootnoteDefinitions = {}
+        self.footnote_store = FootnoteStore(self)
         self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
         self.images_dir = Path(images_dir) if images_dir is not None else None
         self.ipc = ipc
@@ -95,6 +121,9 @@ class QtEditorWindow(QMainWindow):
         self.editor.document().setModified(False)
         self._create_toolbar()
         self._create_footnote_panel()
+        self.footnote_store.changed.connect(self._refresh_footnote_panel)
+        self.footnote_store.modifiedChanged.connect(self._update_window_title)
+        self.editor.footnoteActivated.connect(self.footnote_panel.select_note)
         self.editor.cursorPositionChanged.connect(self._update_image_action)
         self.editor.selectionChanged.connect(self._update_image_action)
         self.editor.document().modificationChanged.connect(self._update_window_title)
@@ -107,8 +136,7 @@ class QtEditorWindow(QMainWindow):
         loaded = load_content_document(path, self.editor.document())
         self.current_path = loaded.path
         self.metadata = loaded.metadata
-        self.footnote_definitions = loaded.footnote_definitions
-        self.footnote_panel.set_definitions(self.footnote_definitions)
+        self.footnote_store.load(loaded.footnote_definitions)
         self.save_action.setEnabled(True)
         self._update_window_title()
         self._update_image_action()
@@ -133,19 +161,27 @@ class QtEditorWindow(QMainWindow):
         if self.current_path is None:
             QMessageBox.warning(self, "Enregistrer", "Ouvrez d’abord un fichier Mérope.")
             return False
+        renumber_snapshot: _RenumberSaveSnapshot | None = None
         try:
+            renumber_snapshot = self._renumber_footnotes_for_save()
             result = save_content_document(
                 self.current_path,
                 self.metadata,
                 self.editor.document(),
-                self.footnote_definitions,
+                self.footnote_store.definitions,
             )
         except (OSError, ValueError) as exc:
+            if renumber_snapshot is not None:
+                self._restore_renumber_save_snapshot(renumber_snapshot)
             self._emit("error", message=f"Enregistrement impossible : {exc}")
             QMessageBox.critical(self, "Enregistrement impossible", str(exc))
             return False
 
         self.current_path = result.path
+        if renumber_snapshot is not None:
+            self.editor.document().clearUndoRedoStacks()
+            self.editor.document().setModified(False)
+        self.footnote_store.mark_clean()
         self._update_window_title()
         self._emit("saved", path=result.path)
         self._offer_version_purge(result.archive)
@@ -154,7 +190,7 @@ class QtEditorWindow(QMainWindow):
     def show_reconstructed_markdown(self) -> None:
         try:
             blocks = extract_blocks(self.editor.document()) + footnote_definition_blocks(
-                self.footnote_definitions
+                self.footnote_store.definitions
             )
             markdown = blocks_to_markdown(blocks)
         except UnsupportedDocumentError as exc:
@@ -184,6 +220,8 @@ class QtEditorWindow(QMainWindow):
         self._add_action(toolbar, "Barre", lambda: toggle_strikethrough(self.editor))
         self._add_action(toolbar, "Exposant", lambda: toggle_superscript(self.editor))
         self._add_action(toolbar, "Lien", self._prompt_for_link, "Ctrl+K")
+        self._add_action(toolbar, "Insérer une note...", self._insert_footnote_from_dialog)
+        self._add_action(toolbar, "Renuméroter les notes", self.save_document)
         self._add_action(toolbar, "Insérer une image...", self._insert_image_from_dialog)
         self.image_action = self._add_action(
             toolbar,
@@ -246,13 +284,155 @@ class QtEditorWindow(QMainWindow):
     def _create_footnote_panel(self) -> None:
         self.footnote_dock = QDockWidget("Notes", self)
         self.footnote_dock.setObjectName("meropeFootnoteDock")
-        self.footnote_panel = FootnotePanel(self.footnote_dock)
-        self.footnote_dock.setWidget(self.footnote_panel)
+        container = QWidget(self.footnote_dock)
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(4, 4, 4, 4)
+        self.footnote_panel = FootnotePanel(container)
+        layout.addWidget(self.footnote_panel)
+        buttons = QHBoxLayout()
+        self.edit_footnote_button = QPushButton("Modifier...", container)
+        self.delete_footnote_button = QPushButton("Supprimer...", container)
+        self.edit_footnote_button.clicked.connect(self._edit_selected_footnote)
+        self.delete_footnote_button.clicked.connect(self._delete_selected_footnote)
+        buttons.addWidget(self.edit_footnote_button)
+        buttons.addWidget(self.delete_footnote_button)
+        layout.addLayout(buttons)
+        self.footnote_panel.noteSelected.connect(self._update_footnote_actions)
+        self.footnote_dock.setWidget(container)
         self.addDockWidget(
             Qt.DockWidgetArea.RightDockWidgetArea,
             self.footnote_dock,
         )
-        self.footnote_panel.set_definitions(self.footnote_definitions)
+        self.footnote_panel.set_definitions(self.footnote_store.definitions)
+        self._update_footnote_actions()
+
+    @property
+    def footnote_definitions(self) -> FootnoteDefinitions:
+        """Compatibility view of the canonical session store."""
+
+        return self.footnote_store.definitions
+
+    @property
+    def document_has_unsaved_changes(self) -> bool:
+        return self.editor.document().isModified() or self.footnote_store.modified
+
+    def _refresh_footnote_panel(self) -> None:
+        self.footnote_panel.set_definitions(self.footnote_store.definitions)
+        self._update_footnote_actions()
+
+    def _update_footnote_actions(self, _note_id: str | None = None) -> None:
+        note_id = self.footnote_panel.selected_note_id
+        runs = self.footnote_store.definition(note_id) if note_id is not None else None
+        self.delete_footnote_button.setEnabled(runs is not None)
+        is_plain = runs is not None and plain_footnote_text(runs) is not None
+        self.edit_footnote_button.setEnabled(is_plain)
+        self.edit_footnote_button.setToolTip(
+            ""
+            if is_plain
+            else "Cette note contient une mise en forme riche non éditable dans cette phase."
+        )
+
+    def insert_footnote(self, text: str) -> str:
+        """Register a plain definition and insert its atomic body reference."""
+
+        if text == "":
+            raise ValueError("Le texte de la note ne peut pas être vide.")
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            raise ValueError(
+                "Désélectionnez le texte avant d’insérer un appel de note."
+            )
+        store_snapshot = self.footnote_store.snapshot()
+        note_id = self.footnote_store.register(text)
+        try:
+            cursor = insert_footnote_reference(cursor, note_id)
+        except Exception:
+            self.footnote_store.restore(store_snapshot)
+            raise
+        self.editor.setTextCursor(cursor)
+        self.footnote_panel.select_note(note_id)
+        return note_id
+
+    def _insert_footnote_from_dialog(self) -> bool:
+        text, accepted = QInputDialog.getText(
+            self,
+            "Note de bas de page",
+            "Texte de la note :",
+        )
+        if not accepted:
+            return False
+        try:
+            self.insert_footnote(text)
+        except (ValueError, UnsupportedDocumentError) as exc:
+            QMessageBox.warning(self, "Insertion impossible", str(exc))
+            return False
+        return True
+
+    def edit_footnote_definition(self, note_id: str, text: str) -> bool:
+        runs = self.footnote_store.definition(note_id)
+        if runs is None:
+            return False
+        if plain_footnote_text(runs) is None:
+            raise ValueError(
+                "Cette note contient une mise en forme riche ; son édition sera "
+                "disponible dans une phase suivante."
+            )
+        return self.footnote_store.update(note_id, [InlineRun(text=text)])
+
+    def _edit_selected_footnote(self) -> bool:
+        note_id = self.footnote_panel.selected_note_id
+        if note_id is None:
+            return False
+        runs = self.footnote_store.definition(note_id)
+        if runs is None:
+            return False
+        plain_text = plain_footnote_text(runs)
+        if plain_text is None:
+            QMessageBox.warning(
+                self,
+                "Modification impossible",
+                "Cette note contient une mise en forme riche ; son édition sera "
+                "disponible dans une phase suivante.",
+            )
+            return False
+        text, accepted = QInputDialog.getText(
+            self,
+            "Modifier la note",
+            "Texte de la note :",
+            QLineEdit.EchoMode.Normal,
+            plain_text,
+        )
+        return accepted and self.edit_footnote_definition(note_id, text)
+
+    def delete_footnote_definition(self, note_id: str) -> bool:
+        """Delete only the definition; body references deliberately remain."""
+
+        return self.footnote_store.remove(note_id)
+
+    def _delete_selected_footnote(self) -> bool:
+        note_id = self.footnote_panel.selected_note_id
+        if note_id is None or self.footnote_store.definition(note_id) is None:
+            return False
+        count = footnote_reference_counts(extract_blocks(self.editor.document())).get(
+            note_id, 0
+        )
+        if count:
+            message = (
+                f"La définition [{note_id}] possède {count} appel(s) dans le corps.\n\n"
+                "Supprimer seulement la définition et conserver ces appels ?"
+            )
+        else:
+            message = f"Supprimer la définition orpheline [{note_id}] ?"
+        answer = QMessageBox.question(
+            self,
+            "Supprimer la définition",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        return self.delete_footnote_definition(note_id)
 
     def _prompt_for_link(self) -> None:
         href, accepted = QInputDialog.getText(self, "Lien", "Adresse du lien :")
@@ -512,8 +692,53 @@ class QtEditorWindow(QMainWindow):
         if path:
             self.open_document(Path(path))
 
+    def _renumber_footnotes_for_save(self) -> _RenumberSaveSnapshot | None:
+        body_blocks = extract_blocks(self.editor.document())
+        renumbering = plan_footnote_renumbering(
+            self.footnote_store.definitions,
+            footnote_reference_order(body_blocks),
+        )
+        if not renumbering.changed:
+            return None
+
+        cursor = self.editor.textCursor()
+        snapshot = _RenumberSaveSnapshot(
+            body_blocks=body_blocks,
+            store=self.footnote_store.snapshot(),
+            body_modified=self.editor.document().isModified(),
+            cursor_position=cursor.position(),
+            cursor_anchor=cursor.anchor(),
+        )
+        try:
+            renumber_footnote_references(
+                self.editor.document(),
+                renumbering.mapping,
+            )
+            self.footnote_store.replace_all(renumbering.definitions)
+        except Exception:
+            self._restore_renumber_save_snapshot(snapshot)
+            raise
+        return snapshot
+
+    def _restore_renumber_save_snapshot(
+        self,
+        snapshot: _RenumberSaveSnapshot,
+    ) -> None:
+        populate_document(self.editor.document(), snapshot.body_blocks)
+        self.editor.document().setModified(snapshot.body_modified)
+        self.footnote_store.restore(snapshot.store)
+        document_end = max(0, self.editor.document().characterCount() - 1)
+        cursor = QTextCursor(self.editor.document())
+        cursor.setPosition(min(snapshot.cursor_anchor, document_end))
+        cursor.setPosition(
+            min(snapshot.cursor_position, document_end),
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+        self.editor.setTextCursor(cursor)
+        self._update_window_title()
+
     def _confirm_unsaved_changes(self) -> bool:
-        if not self.editor.document().isModified():
+        if not self.document_has_unsaved_changes:
             return True
         answer = QMessageBox.warning(
             self,
@@ -555,7 +780,7 @@ class QtEditorWindow(QMainWindow):
 
     def _update_window_title(self, _modified: bool | None = None) -> None:
         name = self.current_path.name if self.current_path else "sans fichier"
-        marker = " *" if self.editor.document().isModified() else ""
+        marker = " *" if self.document_has_unsaved_changes else ""
         self.setWindowTitle(f"Mérope - éditeur Qt - {name}{marker}")
 
     def closeEvent(self, event: QCloseEvent) -> None:

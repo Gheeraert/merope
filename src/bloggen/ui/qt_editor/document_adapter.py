@@ -140,6 +140,82 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
     return insertion
 
 
+def insert_footnote_reference(cursor: QTextCursor, note_id: str) -> QTextCursor:
+    """Insert one canonical atomic reference without inheriting text formats."""
+
+    run = InlineRun(footnote_ref=note_id)
+    _validate_footnote_run(run)
+    if cursor.hasSelection():
+        raise UnsupportedInlineError(
+            "Désélectionnez le texte avant d’insérer un appel de note"
+        )
+    insertion = QTextCursor(cursor)
+    insertion.beginEditBlock()
+    try:
+        insertion.insertText(
+            footnote_marker_text(note_id),
+            make_footnote_format(
+                run,
+                heading_level=_heading_level(insertion.block()),
+                instance_key=insertion.position(),
+            ),
+        )
+    finally:
+        insertion.endEditBlock()
+    return insertion
+
+
+def renumber_footnote_references(
+    document: QTextDocument,
+    mapping: dict[str, str],
+) -> bool:
+    """Rewrite all mapped references right-to-left in one native edit block."""
+
+    replacements: list[tuple[int, int, str, int | None]] = []
+    block = document.begin()
+    while block.isValid():
+        heading_level = _heading_level(block)
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            if fragment.isValid() and has_footnote_properties(fragment.charFormat()):
+                run = footnote_run_from_format(fragment.charFormat(), fragment.text())
+                new_id = mapping.get(run.footnote_ref, run.footnote_ref)
+                _validate_footnote_id(new_id)
+                if new_id != run.footnote_ref:
+                    replacements.append(
+                        (
+                            fragment.position(),
+                            fragment.position() + fragment.length(),
+                            new_id,
+                            heading_level,
+                        )
+                    )
+            iterator += 1
+        block = block.next()
+    if not replacements:
+        return False
+
+    edit_cursor = QTextCursor(document)
+    edit_cursor.beginEditBlock()
+    try:
+        for start, end, new_id, heading_level in reversed(replacements):
+            target = QTextCursor(document)
+            target.setPosition(start)
+            target.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            target.insertText(
+                footnote_marker_text(new_id),
+                make_footnote_format(
+                    InlineRun(footnote_ref=new_id),
+                    heading_level=heading_level,
+                    instance_key=start,
+                ),
+            )
+    finally:
+        edit_cursor.endEditBlock()
+    return True
+
+
 def extract_blocks(document: QTextDocument) -> list[Block]:
     """Build Merope blocks by traversing Qt blocks and text fragments.
 

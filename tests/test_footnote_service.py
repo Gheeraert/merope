@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from bloggen.content.footnotes import (
+    footnote_reference_counts,
+    footnote_reference_order,
     next_footnote_id,
     ordered_footnote_ids,
     plan_footnote_renumbering,
     register_footnote,
     remove_footnote,
 )
-from bloggen.markdown.rich_text_model import InlineRun
+from bloggen.markdown.rich_text_model import BULLET_LIST, LIST_ITEM, PARAGRAPH, Block, InlineRun
 
 
 def test_next_footnote_id_fills_first_numeric_gap():
@@ -80,3 +82,21 @@ def test_plan_renumbering_is_noop_when_ids_already_follow_reference_order():
     assert result.changed is False
     assert result.mapping == {"1": "1", "2": "2"}
     assert result.definitions == definitions
+
+
+def test_reference_order_and_counts_follow_nested_block_model_semantics():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(footnote_ref="3"), InlineRun(footnote_ref="3")],
+        ),
+        Block(
+            kind=BULLET_LIST,
+            children=[
+                Block(kind=LIST_ITEM, runs=[InlineRun(footnote_ref="12")]),
+            ],
+        ),
+    ]
+
+    assert footnote_reference_order(blocks) == ["3", "3", "12"]
+    assert footnote_reference_counts(blocks) == {"3": 2, "12": 1}

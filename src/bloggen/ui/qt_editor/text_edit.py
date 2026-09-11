@@ -112,6 +112,7 @@ class MeropeTextEdit(QTextEdit):
 
     pasteRefused = Signal(str)
     clipboardRefused = Signal(str)
+    footnoteActivated = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -168,6 +169,7 @@ class MeropeTextEdit(QTextEdit):
             footnote = self._footnote_at_viewport_point(event.position().toPoint())
             if footnote is not None:
                 self.setTextCursor(footnote.cursor(self.document()))
+                self.footnoteActivated.emit(footnote.note_id)
                 event.accept()
                 return
 

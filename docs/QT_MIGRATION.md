@@ -363,7 +363,7 @@ Les images venant du collage HTML (`img`, `v:imagedata`, `v:shape`) et les
 bitmaps seuls du presse-papiers restent refusés : leur extraction et leur
 copie transactionnelle feront l’objet d’un autre lot.
 
-### Notes de bas de page statiques
+### Notes de bas de page
 
 Le chemin documentaire des notes est désormais :
 
@@ -400,12 +400,60 @@ complet avant saisie, suppression, coupe ou collage. Une suppression entière
 utilise l’undo/redo natif Qt et laisse volontairement sa définition dans le
 store comme note orpheline.
 
-Le panneau « Notes » est un `QDockWidget` en lecture seule. Il reconstruit un
-affichage séparé par ID numérique et montre le texte ainsi que gras, italique,
-barré, exposant et liens lorsque présents, sans modifier les `InlineRun`
-stockés et sans rendre le document dirty. Les IDs existants ne sont pas
-renumérotés. Une définition sans appel et un appel sans définition sont tous
-deux conservés lors de la sauvegarde.
+Le panneau « Notes » est un `QDockWidget` dont le contenu reste en lecture
+seule. Il reconstruit un affichage séparé par ID numérique et montre le texte
+ainsi que gras, italique, barré, exposant et liens lorsque présents. Les
+commandes explicites « Modifier... » et « Supprimer... » agissent sur le store,
+jamais sur une copie détenue par la vue. Une définition sans appel et un appel
+sans définition sont tous deux conservés lors de la sauvegarde.
+
+Les définitions sont désormais encapsulées par un `FootnoteStore` de session :
+
+```text
+corps       : QTextDocument
+définitions : FootnoteStore → dict[str, list[InlineRun]]
+dirty global = document.isModified() OR store.modified
+```
+
+Le store compare sa valeur courante au dernier chargement ou enregistrement,
+émet ses changements et fournit des copies du dictionnaire canonique afin
+qu’aucune mutation extérieure n’échappe au suivi dirty. Charger un autre
+fichier remplace à la fois l’état courant et sa référence clean. Le panneau
+read-only n’a aucun effet sur cet état. Le titre, les confirmations avant
+ouverture/fermeture et la sauvegarde utilisent tous le dirty global.
+
+« Insérer une note... » refuse une définition vide et toute sélection active,
+puis appelle le service partagé `register_footnote`. L’appel est inséré à la
+position exacte par `insert_footnote_reference`, qui utilise
+`make_footnote_format` et n’hérite d’aucun gras, lien ou exposant du texte
+voisin. Un undo natif retire seulement l’appel : la définition reste
+volontairement dans le store comme note orpheline.
+
+L’édition simple accepte uniquement des runs textuels sans format, lien, image
+ni appel imbriqué. Une note riche reste visible mais n’est jamais aplatie : sa
+commande est désactivée et l’API refuse explicitement la modification simple.
+Les changements du store ne participent pas à Ctrl+Z dans cette phase ; aucune
+seconde pile undo concurrente n’est présentée à l’utilisateur.
+
+Supprimer une définition demande confirmation. Le message indique le nombre
+d’appels éventuels, mais ces appels restent toujours dans le corps et deviennent
+des références sans définition. Réciproquement, supprimer manuellement un
+appel ne supprime jamais sa définition.
+
+La renumérotation suit exclusivement `plan_footnote_renumbering` : premières
+apparitions dans l’ordre de lecture, références dupliquées conservées, puis
+définitions orphelines triées numériquement. Les références sans définition
+participent au mapping. Aucun UUID ni identifiant caché persistant n’est créé.
+
+Comme dans Tkinter, cette normalisation est transactionnelle au moment du save.
+Les marqueurs sont reconstruits de droite à gauche dans un seul edit block et
+le store reçoit les définitions renommées. Après succès, l’historique undo du
+corps est effacé uniquement si les IDs ont changé : un Ctrl+Z ne peut donc pas
+restaurer les anciens marqueurs sans leur store. En cas d’échec d’écriture,
+corps, store, sélection et états dirty antérieurs sont restaurés ; l’historique
+undo est alors remis à zéro pour ne conserver aucune commande de renumérotation
+rejouable. L’action « Renuméroter les notes » déclenche ce même chemin de
+sauvegarde, sans variante interactive divergente.
 
 Le presse-papiers distingue désormais deux contrats :
 
@@ -442,9 +490,9 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
-- porter les opérations interactives de notes sur le store canonique :
-  insertion, édition et suppression explicites, puis appliquer le service
-  partagé `plan_footnote_renumbering` sans inventer d’identité Qt persistée ;
+- concevoir l’édition riche des définitions au-dessus du même store, puis
+  porter séparément le raccourci `((note))` sans contourner les opérations
+  canoniques d’insertion ;
 - vérifier manuellement les formats MIME réellement exposés par Word et Google
   Docs sous Windows ;
 - éprouver le redimensionnement sous les facteurs d’échelle d’écran réellement
@@ -459,8 +507,7 @@ refusé n’est ni réécrit ni archivé.
 ## Volontairement différé
 
 - collage d’images et édition riche des légendes ;
-- édition riche des définitions, insertion/suppression interactive,
-  renumérotation et raccourci `((note))` dans l’interface Qt ;
+- édition riche des définitions et raccourci `((note))` dans l’interface Qt ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;
 - aperçu HTML par le pipeline réel, gestion complète des fichiers et
