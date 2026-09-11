@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QImageReader
 from PySide6.QtWidgets import (
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from bloggen.content.image_service import copy_into_images_dir
+from bloggen.content.image_service import copy_into_images_dir, write_cropped_copy
 from bloggen.content.versioning import purge_versions, versions_to_purge
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_model import (
@@ -51,8 +52,11 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_strikethrough,
     toggle_superscript,
 )
+from bloggen.ui.qt_editor.image_crop import validate_source_box
+from bloggen.ui.qt_editor.image_crop_dialog import CropImageDialog, crop_source_size
 from bloggen.ui.qt_editor.image_dialog import ImageMetadataDialog
 from bloggen.ui.qt_editor.image_selection import (
+    ImageTarget,
     replace_merope_image,
     targeted_merope_image,
 )
@@ -98,6 +102,7 @@ class QtEditorWindow(QMainWindow):
         self.metadata = loaded.metadata
         self.save_action.setEnabled(True)
         self._update_window_title()
+        self._update_image_action()
         self._emit("opened", path=loaded.path)
 
     def open_document(self, path: Path) -> bool:
@@ -179,6 +184,12 @@ class QtEditorWindow(QMainWindow):
             self._replace_image_from_dialog,
         )
         self.replace_image_action.setEnabled(False)
+        self.crop_image_action = self._add_action(
+            toolbar,
+            "Recadrer...",
+            self._crop_image_from_dialog,
+        )
+        self.crop_image_action.setEnabled(False)
         toolbar.addSeparator()
 
         block_group = QActionGroup(self)
@@ -358,6 +369,84 @@ class QtEditorWindow(QMainWindow):
             QMessageBox.critical(self, "Remplacement impossible", str(exc))
             return False
 
+    def crop_targeted_image(self, box: tuple[int, int, int, int]) -> bool:
+        """Crop the targeted local bitmap copy and update only its source."""
+
+        capability = self._targeted_crop_source()
+        if capability is None:
+            raise ValueError(
+                "L’image ciblée n’a pas de fichier source local lisible à recadrer."
+            )
+        target, source_path = capability
+        width, height = crop_source_size(source_path)
+        box = validate_source_box(box, width, height)
+        new_src = write_cropped_copy(source_path, box, self.current_path.parent)
+        run = replace(target.run, image_src=new_src)
+        cursor = replace_merope_image(
+            self.editor.document(),
+            target,
+            run,
+            allow_source_change=True,
+        )
+        self.editor.setTextCursor(cursor)
+        return True
+
+    def _crop_image_from_dialog(self) -> bool:
+        capability = self._targeted_crop_source()
+        if capability is None:
+            QMessageBox.warning(
+                self,
+                "Recadrage impossible",
+                "Cette image n’a pas de fichier source local lisible à recadrer.",
+            )
+            return False
+        _target, source_path = capability
+        try:
+            dialog = CropImageDialog(source_path, self)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Recadrage impossible", str(exc))
+            return False
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        try:
+            return self.crop_targeted_image(dialog.crop_box())
+        except (OSError, ValueError, UnsupportedDocumentError) as exc:
+            QMessageBox.critical(self, "Recadrage impossible", str(exc))
+            return False
+
+    def _targeted_crop_source(self) -> tuple[ImageTarget, Path] | None:
+        if self.current_path is None:
+            return None
+        try:
+            target = targeted_merope_image(self.editor.textCursor())
+        except UnsupportedDocumentError:
+            return None
+        if target is None:
+            return None
+        source_path = self._local_image_source(target.run.image_src)
+        if source_path is None:
+            return None
+        try:
+            crop_source_size(source_path)
+        except ValueError:
+            return None
+        return target, source_path
+
+    def _local_image_source(self, image_src: str | None) -> Path | None:
+        if self.current_path is None or not image_src:
+            return None
+        parsed = urlsplit(image_src)
+        if parsed.scheme or parsed.netloc:
+            return None
+        source = Path(image_src)
+        if source.is_absolute():
+            return None
+        try:
+            resolved = (self.current_path.parent / source).resolve()
+        except (OSError, RuntimeError):
+            return None
+        return resolved if resolved.is_file() else None
+
     def _edit_targeted_image(self) -> bool:
         try:
             target = targeted_merope_image(self.editor.textCursor())
@@ -377,6 +466,7 @@ class QtEditorWindow(QMainWindow):
             enabled = False
         self.image_action.setEnabled(enabled)
         self.replace_image_action.setEnabled(enabled)
+        self.crop_image_action.setEnabled(self._targeted_crop_source() is not None)
 
     def _show_paste_refused(self, message: str) -> None:
         QMessageBox.warning(

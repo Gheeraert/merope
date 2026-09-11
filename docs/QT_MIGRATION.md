@@ -279,6 +279,8 @@ déformer le ratio. `src`, `image_alt` et `align` restent inchangés.
 La mutation documentaire commence seulement au-delà d’un seuil de déplacement
 de 3 px. Tout le drag est enveloppé dans un bloc d’édition Qt extérieur : les
 mises à jour visuelles intermédiaires forment une seule opération undo/redo.
+Une fois ce seuil franchi, le geste continue à suivre le pointeur jusque sous
+le seuil ; un retour exact à l’origine restaure les métadonnées initiales.
 Un clic sans déplacement effectif ne modifie ni le document, ni son état dirty,
 ni sa pile undo. Le resize ne modifie jamais le fichier bitmap ; undo/redo ne
 porte que sur les métadonnées documentaires.
@@ -314,6 +316,46 @@ référence du document seulement. Comme pour l’insertion, la nouvelle copie
 physique reste sur disque après undo. Un choix annulé ou une source aboutissant
 au même chemin relatif reste un no-op sans dirty state ni entrée undo.
 
+Le recadrage est volontairement distinct du resize :
+
+```text
+ImageTarget
+  → résolution du fichier source local
+  → CropImageDialog
+  → boîte en pixels de l’image source
+  → write_cropped_copy
+  → nouvel image_src
+  → replace_merope_image(allow_source_change=True)
+  → QTextImageFormat
+```
+
+Le resize est une modification documentaire non destructive de `width` et
+`height`. Le crop crée au contraire un nouveau bitmap et ne change que `src`.
+L’original reste intact ; `image_alt`, largeur, hauteur et alignement sont
+conservés exactement, même lorsque le crop modifie le ratio naturel.
+
+Le dialogue charge l’image selon la même sémantique Pillow que le service
+partagé. Un noyau géométrique indépendant calcule une prévisualisation dont la
+plus grande dimension ne dépasse pas 700 px, un rectangle initial à environ
+10 % des bords, puis la conversion bornée des coordonnées preview vers la boîte
+source `(left, top, right, bottom)`. Ses quatre poignées autorisent un crop
+libre, sans conservation de ratio. Seule la boîte en pixels originaux est
+transmise à `write_cropped_copy` : le pixmap réduit n’est jamais recadré ni
+enregistré.
+
+« Recadrer... » est activé séparément des autres actions image : une image
+manquante, distante, absolue ou illisible reste éditable et remplaçable, mais
+n’est pas recadrable. Aucun téléchargement n’est tenté. Une annulation ou un
+échec d’écriture laisse le document et le disque inchangés. Après réussite,
+undo/redo porte uniquement sur le nouveau `src`; le fichier `-cropN` reste sur
+disque après undo, et pourrait également rester orphelin si le remplacement
+documentaire échouait après son écriture.
+
+Le service partagé conserve son comportement historique : il convertit le
+résultat en RGB avant sauvegarde. Un PNG transparent peut donc perdre son canal
+alpha. Aucune correction EXIF, conversion de format ou modification de cette
+politique commune n’est introduite par la migration Qt.
+
 Les images venant du collage HTML (`img`, `v:imagedata`, `v:shape`) et les
 bitmaps seuls du presse-papiers restent refusés : leur extraction et leur
 copie transactionnelle feront l’objet d’un autre lot.
@@ -335,8 +377,8 @@ refusé n’est ni réécrit ni archivé.
   Docs sous Windows ;
 - éprouver le redimensionnement sous les facteurs d’échelle d’écran réellement
   utilisés sous Windows ;
-- isoler ensuite le recadrage autour du service d’images partagé, sans le
-  confondre avec le remplacement de source désormais disponible ;
+- définir séparément la stratégie de copie et de validation avant d’autoriser
+  les images provenant du presse-papiers ou du HTML riche ;
 - éprouver le lancement et le timeout sur les plateformes distribuées ainsi
   que le conditionnement de l’extra PySide6 ;
 - conserver Tkinter comme éditeur principal et fallback tant que la couverture
@@ -344,7 +386,7 @@ refusé n’est ni réécrit ni archivé.
 
 ## Volontairement différé
 
-- recadrage, collage d’images et édition riche des légendes ;
+- collage d’images et édition riche des légendes ;
 - notes de bas de page et raccourci `((note))` dans l’interface Qt ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;
