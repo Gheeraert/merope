@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -76,10 +75,14 @@ from bloggen.ui.qt_editor.image_selection import (
     targeted_merope_image,
 )
 from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
+from bloggen.ui.qt_editor.footnote_editor import (
+    FootnoteEditorDialog,
+    footnote_runs_semantically_equal,
+    validate_footnote_runs,
+)
 from bloggen.ui.qt_editor.footnote_store import (
     FootnoteStore,
     FootnoteStoreSnapshot,
-    plain_footnote_text,
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor_protocol import emit_event
@@ -324,26 +327,21 @@ class QtEditorWindow(QMainWindow):
         note_id = self.footnote_panel.selected_note_id
         runs = self.footnote_store.definition(note_id) if note_id is not None else None
         self.delete_footnote_button.setEnabled(runs is not None)
-        is_plain = runs is not None and plain_footnote_text(runs) is not None
-        self.edit_footnote_button.setEnabled(is_plain)
-        self.edit_footnote_button.setToolTip(
-            ""
-            if is_plain
-            else "Cette note contient une mise en forme riche non éditable dans cette phase."
-        )
+        self.edit_footnote_button.setEnabled(runs is not None)
+        self.edit_footnote_button.setToolTip("")
 
-    def insert_footnote(self, text: str) -> str:
-        """Register a plain definition and insert its atomic body reference."""
+    def insert_footnote(self, content: str | list[InlineRun]) -> str:
+        """Register validated rich runs and insert their atomic body reference."""
 
-        if text == "":
-            raise ValueError("Le texte de la note ne peut pas être vide.")
+        runs = [InlineRun(text=content)] if isinstance(content, str) else content
+        runs = validate_footnote_runs(runs)
         cursor = self.editor.textCursor()
         if cursor.hasSelection():
             raise ValueError(
                 "Désélectionnez le texte avant d’insérer un appel de note."
             )
         store_snapshot = self.footnote_store.snapshot()
-        note_id = self.footnote_store.register(text)
+        note_id = self.footnote_store.register(runs)
         try:
             cursor = insert_footnote_reference(cursor, note_id)
         except Exception:
@@ -354,30 +352,42 @@ class QtEditorWindow(QMainWindow):
         return note_id
 
     def _insert_footnote_from_dialog(self) -> bool:
-        text, accepted = QInputDialog.getText(
+        if self.editor.textCursor().hasSelection():
+            QMessageBox.warning(
+                self,
+                "Insertion impossible",
+                "Désélectionnez le texte avant d’insérer un appel de note.",
+            )
+            return False
+        dialog = FootnoteEditorDialog(
+            [],
             self,
-            "Note de bas de page",
-            "Texte de la note :",
+            title="Insérer une note de bas de page",
         )
-        if not accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
         try:
-            self.insert_footnote(text)
+            self.insert_footnote(dialog.result_runs())
         except (ValueError, UnsupportedDocumentError) as exc:
             QMessageBox.warning(self, "Insertion impossible", str(exc))
             return False
         return True
 
-    def edit_footnote_definition(self, note_id: str, text: str) -> bool:
+    def edit_footnote_definition(
+        self,
+        note_id: str,
+        content: str | list[InlineRun],
+    ) -> bool:
         runs = self.footnote_store.definition(note_id)
         if runs is None:
             return False
-        if plain_footnote_text(runs) is None:
-            raise ValueError(
-                "Cette note contient une mise en forme riche ; son édition sera "
-                "disponible dans une phase suivante."
-            )
-        return self.footnote_store.update(note_id, [InlineRun(text=text)])
+        updated_runs = (
+            [InlineRun(text=content)] if isinstance(content, str) else content
+        )
+        updated_runs = validate_footnote_runs(updated_runs)
+        if footnote_runs_semantically_equal(runs, updated_runs):
+            return False
+        return self.footnote_store.update(note_id, updated_runs)
 
     def _edit_selected_footnote(self) -> bool:
         note_id = self.footnote_panel.selected_note_id
@@ -386,23 +396,18 @@ class QtEditorWindow(QMainWindow):
         runs = self.footnote_store.definition(note_id)
         if runs is None:
             return False
-        plain_text = plain_footnote_text(runs)
-        if plain_text is None:
-            QMessageBox.warning(
+        try:
+            dialog = FootnoteEditorDialog(
+                runs,
                 self,
-                "Modification impossible",
-                "Cette note contient une mise en forme riche ; son édition sera "
-                "disponible dans une phase suivante.",
+                title=f"Modifier la note [{note_id}]",
             )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Modification impossible", str(exc))
             return False
-        text, accepted = QInputDialog.getText(
-            self,
-            "Modifier la note",
-            "Texte de la note :",
-            QLineEdit.EchoMode.Normal,
-            plain_text,
-        )
-        return accepted and self.edit_footnote_definition(note_id, text)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        return self.edit_footnote_definition(note_id, dialog.result_runs())
 
     def delete_footnote_definition(self, note_id: str) -> bool:
         """Delete only the definition; body references deliberately remain."""

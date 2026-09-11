@@ -27,6 +27,7 @@ from bloggen.markdown.html_paste_import import (
     UnsupportedHtmlStructureError,
     html_to_blocks,
 )
+from bloggen.markdown.rich_text_model import Block
 from bloggen.markdown.typography import (
     CENTURY_RE,
     CLOSING_GUILLEMET,
@@ -91,6 +92,24 @@ _OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
 _REJECTED_RICH_PASTE_TAGS = frozenset(
     {"img", "pre", "table", "v:imagedata", "v:shape"}
 )
+
+
+def blocks_from_rich_mime_data(source: QMimeData) -> list[Block] | None:
+    """Decode inspectable rich MIME through Merope's canonical importers.
+
+    ``None`` means that the source contains no rich representation and may be
+    handled as plain text by the caller.  Exceptions deliberately propagate so
+    each editing surface can refuse the operation before mutating its document.
+    """
+
+    if source.hasFormat(MEROPE_FRAGMENT_MIME):
+        return decode_markdown_fragment(source.data(MEROPE_FRAGMENT_MIME))
+    if source.hasHtml() and source.html().strip():
+        return html_to_blocks(
+            source.html(),
+            reject_tags=_REJECTED_RICH_PASTE_TAGS,
+        )
+    return None
 
 
 @dataclass
@@ -276,18 +295,18 @@ class MeropeTextEdit(QTextEdit):
         return replacement_format
 
     def copy(self) -> None:
-        if not self._copy_footnote_selection(cut=False):
+        if not self._copy_merope_selection(cut=False):
             super().copy()
 
     def cut(self) -> None:
         if self.isReadOnly():
             self.copy()
             return
-        if self._copy_footnote_selection(cut=True):
+        if self._copy_merope_selection(cut=True):
             return
         super().cut()
 
-    def _copy_footnote_selection(self, *, cut: bool) -> bool:
+    def _copy_merope_selection(self, *, cut: bool) -> bool:
         try:
             cursor, contains_note = expand_selection_to_footnotes(
                 self.textCursor()
@@ -297,9 +316,10 @@ class MeropeTextEdit(QTextEdit):
                 f"La sélection Mérope n’a pas pu être copiée sans perte : {exc}"
             )
             return True
-        if not contains_note:
+        if not cursor.hasSelection():
             return False
-        self.setTextCursor(cursor)
+        if contains_note:
+            self.setTextCursor(cursor)
         try:
             native_mime = super().createMimeDataFromSelection()
             mime_data = QMimeData()
@@ -473,40 +493,41 @@ class MeropeTextEdit(QTextEdit):
         document is touched.
         """
 
-        if source.hasFormat(MEROPE_FRAGMENT_MIME):
+        has_internal_fragment = source.hasFormat(MEROPE_FRAGMENT_MIME)
+        has_rich_html = source.hasHtml() and bool(source.html().strip())
+        if has_internal_fragment or has_rich_html:
             try:
-                blocks = decode_markdown_fragment(source.data(MEROPE_FRAGMENT_MIME))
-                cursor, contains_note = expand_selection_to_footnotes(
-                    self.textCursor()
-                )
-                if contains_note:
-                    self.setTextCursor(cursor)
-                cursor = insert_blocks(self.textCursor(), blocks)
-                self.setTextCursor(cursor)
-            except (InvalidMeropeClipboardFragment, UnsupportedDocumentError) as exc:
-                self.pasteRefused.emit(f"Fragment Mérope invalide : {exc}")
-            return
-
-        cursor, contains_note = expand_selection_to_footnotes(self.textCursor())
-        if contains_note:
-            self.setTextCursor(cursor)
-
-        if source.hasHtml() and source.html().strip():
-            try:
-                blocks = html_to_blocks(
-                    source.html(),
-                    reject_tags=_REJECTED_RICH_PASTE_TAGS,
-                )
+                blocks = blocks_from_rich_mime_data(source)
                 if blocks:
+                    cursor, contains_note = expand_selection_to_footnotes(
+                        self.textCursor()
+                    )
+                    if contains_note:
+                        self.setTextCursor(cursor)
                     cursor = insert_blocks(self.textCursor(), blocks)
                     self.setTextCursor(cursor)
                     return
-            except (UnsupportedHtmlStructureError, UnsupportedDocumentError) as exc:
+                if has_internal_fragment:
+                    return
+            except InvalidMeropeClipboardFragment as exc:
+                self.pasteRefused.emit(f"Fragment Mérope invalide : {exc}")
+                return
+            except UnsupportedHtmlStructureError as exc:
                 self.pasteRefused.emit(str(exc))
+                return
+            except UnsupportedDocumentError as exc:
+                if has_internal_fragment:
+                    self.pasteRefused.emit(f"Fragment Mérope invalide : {exc}")
+                else:
+                    self.pasteRefused.emit(str(exc))
                 return
             except Exception as exc:
                 self.pasteRefused.emit(f"Le collage HTML n’a pas pu être analysé : {exc}")
                 return
+
+        cursor, contains_note = expand_selection_to_footnotes(self.textCursor())
+        if contains_note:
+            self.setTextCursor(cursor)
 
         if source.hasText():
             cursor = self.textCursor()

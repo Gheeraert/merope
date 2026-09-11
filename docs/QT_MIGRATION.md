@@ -407,6 +407,34 @@ commandes explicites « Modifier... » et « Supprimer... » agissent sur le sto
 jamais sur une copie détenue par la vue. Une définition sans appel et un appel
 sans définition sont tous deux conservés lors de la sauvegarde.
 
+L’insertion et la modification ouvrent désormais le même éditeur riche modal :
+
+```text
+FootnoteStore
+    ↑ OK
+FootnoteEditorDialog
+    ↕
+QTextDocument local → Block(PARAGRAPH) → list[InlineRun]
+```
+
+Le dialogue reçoit une copie des runs initiaux et ne connaît pas le store. Son
+`FootnoteTextEdit`, dérivé de `MeropeTextEdit`, réutilise la typographie
+française, les commandes gras, italique, barré, exposant et lien, ainsi que le
+presse-papiers canonique. Son document reste strictement monoparagraphe :
+Entrée et Maj+Entrée sont des no-op ; paragraphes multiples, listes, citations,
+images et appels de note imbriqués sont refusés avant toute mutation.
+
+Au clic sur OK, `extract_blocks` doit restituer exactement un paragraphe, puis
+`validate_footnote_definitions` valide les runs. Une définition vide ou composée
+uniquement d’espaces est refusée par l’interface Qt. Seulement après ces contrôles
+le résultat est transmis à `FootnoteStore`. Annuler ne modifie ni le store, ni le
+dirty global, ni le panneau. Valider sans changement sémantique reste un no-op.
+
+L’undo/redo du dialogue est celui de son `QTextDocument` local et n’affecte
+jamais le corps. Après OK, la mise à jour du `FootnoteStore` reste volontairement
+hors du Ctrl+Z principal, conformément au choix de la phase 6b : aucune fausse
+pile undo globale n’est exposée.
+
 Les définitions sont désormais encapsulées par un `FootnoteStore` de session :
 
 ```text
@@ -423,17 +451,11 @@ read-only n’a aucun effet sur cet état. Le titre, les confirmations avant
 ouverture/fermeture et la sauvegarde utilisent tous le dirty global.
 
 « Insérer une note... » refuse une définition vide et toute sélection active,
-puis appelle le service partagé `register_footnote`. L’appel est inséré à la
-position exacte par `insert_footnote_reference`, qui utilise
-`make_footnote_format` et n’hérite d’aucun gras, lien ou exposant du texte
-voisin. Un undo natif retire seulement l’appel : la définition reste
+puis enregistre les runs riches avec le service partagé `register_footnote`.
+L’appel est inséré à la position exacte par `insert_footnote_reference`, qui
+utilise `make_footnote_format` et n’hérite d’aucun gras, lien ou exposant du
+texte voisin. Un undo natif retire seulement l’appel : la définition reste
 volontairement dans le store comme note orpheline.
-
-L’édition simple accepte uniquement des runs textuels sans format, lien, image
-ni appel imbriqué. Une note riche reste visible mais n’est jamais aplatie : sa
-commande est désactivée et l’API refuse explicitement la modification simple.
-Les changements du store ne participent pas à Ctrl+Z dans cette phase ; aucune
-seconde pile undo concurrente n’est présentée à l’utilisateur.
 
 Supprimer une définition demande confirmation. Le message indique le nombre
 d’appels éventuels, mais ces appels restent toujours dans le corps et deviennent
@@ -462,11 +484,14 @@ clipboard externe : text/plain + text/html produits par Qt
 clipboard Mérope  : application/x-merope-markdown-fragment en supplément
 ```
 
-Pour une sélection contenant un appel de note, copy/cut étend d’abord chaque
+Toute sélection Mérope représentable reçoit ce MIME interne en plus des formats
+standards. Lorsqu’elle contient un appel de note, copy/cut étend d’abord chaque
 marqueur partiel à sa plage complète. Les formats standards restent présents
 pour Word, un navigateur ou tout autre logiciel, où l’appel apparaît simplement
 comme `[1]`. Le MIME interne contient en UTF-8 le Markdown canonique obtenu par
-`QTextDocumentFragment → extract_blocks → blocks_to_markdown`.
+`QTextDocumentFragment → extract_blocks → blocks_to_markdown`. Il permet
+notamment les échanges riches corps ↔ dialogue de note sans dépendre du HTML
+technique produit par Qt.
 
 Au collage, ce MIME est prioritaire sur HTML puis texte brut. Il repasse par
 `markdown_to_blocks`, la validation complète de l’adaptateur et `insert_blocks`.
@@ -490,9 +515,8 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
-- concevoir l’édition riche des définitions au-dessus du même store, puis
-  porter séparément le raccourci `((note))` sans contourner les opérations
-  canoniques d’insertion ;
+- porter le raccourci `((note))` en réutilisant le dialogue riche et les
+  opérations canoniques `FootnoteStore.register` / `insert_footnote_reference` ;
 - vérifier manuellement les formats MIME réellement exposés par Word et Google
   Docs sous Windows ;
 - éprouver le redimensionnement sous les facteurs d’échelle d’écran réellement
@@ -507,7 +531,7 @@ refusé n’est ni réécrit ni archivé.
 ## Volontairement différé
 
 - collage d’images et édition riche des légendes ;
-- édition riche des définitions et raccourci `((note))` dans l’interface Qt ;
+- raccourci `((note))` dans l’interface Qt ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;
 - aperçu HTML par le pipeline réel, gestion complète des fichiers et

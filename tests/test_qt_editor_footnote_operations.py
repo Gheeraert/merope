@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from bloggen.content.footnotes import separate_footnote_definitions
 from bloggen.content.writer import read_content_file, write_content_file
@@ -177,12 +177,22 @@ def test_insert_with_selection_is_refused_without_replacing_text_or_store():
 
 def test_empty_insert_is_refused_and_dialog_cancellation_is_noop(monkeypatch):
     window = QtEditorWindow()
-    monkeypatch.setattr(QInputDialog, "getText", lambda *args: ("", False))
+
+    class RejectedDialog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(window_module, "FootnoteEditorDialog", RejectedDialog)
 
     assert not window._insert_footnote_from_dialog()
     assert window.footnote_definitions == {}
     with pytest.raises(ValueError, match="vide"):
         window.insert_footnote("")
+    with pytest.raises(ValueError, match="vide"):
+        window.insert_footnote("  \t")
 
 
 def test_undo_inserted_reference_keeps_orphan_definition_and_global_dirty():
@@ -275,29 +285,35 @@ def test_store_dirty_can_cancel_opening_another_file(tmp_path, monkeypatch):
     }
 
 
-def test_simple_definition_edit_cancel_and_rich_definition_refusal(monkeypatch):
+def test_definition_edit_cancel_and_rich_definition_is_editable(monkeypatch):
     window = QtEditorWindow()
     _load_model(
         window,
         [Block(kind=PARAGRAPH, runs=[InlineRun(footnote_ref="1")])],
         {"1": [InlineRun(text="Simple")]},
     )
-    monkeypatch.setattr(
-        QInputDialog,
-        "getText",
-        lambda *args: ("Ignorée", False),
-    )
+    class RejectedDialog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(window_module, "FootnoteEditorDialog", RejectedDialog)
     assert not window._edit_selected_footnote()
     assert window.footnote_definitions["1"] == [InlineRun(text="Simple")]
 
     window.footnote_store.load(
         {"1": [InlineRun(text="Riche", bold=True)]}
     )
-    assert not window.edit_footnote_button.isEnabled()
-    with pytest.raises(ValueError, match="mise en forme riche"):
-        window.edit_footnote_definition("1", "Perdue")
+    assert window.edit_footnote_button.isEnabled()
+    assert window.edit_footnote_definition(
+        "1",
+        [InlineRun(text="Riche", bold=True), InlineRun(text=" conservée")],
+    )
     assert window.footnote_definitions["1"] == [
-        InlineRun(text="Riche", bold=True)
+        InlineRun(text="Riche", bold=True),
+        InlineRun(text=" conservée"),
     ]
 
 
