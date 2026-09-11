@@ -44,6 +44,7 @@ def main() -> int:
     try:
         return run(
             args.markdown,
+            project_root=args.project_root,
             initial_directory=args.pages_dir,
             images_dir=args.images_dir,
             ipc=args.ipc,

@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QImageReader, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -51,6 +51,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     renumber_footnote_references,
 )
 from bloggen.ui.qt_editor.file_io import (
+    directory_base_url,
     load_content_document,
     save_content_document,
 )
@@ -84,6 +85,17 @@ from bloggen.ui.qt_editor.footnote_store import (
     FootnoteStore,
     FootnoteStoreSnapshot,
 )
+from bloggen.ui.editor_recovery import (
+    RecoveryDraft,
+    clear_draft,
+    load_draft,
+    save_draft,
+)
+from bloggen.ui.qt_editor.recovery import (
+    AUTOSAVE_INTERVAL_MS,
+    build_recovery_draft,
+    prepare_recovery_draft,
+)
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor_protocol import emit_event
 
@@ -104,14 +116,17 @@ class QtEditorWindow(QMainWindow):
         self,
         markdown_path: Path | None = None,
         *,
+        project_root: Path | None = None,
         initial_directory: Path | None = None,
         images_dir: Path | None = None,
         ipc: bool = False,
     ) -> None:
         super().__init__()
         self.current_path: Path | None = None
+        self.current_kind: str | None = None
         self.metadata: dict[str, str] = {}
         self.footnote_store = FootnoteStore(self)
+        self.project_root = Path(project_root) if project_root is not None else None
         self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
         self.images_dir = Path(images_dir) if images_dir is not None else None
         self.ipc = ipc
@@ -132,12 +147,19 @@ class QtEditorWindow(QMainWindow):
         self.editor.document().modificationChanged.connect(self._update_window_title)
         if markdown_path is not None:
             self.load_markdown(markdown_path)
+        self._offer_crash_recovery()
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.setInterval(AUTOSAVE_INTERVAL_MS)
+        self.autosave_timer.timeout.connect(self._autosave_tick)
+        if self.project_root is not None:
+            self.autosave_timer.start()
         self._update_window_title()
         self._update_image_action()
 
     def load_markdown(self, path: Path) -> None:
         loaded = load_content_document(path, self.editor.document())
         self.current_path = loaded.path
+        self.current_kind = None
         self.metadata = loaded.metadata
         self.footnote_store.load(loaded.footnote_definitions)
         self.save_action.setEnabled(True)
@@ -158,6 +180,7 @@ class QtEditorWindow(QMainWindow):
                 f"Ce fichier n’a pas été ouvert et le document courant reste intact.\n\n{exc}",
             )
             return False
+        self._clear_recovery_draft()
         return True
 
     def save_document(self) -> bool:
@@ -185,10 +208,83 @@ class QtEditorWindow(QMainWindow):
             self.editor.document().clearUndoRedoStacks()
             self.editor.document().setModified(False)
         self.footnote_store.mark_clean()
+        self._clear_recovery_draft()
         self._update_window_title()
         self._emit("saved", path=result.path)
         self._offer_version_purge(result.archive)
         return True
+
+    def _autosave_tick(self) -> None:
+        """Persist only a crash-recovery draft, never the Markdown file."""
+
+        if self.project_root is None or not self.document_has_unsaved_changes:
+            return
+        try:
+            draft = build_recovery_draft(
+                self.editor.document(),
+                self.footnote_store.definitions,
+                self.metadata,
+                project_root=self.project_root,
+                current_path=self.current_path,
+                current_kind=self.current_kind,
+            )
+            save_draft(self.project_root, draft)
+        except Exception as exc:  # noqa: BLE001 - recovery must be fail-safe
+            print(f"Autosauvegarde de récupération impossible : {exc}", file=sys.stderr)
+
+    def _offer_crash_recovery(self) -> bool:
+        """Offer one shared Tk/Qt draft and apply it only after validation."""
+
+        if self.project_root is None:
+            return False
+        draft = load_draft(self.project_root)
+        if draft is None:
+            return False
+        answer = QMessageBox.question(
+            self,
+            "Récupération après incident",
+            "Un brouillon non enregistré a été retrouvé, probablement après "
+            "une fermeture inattendue. Le restaurer ?\n\n"
+            "Choisissez Non pour l’ignorer et le supprimer.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._clear_recovery_draft()
+            return False
+        try:
+            self.restore_recovery_draft(draft)
+        except Exception as exc:  # noqa: BLE001 - invalid drafts must not replace the UI
+            QMessageBox.warning(
+                self,
+                "Récupération impossible",
+                "Le brouillon n’a pas été restauré afin d’éviter une perte de "
+                f"données. Le document courant reste intact.\n\n{exc}",
+            )
+            return False
+        return True
+
+    def restore_recovery_draft(self, draft: RecoveryDraft) -> None:
+        """Apply one fully validated draft and leave it explicitly dirty."""
+
+        if self.project_root is None:
+            raise ValueError("La récupération nécessite la racine explicite du projet.")
+        prepared = prepare_recovery_draft(self.project_root, draft)
+        document = self.editor.document()
+        document.setBaseUrl(directory_base_url(prepared.resource_directory))
+        populate_document(document, prepared.body_blocks)
+        self.footnote_store.load(prepared.footnote_definitions)
+        self.metadata = prepared.metadata
+        self.current_path = prepared.current_path
+        self.current_kind = prepared.current_kind
+        self.save_action.setEnabled(self.current_path is not None)
+        document.setModified(True)
+        self._update_window_title()
+        self._update_image_action()
+
+    def _clear_recovery_draft(self) -> None:
+        if self.project_root is not None:
+            clear_draft(self.project_root)
 
     def show_reconstructed_markdown(self) -> None:
         try:
@@ -789,7 +885,11 @@ class QtEditorWindow(QMainWindow):
         self.setWindowTitle(f"Mérope - éditeur Qt - {name}{marker}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        had_unsaved_changes = self.document_has_unsaved_changes
         if self._confirm_unsaved_changes():
+            if had_unsaved_changes:
+                self._clear_recovery_draft()
+            self.autosave_timer.stop()
             event.accept()
         else:
             event.ignore()
@@ -822,28 +922,30 @@ class QtEditorWindow(QMainWindow):
 def run(
     markdown_path: Path | None = None,
     *,
+    project_root: Path | None = None,
     initial_directory: Path | None = None,
     images_dir: Path | None = None,
     ipc: bool = False,
 ) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
-    window = QtEditorWindow(
-        initial_directory=initial_directory,
-        images_dir=images_dir,
-        ipc=ipc,
-    )
-    if markdown_path is not None:
-        try:
-            window.load_markdown(markdown_path)
-        except (OSError, ValueError) as exc:
-            window._emit("open_refused", path=markdown_path, message=str(exc))
-            QMessageBox.critical(
-                None,
-                "Ouverture impossible",
-                "Le prototype Qt refuse d’ouvrir ce fichier afin d’éviter toute perte "
-                f"de données.\n\n{exc}",
-            )
-            return 2
+    try:
+        window = QtEditorWindow(
+            markdown_path=markdown_path,
+            project_root=project_root,
+            initial_directory=initial_directory,
+            images_dir=images_dir,
+            ipc=ipc,
+        )
+    except (OSError, ValueError) as exc:
+        if ipc:
+            emit_event("open_refused", path=markdown_path, message=str(exc))
+        QMessageBox.critical(
+            None,
+            "Ouverture impossible",
+            "Le prototype Qt refuse d’ouvrir ce fichier afin d’éviter toute perte "
+            f"de données.\n\n{exc}",
+        )
+        return 2
     window.show()
     window._emit("ready")
     returncode = app.exec()

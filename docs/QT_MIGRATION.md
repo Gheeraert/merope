@@ -100,6 +100,8 @@ mais Tk ne lui envoie aucune commande après le lancement.
 - les appels et définitions de notes de bas de page existants, séparés entre le
   document principal et un store canonique affiché dans un panneau en lecture
   seule, puis réunis sans sérialisation Qt lors de la sauvegarde ;
+- l’autosauvegarde de sécurité et la récupération après incident dans le format
+  partagé `.merope-recovery/draft.json`, lorsque `project_root` est fourni ;
 - une erreur explicite avant toute modification du document pour les blocs ou
   feuilles inline que ce prototype ne sait pas conserver.
 
@@ -532,6 +534,64 @@ tout en laissant intacts le code en ligne et les blocs de code clôturés. Cette
 distinction maintient le contenu du raccourci normalement éditable et correspond
 au contrat historique de Mérope.
 
+### Autosauvegarde de sécurité et récupération
+
+Le `project_root` déjà transmis par le launcher suit maintenant explicitement
+le chemin :
+
+```text
+__main__ → run(project_root=...) → QtEditorWindow(project_root=...)
+```
+
+Il n’est jamais déduit du répertoire courant, du fichier ouvert ou du dossier
+d’images. Sans cette valeur, le timer et la récupération restent désactivés et
+aucun dossier `.merope-recovery` n’est créé arbitrairement.
+
+La fenêtre possède un `QTimer` de 30 secondes. Chaque tick ne fait quelque
+chose que si le dirty global est vrai :
+
+```text
+QTextDocument.isModified() OR FootnoteStore.modified
+  → extract_blocks(QTextDocument)
+  + footnote_definition_blocks(FootnoteStore.definitions)
+  → blocks_to_markdown
+  → RecoveryDraft
+  → .merope-recovery/draft.json
+```
+
+Ce chemin n’appelle ni `write_content_file`, ni le service de versionnement.
+Ainsi, **autosave ≠ save** : l’autosauvegarde n’écrit jamais le Markdown courant
+et ne crée aucune archive `.versions`. Une erreur d’extraction, de sérialisation
+ou d’écriture est seulement journalisée sur stderr ; le document, son dirty et
+les cycles suivants restent intacts.
+
+Le format `RecoveryDraft` et son unique fichier JSON sont exactement ceux de
+Tkinter. Le chemin du document n’est stocké qu’en forme POSIX relative si sa
+résolution reste sous la racine du projet ; aucun chemin absolu extérieur n’est
+persisté. `current_kind` reste `None` pour une session Qt ordinaire, mais une
+valeur provenant d’un ancien brouillon Tk est conservée pendant la restauration.
+
+Au démarrage, un brouillon retrouvé est proposé à l’utilisateur. Un refus le
+supprime sans toucher au document normalement ouvert. Une acceptation commence
+par parser le Markdown, séparer corps et définitions, puis valider intégralement
+le sous-ensemble Qt ; la fenêtre n’est mutée qu’après ces contrôles. Tables,
+`verbatim` et autres structures encore refusées le restent donc aussi en
+récupération. Un brouillon incompatible laisse à la fois le document et le JSON
+intacts.
+
+Une restauration réussie replace les définitions dans `FootnoteStore`, jamais
+dans le `QTextDocument`, restaure métadonnées, images et `((notes différées))`,
+puis marque seulement le document principal modified. Le store est chargé clean,
+mais le dirty global est vrai par définition. Si le fichier d’origine a disparu,
+le contenu reste récupéré avec `current_path=None` et n’est jamais recréé
+automatiquement. Le brouillon restauré reste sur disque jusqu’à un vrai save ou
+un abandon explicite, afin qu’un second crash immédiat ne perde pas la récupération.
+
+Un save réussi ou une fermeture/ouverture confirmée qui abandonne l’ancien
+contenu appelle `clear_draft`. Un save échoué ou un dialogue annulé conserve le
+brouillon. À la fermeture acceptée, le `QTimer` est arrêté ; annulée, la fenêtre,
+le timer et le recovery restent actifs.
+
 ## Explicitement refusé
 
 - l’ouverture éditable et l’enregistrement de fichiers contenant tableaux,
@@ -565,7 +625,6 @@ refusé n’est ni réécrit ni archivé.
 - éventuelle commande explicite de conversion des `((note))` en notes
   structurées ;
 - tableaux WYSIWYG et blocs `verbatim` ;
-- autosauvegarde et récupération après incident ;
 - aperçu HTML par le pipeline réel, gestion complète des fichiers et
   métadonnées éditables ;
 - toute extension bidirectionnelle du protocole, notamment la transmission

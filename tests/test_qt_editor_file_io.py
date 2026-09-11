@@ -505,6 +505,7 @@ def test_run_emits_ready_then_closed_around_qt_event_loop(monkeypatch):
         def __init__(self, **kwargs):
             assert kwargs["ipc"] is True
             assert kwargs["images_dir"] == Path("images")
+            assert kwargs["project_root"] == Path("project")
 
         def show(self):
             events.append("show")
@@ -515,5 +516,9 @@ def test_run_emits_ready_then_closed_around_qt_event_loop(monkeypatch):
     monkeypatch.setattr(qt_window_module.QApplication, "instance", lambda: FakeApplication())
     monkeypatch.setattr(qt_window_module, "QtEditorWindow", FakeWindow)
 
-    assert qt_window_module.run(images_dir=Path("images"), ipc=True) == 0
+    assert qt_window_module.run(
+        project_root=Path("project"),
+        images_dir=Path("images"),
+        ipc=True,
+    ) == 0
     assert events == ["show", "ready", "exec", "closed"]

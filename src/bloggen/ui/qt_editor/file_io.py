@@ -51,7 +51,7 @@ def load_content_document(path: Path, document: QTextDocument) -> LoadedContent:
     # file therefore leaves both the open document and its base URL intact.
     validate_blocks(body_blocks)
     validate_footnote_definitions(footnote_definitions)
-    document.setBaseUrl(_document_base_url(path))
+    document.setBaseUrl(document_base_url(path))
     populate_document(document, body_blocks)
     document.setModified(False)
     return LoadedContent(
@@ -80,6 +80,14 @@ def save_content_document(
     return SaveResult(path=written_path, markdown_body=markdown_body, archive=archive)
 
 
-def _document_base_url(path: Path) -> QUrl:
-    directory = str(path.resolve().parent) + os.sep
+def document_base_url(path: Path) -> QUrl:
+    """Return the local resource base used by a Markdown document."""
+
+    return directory_base_url(Path(path).resolve().parent)
+
+
+def directory_base_url(path: Path) -> QUrl:
+    """Return a local URL whose trailing separator denotes a directory."""
+
+    directory = str(Path(path).resolve()) + os.sep
     return QUrl.fromLocalFile(directory)
