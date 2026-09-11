@@ -28,6 +28,7 @@ from bloggen.ui.qt_editor.constants import (
 )
 from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
+    is_semantic_inline_object_format,
     refresh_block_visuals,
 )
 
@@ -160,7 +161,8 @@ def _toggle_inline(
     cursor = editor.textCursor()
     text_ranges = _selected_text_ranges(cursor) if cursor.hasSelection() else None
     if text_ranges == [] or (
-        not cursor.hasSelection() and cursor.charFormat().isImageFormat()
+        not cursor.hasSelection()
+        and is_semantic_inline_object_format(cursor.charFormat())
     ):
         return
     enabled = not _selection_all_has_format(cursor, property_id, text_ranges)
@@ -230,7 +232,7 @@ def _selected_text_ranges(
             fragment_end = fragment_start + fragment.length()
             if (
                 fragment.isValid()
-                and not fragment.charFormat().isImageFormat()
+                and not is_semantic_inline_object_format(fragment.charFormat())
                 and fragment_end > selection_start
                 and fragment_start < selection_end
             ):
@@ -254,7 +256,7 @@ def _merge_text_char_format(
 ) -> bool:
     selection = editor.textCursor()
     if not selection.hasSelection():
-        if selection.charFormat().isImageFormat():
+        if is_semantic_inline_object_format(selection.charFormat()):
             return False
         selection.beginEditBlock()
         selection.mergeCharFormat(char_format)

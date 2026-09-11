@@ -9,6 +9,11 @@ from pathlib import Path
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QTextDocument
 
+from bloggen.content.footnotes import (
+    FootnoteDefinitions,
+    footnote_definition_blocks,
+    separate_footnote_definitions,
+)
 from bloggen.content.versioning import ArchiveResult, archive_previous_version
 from bloggen.content.writer import read_content_file, write_content_file
 from bloggen.markdown.rich_text_export import blocks_to_markdown
@@ -17,6 +22,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     extract_blocks,
     populate_document,
     validate_blocks,
+    validate_footnote_definitions,
 )
 
 
@@ -24,6 +30,7 @@ from bloggen.ui.qt_editor.document_adapter import (
 class LoadedContent:
     path: Path
     metadata: dict[str, str]
+    footnote_definitions: FootnoteDefinitions
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,24 +46,33 @@ def load_content_document(path: Path, document: QTextDocument) -> LoadedContent:
     path = Path(path)
     metadata, body = read_content_file(path)
     blocks = markdown_to_blocks(body)
+    body_blocks, footnote_definitions = separate_footnote_definitions(blocks)
     # Change the resource context only after full validation. An unsupported
     # file therefore leaves both the open document and its base URL intact.
-    validate_blocks(blocks)
+    validate_blocks(body_blocks)
+    validate_footnote_definitions(footnote_definitions)
     document.setBaseUrl(_document_base_url(path))
-    populate_document(document, blocks)
+    populate_document(document, body_blocks)
     document.setModified(False)
-    return LoadedContent(path=path, metadata=dict(metadata))
+    return LoadedContent(
+        path=path,
+        metadata=dict(metadata),
+        footnote_definitions=footnote_definitions,
+    )
 
 
 def save_content_document(
     path: Path,
     metadata: dict[str, str],
     document: QTextDocument,
+    footnote_definitions: FootnoteDefinitions | None = None,
 ) -> SaveResult:
     """Archive, serialize through Block/Run, and overwrite one Merope file."""
 
     path = Path(path)
-    blocks = extract_blocks(document)
+    definitions = footnote_definitions or {}
+    validate_footnote_definitions(definitions)
+    blocks = extract_blocks(document) + footnote_definition_blocks(definitions)
     markdown_body = blocks_to_markdown(blocks)
     archive = archive_previous_version(path)
     written_path = write_content_file(path.parent, path.name, metadata, markdown_body)

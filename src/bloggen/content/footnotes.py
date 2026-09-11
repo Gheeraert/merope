@@ -4,10 +4,41 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from bloggen.markdown.rich_text_model import InlineRun
+from bloggen.markdown.rich_text_model import FOOTNOTE_DEFINITION, Block, InlineRun
 
 
 FootnoteDefinitions = dict[str, list[InlineRun]]
+
+
+def separate_footnote_definitions(
+    blocks: list[Block],
+) -> tuple[list[Block], FootnoteDefinitions]:
+    """Separate body blocks from canonical footnote-definition blocks."""
+
+    body: list[Block] = []
+    definitions: FootnoteDefinitions = {}
+    for block in blocks:
+        if block.kind != FOOTNOTE_DEFINITION:
+            body.append(block)
+            continue
+        note_id = block.footnote_id
+        if not isinstance(note_id, str) or not note_id:
+            raise ValueError("Une définition de note doit avoir un identifiant")
+        if note_id in definitions:
+            raise ValueError(f"Définition de note dupliquée : {note_id}")
+        definitions[note_id] = block.runs
+    return body, definitions
+
+
+def footnote_definition_blocks(
+    definitions: FootnoteDefinitions,
+) -> list[Block]:
+    """Rebuild canonical definition blocks in stored insertion order."""
+
+    return [
+        Block(kind=FOOTNOTE_DEFINITION, footnote_id=note_id, runs=runs)
+        for note_id, runs in definitions.items()
+    ]
 
 
 @dataclass(slots=True)

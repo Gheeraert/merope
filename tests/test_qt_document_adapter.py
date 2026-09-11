@@ -399,9 +399,9 @@ def test_unsupported_block_is_never_silently_lost(unsupported: Block):
 
 @pytest.mark.parametrize(
     "run",
-    [InlineRun(footnote_ref="1")],
+    [InlineRun(footnote_ref="non-numerique")],
 )
-def test_unsupported_inline_leaf_is_never_silently_lost(run: InlineRun):
+def test_invalid_inline_leaf_is_never_silently_lost(run: InlineRun):
     document = QTextDocument()
 
     with pytest.raises(UnsupportedInlineError):

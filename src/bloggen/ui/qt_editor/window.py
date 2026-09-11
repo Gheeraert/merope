@@ -7,10 +7,12 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QImageReader
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QDockWidget,
     QFileDialog,
     QInputDialog,
     QMainWindow,
@@ -20,6 +22,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from bloggen.content.footnotes import FootnoteDefinitions, footnote_definition_blocks
 from bloggen.content.image_service import copy_into_images_dir, write_cropped_copy
 from bloggen.content.versioning import purge_versions, versions_to_purge
 from bloggen.markdown.rich_text_export import blocks_to_markdown
@@ -60,6 +63,7 @@ from bloggen.ui.qt_editor.image_selection import (
     replace_merope_image,
     targeted_merope_image,
 )
+from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor_protocol import emit_event
 
@@ -78,6 +82,7 @@ class QtEditorWindow(QMainWindow):
         super().__init__()
         self.current_path: Path | None = None
         self.metadata: dict[str, str] = {}
+        self.footnote_definitions: FootnoteDefinitions = {}
         self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
         self.images_dir = Path(images_dir) if images_dir is not None else None
         self.ipc = ipc
@@ -88,6 +93,7 @@ class QtEditorWindow(QMainWindow):
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
         self._create_toolbar()
+        self._create_footnote_panel()
         self.editor.cursorPositionChanged.connect(self._update_image_action)
         self.editor.selectionChanged.connect(self._update_image_action)
         self.editor.document().modificationChanged.connect(self._update_window_title)
@@ -100,6 +106,8 @@ class QtEditorWindow(QMainWindow):
         loaded = load_content_document(path, self.editor.document())
         self.current_path = loaded.path
         self.metadata = loaded.metadata
+        self.footnote_definitions = loaded.footnote_definitions
+        self.footnote_panel.set_definitions(self.footnote_definitions)
         self.save_action.setEnabled(True)
         self._update_window_title()
         self._update_image_action()
@@ -129,6 +137,7 @@ class QtEditorWindow(QMainWindow):
                 self.current_path,
                 self.metadata,
                 self.editor.document(),
+                self.footnote_definitions,
             )
         except (OSError, ValueError) as exc:
             self._emit("error", message=f"Enregistrement impossible : {exc}")
@@ -143,7 +152,10 @@ class QtEditorWindow(QMainWindow):
 
     def show_reconstructed_markdown(self) -> None:
         try:
-            markdown = blocks_to_markdown(extract_blocks(self.editor.document()))
+            blocks = extract_blocks(self.editor.document()) + footnote_definition_blocks(
+                self.footnote_definitions
+            )
+            markdown = blocks_to_markdown(blocks)
         except UnsupportedDocumentError as exc:
             QMessageBox.critical(self, "Round-trip impossible", str(exc))
             return
@@ -229,6 +241,17 @@ class QtEditorWindow(QMainWindow):
             self.editor.apply_typography_to_selection,
         )
         self._add_action(toolbar, "Voir Markdown", self.show_reconstructed_markdown)
+
+    def _create_footnote_panel(self) -> None:
+        self.footnote_dock = QDockWidget("Notes", self)
+        self.footnote_dock.setObjectName("meropeFootnoteDock")
+        self.footnote_panel = FootnotePanel(self.footnote_dock)
+        self.footnote_dock.setWidget(self.footnote_panel)
+        self.addDockWidget(
+            Qt.DockWidgetArea.RightDockWidgetArea,
+            self.footnote_dock,
+        )
+        self.footnote_panel.set_definitions(self.footnote_definitions)
 
     def _prompt_for_link(self) -> None:
         href, accepted = QInputDialog.getText(self, "Lien", "Adresse du lien :")

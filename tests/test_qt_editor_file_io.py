@@ -215,7 +215,6 @@ def test_rejected_file_does_not_change_existing_document_base_url(tmp_path):
     [
         "| Colonne |\n| --- |\n| Valeur |\n",
         "<section>Bloc brut</section>\n",
-        "Texte avec une note[^1].\n\n[^1]: Note.\n",
     ],
 )
 def test_unsupported_file_cannot_replace_or_retarget_editable_document(

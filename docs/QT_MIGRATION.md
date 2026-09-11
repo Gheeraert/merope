@@ -97,6 +97,9 @@ mais Tk ne lui envoie aucune commande après le lancement.
   dimensions ni alignement ;
 - l’insertion d’une image locale dans un document déjà ouvert, avec copie et
   résolution du chemin relatif assurées par le service d’images partagé ;
+- les appels et définitions de notes de bas de page existants, séparés entre le
+  document principal et un store canonique affiché dans un panneau en lecture
+  seule, puis réunis sans sérialisation Qt lors de la sauvegarde ;
 - une erreur explicite avant toute modification du document pour les blocs ou
   feuilles inline que ce prototype ne sait pas conserver.
 
@@ -360,10 +363,54 @@ Les images venant du collage HTML (`img`, `v:imagedata`, `v:shape`) et les
 bitmaps seuls du presse-papiers restent refusés : leur extraction et leur
 copie transactionnelle feront l’objet d’un autre lot.
 
+### Notes de bas de page statiques
+
+Le chemin documentaire des notes est désormais :
+
+```text
+Markdown
+  → Block / InlineRun
+  → séparation corps / FootnoteDefinitions
+  → QTextDocument + panneau de définitions
+  → reconstruction des blocs complets
+  → Markdown
+```
+
+À l’ouverture, les blocs `FOOTNOTE_DEFINITION` sont retirés du corps avant
+`populate_document` et conservés, dans leur ordre existant, sous la forme
+canonique `FootnoteDefinitions = dict[str, list[InlineRun]]`. Le document Qt
+principal ne montre donc pas les définitions en fin de corps. À la sauvegarde,
+`extract_blocks` produit le corps et les définitions sont reconstruites en
+blocs canoniques avant l’appel inchangé à `blocks_to_markdown`.
+
+Dans le corps, un `InlineRun(footnote_ref="12")` est rendu comme le texte natif
+Qt `[12]`, avec `FOOTNOTE_MARKER_PROPERTY` et `FOOTNOTE_ID_PROPERTY`. Une
+propriété d’instance purement transitoire empêche Qt de fusionner deux appels
+adjacents du même ID ; elle n’est jamais persistée. L’extraction exige à la
+fois les propriétés Mérope et le texte visible exact. Un `[12]` tapé par
+l’utilisateur reste donc du texte ordinaire, tandis qu’un marqueur incomplet
+ou incohérent provoque un refus explicite.
+
+L’apparence réduite en exposant et la couleur du marqueur sont seulement
+visuelles : elles ne deviennent ni `superscript=True`, ni lien, ni autre format
+inline. Les commandes gras, italique, barré, exposant et lien ignorent les
+appels de note comme elles ignorent les images. Un clic sélectionne le marqueur
+entier ; une sélection ou un curseur qui le traverse est étendu à l’objet
+complet avant saisie, suppression, coupe ou collage. Une suppression entière
+utilise l’undo/redo natif Qt et laisse volontairement sa définition dans le
+store comme note orpheline.
+
+Le panneau « Notes » est un `QDockWidget` en lecture seule. Il reconstruit un
+affichage séparé par ID numérique et montre le texte ainsi que gras, italique,
+barré, exposant et liens lorsque présents, sans modifier les `InlineRun`
+stockés et sans rendre le document dirty. Les IDs existants ne sont pas
+renumérotés. Une définition sans appel et un appel sans définition sont tous
+deux conservés lors de la sauvegarde.
+
 ## Explicitement refusé
 
-- l’ouverture éditable et l’enregistrement de fichiers contenant notes,
-  tableaux, blocs `verbatim`, titres hors H1–H4 ou listes complexes ;
+- l’ouverture éditable et l’enregistrement de fichiers contenant tableaux,
+  blocs `verbatim`, titres hors H1–H4 ou listes complexes ;
 - les listes vides ou imbriquées et les éléments de liste contenant des blocs ;
 - l’alignement d’une sélection mêlant paragraphes et éléments de liste ;
 - tout objet, cadre ou tableau Qt que l’adaptateur ne sait pas retranscrire.
@@ -373,6 +420,9 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
+- porter les opérations interactives de notes sur le store canonique :
+  insertion, édition et suppression explicites, puis appliquer le service
+  partagé `plan_footnote_renumbering` sans inventer d’identité Qt persistée ;
 - vérifier manuellement les formats MIME réellement exposés par Word et Google
   Docs sous Windows ;
 - éprouver le redimensionnement sous les facteurs d’échelle d’écran réellement
@@ -387,7 +437,8 @@ refusé n’est ni réécrit ni archivé.
 ## Volontairement différé
 
 - collage d’images et édition riche des légendes ;
-- notes de bas de page et raccourci `((note))` dans l’interface Qt ;
+- édition riche des définitions, insertion/suppression interactive,
+  renumérotation et raccourci `((note))` dans l’interface Qt ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;
 - aperçu HTML par le pipeline réel, gestion complète des fichiers et

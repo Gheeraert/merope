@@ -22,6 +22,7 @@ from PySide6.QtGui import (
     QTextListFormat,
 )
 
+from bloggen.content.footnotes import FootnoteDefinitions
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -38,6 +39,9 @@ from bloggen.ui.qt_editor.constants import (
     BLOCKQUOTE_LEFT_MARGIN,
     BODY_POINT_SIZE,
     BOLD_PROPERTY,
+    FOOTNOTE_ID_PROPERTY,
+    FOOTNOTE_INSTANCE_PROPERTY,
+    FOOTNOTE_MARKER_PROPERTY,
     HEADING_LEVEL_PROPERTY,
     HEADING_POINT_SIZES,
     IMAGE_ALIGN_PROPERTY,
@@ -297,6 +301,95 @@ def image_run_from_format(char_format: QTextCharFormat) -> InlineRun:
     return run
 
 
+def footnote_marker_text(note_id: str) -> str:
+    return f"[{note_id}]"
+
+
+def make_footnote_format(
+    run: InlineRun,
+    *,
+    heading_level: int | None = None,
+    instance_key: int | None = None,
+) -> QTextCharFormat:
+    """Create an atomic native-text marker carrying Merope footnote semantics."""
+
+    _validate_footnote_run(run)
+    char_format = make_char_format(InlineRun(), heading_level=heading_level)
+    char_format.setProperty(FOOTNOTE_MARKER_PROPERTY, True)
+    char_format.setProperty(FOOTNOTE_ID_PROPERTY, run.footnote_ref)
+    if instance_key is not None:
+        char_format.setProperty(FOOTNOTE_INSTANCE_PROPERTY, instance_key)
+    base_size = HEADING_POINT_SIZES.get(heading_level, BODY_POINT_SIZE)
+    char_format.setFontPointSize(base_size * 0.8)
+    char_format.setVerticalAlignment(
+        QTextCharFormat.VerticalAlignment.AlignSuperScript
+    )
+    char_format.setForeground(QColor("#1a5fb4"))
+    return char_format
+
+
+def footnote_run_from_format(
+    char_format: QTextCharFormat,
+    visible_text: str,
+) -> InlineRun:
+    """Reconstruct and validate one semantic footnote-reference fragment."""
+
+    if char_format.isImageFormat():
+        raise UnsupportedInlineError("Un appel de note ne peut pas être une image")
+    if not bool(char_format.property(FOOTNOTE_MARKER_PROPERTY)):
+        raise UnsupportedInlineError("Marqueur de note Qt étranger ou incomplet")
+    if not char_format.hasProperty(FOOTNOTE_ID_PROPERTY):
+        raise UnsupportedInlineError("Appel de note Qt sans identifiant Mérope")
+    note_id = char_format.property(FOOTNOTE_ID_PROPERTY)
+    if not isinstance(note_id, str):
+        raise UnsupportedInlineError("Identifiant de note Qt invalide")
+    run = InlineRun(footnote_ref=note_id)
+    _validate_footnote_run(run)
+    expected = footnote_marker_text(note_id)
+    if visible_text != expected:
+        raise UnsupportedInlineError(
+            f"Marqueur de note Qt incohérent : {visible_text!r}, attendu {expected!r}"
+        )
+    if (
+        char_format.isAnchor()
+        or char_format.fontWeight() >= QFont.Weight.Bold.value
+        or char_format.fontItalic()
+        or char_format.fontStrikeOut()
+        or any(
+            inline_format_enabled(char_format, property_id)
+            for property_id in (
+                BOLD_PROPERTY,
+                ITALIC_PROPERTY,
+                STRIKETHROUGH_PROPERTY,
+                SUPERSCRIPT_PROPERTY,
+            )
+        )
+    ):
+        raise UnsupportedInlineError(
+            "Un appel de note Qt porte un format de texte incompatible"
+        )
+    return run
+
+
+def has_footnote_properties(char_format: QTextCharFormat) -> bool:
+    """Report any Merope footnote metadata, including incomplete metadata."""
+
+    return any(
+        char_format.hasProperty(property_id)
+        for property_id in (
+            FOOTNOTE_MARKER_PROPERTY,
+            FOOTNOTE_ID_PROPERTY,
+            FOOTNOTE_INSTANCE_PROPERTY,
+        )
+    )
+
+
+def is_semantic_inline_object_format(char_format: QTextCharFormat) -> bool:
+    """Return whether text-formatting commands must skip this fragment."""
+
+    return char_format.isImageFormat() or has_footnote_properties(char_format)
+
+
 def refresh_block_visuals(block: QTextBlock) -> None:
     """Refresh heading/body size without altering inline semantic properties."""
 
@@ -358,6 +451,34 @@ def validate_blocks(blocks: Iterable[Block]) -> None:
         raise UnsupportedBlockError(f"Type de bloc Qt non pris en charge : {block.kind}")
 
 
+def validate_footnote_definitions(definitions: FootnoteDefinitions) -> None:
+    """Validate the rich inline subset retained outside the QTextDocument."""
+
+    for note_id, runs in definitions.items():
+        _validate_footnote_id(note_id)
+        if not isinstance(runs, list):
+            raise UnsupportedInlineError(
+                f"La définition de note {note_id} doit contenir une liste de runs"
+            )
+        for run in runs:
+            if run.image_src is not None or any(
+                value is not None
+                for value in (
+                    run.image_alt,
+                    run.image_width,
+                    run.image_height,
+                    run.image_align,
+                )
+            ):
+                raise UnsupportedInlineError(
+                    f"Les images dans la définition de note {note_id} ne sont pas prises en charge"
+                )
+            if run.footnote_ref is not None:
+                raise UnsupportedInlineError(
+                    f"Les appels imbriqués dans la définition de note {note_id} ne sont pas pris en charge"
+                )
+
+
 def _validate_runs(runs: Iterable[InlineRun]) -> None:
     for run in runs:
         has_image_data = run.image_src is not None or any(
@@ -368,9 +489,44 @@ def _validate_runs(runs: Iterable[InlineRun]) -> None:
             _validate_image_run(run)
             continue
         if run.footnote_ref is not None:
-            raise UnsupportedInlineError(
-                "Les appels de note ne sont pas encore pris en charge par Qt"
-            )
+            _validate_footnote_run(run)
+
+
+def _validate_footnote_id(note_id: object) -> None:
+    if not isinstance(note_id, str) or not note_id or not note_id.isdigit():
+        raise UnsupportedInlineError(
+            f"Identifiant numérique de note Mérope invalide : {note_id!r}"
+        )
+
+
+def _validate_footnote_run(run: InlineRun) -> None:
+    _validate_footnote_id(run.footnote_ref)
+    if run.text:
+        raise UnsupportedInlineError(
+            "Un appel de note Mérope ne peut pas contenir simultanément du texte"
+        )
+    if run.image_src is not None or any(
+        value is not None
+        for value in (
+            run.image_alt,
+            run.image_width,
+            run.image_height,
+            run.image_align,
+        )
+    ):
+        raise UnsupportedInlineError(
+            "Un appel de note Mérope ne peut pas être simultanément une image"
+        )
+    if (
+        run.bold
+        or run.italic
+        or run.strikethrough
+        or run.superscript
+        or run.link_href is not None
+    ):
+        raise UnsupportedInlineError(
+            "Un appel de note Mérope ne peut pas porter un format de texte ou un lien"
+        )
 
 
 def _validate_image_run(run: InlineRun) -> None:
@@ -472,6 +628,16 @@ def _insert_runs(
     for run in runs:
         if run.image_src is not None:
             cursor.insertImage(make_image_format(run))
+        elif run.footnote_ref is not None:
+            marker = footnote_marker_text(run.footnote_ref)
+            cursor.insertText(
+                marker,
+                make_footnote_format(
+                    run,
+                    heading_level=heading_level,
+                    instance_key=cursor.position(),
+                ),
+            )
         else:
             cursor.insertText(run.text, make_char_format(run, heading_level=heading_level))
 
@@ -533,6 +699,10 @@ def _extract_runs(block: QTextBlock) -> list[InlineRun]:
         fragment = iterator.fragment()
         if fragment.isValid():
             char_format = fragment.charFormat()
+            if has_footnote_properties(char_format):
+                runs.append(footnote_run_from_format(char_format, fragment.text()))
+                iterator += 1
+                continue
             if char_format.isImageFormat():
                 for _position in range(fragment.length()):
                     runs.append(image_run_from_format(char_format))

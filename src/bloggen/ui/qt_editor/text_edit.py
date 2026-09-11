@@ -49,6 +49,9 @@ from bloggen.markdown.typography import (
 )
 from bloggen.ui.qt_editor.constants import (
     BOLD_PROPERTY,
+    FOOTNOTE_ID_PROPERTY,
+    FOOTNOTE_INSTANCE_PROPERTY,
+    FOOTNOTE_MARKER_PROPERTY,
     ITALIC_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
@@ -57,6 +60,11 @@ from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
     inline_format_enabled,
     insert_blocks,
+    is_semantic_inline_object_format,
+)
+from bloggen.ui.qt_editor.footnote_selection import (
+    expand_selection_to_footnotes,
+    merope_footnote_at_position,
 )
 from bloggen.ui.qt_editor.image_resize import (
     ImageResizeGeometry,
@@ -106,6 +114,9 @@ class MeropeTextEdit(QTextEdit):
         self.document().contentsChanged.connect(self.viewport().update)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._handle_atomic_footnote_key(event):
+            return
+
         char = event.text()
         if char == '"' and self.textCursor().hasSelection():
             self._wrap_selection_in_guillemets()
@@ -134,6 +145,12 @@ class MeropeTextEdit(QTextEdit):
                 event.accept()
                 return
 
+            footnote = self._footnote_at_viewport_point(event.position().toPoint())
+            if footnote is not None:
+                self.setTextCursor(footnote.cursor(self.document()))
+                event.accept()
+                return
+
             target = self._image_at_viewport_point(event.position().toPoint())
             if target is not None:
                 self.setTextCursor(target.cursor(self.document()))
@@ -141,6 +158,106 @@ class MeropeTextEdit(QTextEdit):
                 event.accept()
                 return
         super().mousePressEvent(event)
+
+    def _footnote_at_viewport_point(self, point: QPoint):
+        hit_cursor = self.cursorForPosition(point)
+        candidates = {
+            target.start: target
+            for position in (hit_cursor.position() - 1, hit_cursor.position())
+            if (target := merope_footnote_at_position(self.document(), position))
+            is not None
+        }
+        for target in candidates.values():
+            start = QTextCursor(self.document())
+            start.setPosition(target.start)
+            end = QTextCursor(self.document())
+            end.setPosition(target.end)
+            start_rect = self.cursorRect(start)
+            end_rect = self.cursorRect(end)
+            left = min(start_rect.center().x(), end_rect.center().x())
+            right = max(start_rect.center().x(), end_rect.center().x())
+            top = min(start_rect.top(), end_rect.top())
+            bottom = max(start_rect.bottom(), end_rect.bottom())
+            if left <= point.x() <= right and top <= point.y() <= bottom:
+                return target
+        return None
+
+    def _handle_atomic_footnote_key(self, event: QKeyEvent) -> bool:
+        cursor = self.textCursor()
+        key = event.key()
+        if key in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
+            atomic, contains_note = expand_selection_to_footnotes(cursor)
+            if not contains_note and not cursor.hasSelection():
+                position = cursor.position() - (
+                    1 if key == Qt.Key.Key_Backspace else 0
+                )
+                target = merope_footnote_at_position(self.document(), position)
+                if target is not None:
+                    atomic = target.cursor(self.document())
+                    contains_note = True
+            if contains_note:
+                atomic.beginEditBlock()
+                try:
+                    atomic.removeSelectedText()
+                finally:
+                    atomic.endEditBlock()
+                self.setTextCursor(atomic)
+                return True
+            return False
+
+        if not event.text() or event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        ):
+            return False
+        atomic, contains_note = expand_selection_to_footnotes(cursor)
+        adjacent_note = False
+        if not contains_note and not cursor.hasSelection():
+            adjacent_note = self._cursor_touches_footnote(cursor)
+        if not contains_note and not adjacent_note:
+            return False
+        replacement_format = self._plain_footnote_replacement_format(atomic)
+        autoformat = len(event.text()) == 1 and self._typing_requires_autoformat(
+            event.text()
+        )
+        atomic.beginEditBlock()
+        try:
+            atomic.removeSelectedText()
+            atomic.insertText(event.text(), replacement_format)
+        finally:
+            atomic.endEditBlock()
+        self.setTextCursor(atomic)
+        if autoformat:
+            self._apply_typing_autoformat(event.text())
+        return True
+
+    def _cursor_touches_footnote(self, cursor: QTextCursor) -> bool:
+        if cursor.hasSelection():
+            return False
+        return any(
+            merope_footnote_at_position(self.document(), position) is not None
+            for position in (cursor.position() - 1, cursor.position())
+        )
+
+    @staticmethod
+    def _plain_footnote_replacement_format(cursor: QTextCursor) -> QTextCharFormat:
+        replacement_format = QTextCharFormat(cursor.blockCharFormat())
+        for property_id in (
+            FOOTNOTE_MARKER_PROPERTY,
+            FOOTNOTE_ID_PROPERTY,
+            FOOTNOTE_INSTANCE_PROPERTY,
+        ):
+            replacement_format.clearProperty(property_id)
+        if is_semantic_inline_object_format(replacement_format):
+            replacement_format = QTextCharFormat()
+        return replacement_format
+
+    def cut(self) -> None:
+        cursor, contains_note = expand_selection_to_footnotes(self.textCursor())
+        if contains_note:
+            self.setTextCursor(cursor)
+        super().cut()
 
     def _image_at_viewport_point(self, point: QPoint) -> ImageTarget | None:
         hit_cursor = self.cursorForPosition(point)
@@ -290,6 +407,10 @@ class MeropeTextEdit(QTextEdit):
         document is touched.
         """
 
+        cursor, contains_note = expand_selection_to_footnotes(self.textCursor())
+        if contains_note:
+            self.setTextCursor(cursor)
+
         if source.hasHtml() and source.html().strip():
             try:
                 blocks = html_to_blocks(
@@ -309,9 +430,16 @@ class MeropeTextEdit(QTextEdit):
 
         if source.hasText():
             cursor = self.textCursor()
+            atomic_paste = contains_note or self._cursor_touches_footnote(cursor)
             cursor.beginEditBlock()
             try:
-                cursor.insertText(source.text())
+                if atomic_paste:
+                    cursor.insertText(
+                        source.text(),
+                        self._plain_footnote_replacement_format(cursor),
+                    )
+                else:
+                    cursor.insertText(source.text())
             finally:
                 cursor.endEditBlock()
             self.setTextCursor(cursor)
