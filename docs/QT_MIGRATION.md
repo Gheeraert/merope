@@ -53,7 +53,7 @@ immédiatement. Le protocole version 1 conserve `ready`, `opened`, `saved`,
 l’exige, et ajoute `config_requested` avec un `request_id` entier positif.
 stderr reste réservé aux diagnostics humains.
 
-### Configuration vivante pour le futur aperçu
+### Configuration vivante pour l’aperçu Qt
 
 La propriété des données reste explicite : Tk possède le `ProjectConfig`
 vivant, y compris les champs de formulaire non enregistrés ; Qt possède seul
@@ -97,6 +97,82 @@ sur une pipe Windows. Un EOF rend seulement la configuration live indisponible :
 la fenêtre et son document restent ouverts. Le timer est arrêté à la fermeture,
 sans `join()` susceptible de bloquer. En mode autonome sans `--ipc`, toute
 demande échoue explicitement et aucune configuration disque n’est consultée.
+
+Même les échecs immédiatement connus de `request_config()` (mode autonome,
+parent disparu ou stdout cassé) sont livrés au tour d’event loop suivant. La
+méthode retourne donc toujours son `request_id` avant tout signal
+`configReady` ou `configFailed`, ce qui permet au consommateur d’enregistrer
+sa corrélation sans course.
+
+### Aperçu HTML ponctuel Qt
+
+La barre d’outils Qt possède désormais une commande « Aperçu HTML ». Elle ne
+fonctionne qu’à la demande de l’utilisateur : aucun debounce, timer de rebuild
+ou aperçu live n’est encore actif.
+
+```text
+clic Aperçu HTML
+  → snapshot canonique QTextDocument + FootnoteStore
+  → config_requested(request_id)
+  → ProjectConfig vivant fourni par Tk
+  → Markdown temporaire voisin du fichier source
+  → scratch neuf merope-qt-preview-*
+  → normalisation + Pandoc + TEI + XSLT
+  → lightbox + notes + template réel
+  → index.html + _current.txt
+  → python -m bloggen.ui.preview_process
+```
+
+`PreviewSnapshot` fige au moment du clic le Markdown reconstruit, les
+métadonnées, le chemin et le kind courant. Si l’utilisateur continue à taper
+pendant l’attente de Tk, la réponse reste associée au snapshot initial. Une
+réponse obsolète est ignorée ; aucune configuration d’une demande ne peut être
+mélangée au document d’une autre. L’action est désactivée pendant la demande et
+le build pertinent.
+
+Le kind est déterminé par accord entre `metadata["type"]`, le `current_kind`
+de session lorsqu’il existe, et l’appartenance du chemin aux dossiers pages ou
+billets de la configuration. Une contradiction est une erreur, comme
+l’impossibilité de déterminer le kind. Un document sans `current_path` est
+refusé : les ressources relatives n’auraient pas d’ancrage sûr.
+
+Le fichier `.__merope_qt_preview__-<uuid>.md` est écrit dans le répertoire du
+Markdown utilisateur, jamais dans le scratch système. Les chemins d’images
+relatifs gardent ainsi exactement leur base habituelle. Ce fichier unique est
+supprimé dans un `finally`, en succès comme en erreur, sans versionnement et
+sans remplacer le vrai source.
+
+Chaque clic crée un nouveau scratch avec `tempfile.mkdtemp`. Les ressources du
+thème sont produites par `copy_theme_resources` et les assets du projet par
+`copy_project_assets` lorsque `build.copy_assets` est actif. Rien n’est repris
+du vrai dossier `site/` ou d’un aperçu antérieur. Le TEI et le HTML restent
+entièrement dans le scratch ; le `pending_sidecar` retourné par
+`_build_single_item` n’est jamais écrit près des contenus.
+
+Le service parse le front matter temporaire, appelle
+`normalize_markdown_text`, `build_content_metadata`, `collect_linked_assets`,
+puis le vrai `_build_single_item`. Les notes structurées et les `((notes
+différées))` passent donc par leurs chemins de publication ordinaires. Pour une
+page, l’HTML est `<scratch>/<slug>/index.html`; pour un billet,
+`<scratch>/<archive_path>/<slug>/index.html`.
+
+Le processus d’affichage reste le processus pywebview existant :
+
+```text
+sys.executable -m bloggen.ui.preview_process <pointer_path>
+```
+
+Sa disponibilité est vérifiée avec `find_spec` sans importer `webview` dans le
+processus Qt. Un nouveau build doit réussir entièrement avant que l’ancien
+processus et son scratch soient remplacés. Un échec conserve l’ancien aperçu ;
+la fermeture Qt termine le processus courant et supprime son scratch, sans
+attente bloquante.
+
+Cet aperçu est strictement une lecture : **preview ≠ save**, **preview ≠
+renumber**, **preview ≠ nettoyage du dirty state**, et **preview ≠ lecture de
+`site.json`**. Il ne touche ni au `QTextDocument`, ni au `FootnoteStore`, ni à
+la sélection, aux piles undo/redo, au recovery, aux `.versions`, au source
+Markdown, au vrai output ou au sidecar TEI utilisateur.
 
 ## Fonctionne maintenant
 
@@ -146,6 +222,8 @@ demande échoue explicitement et aucune configuration disque n’est consultée.
   seule, puis réunis sans sérialisation Qt lors de la sauvegarde ;
 - l’autosauvegarde de sécurité et la récupération après incident dans le format
   partagé `.merope-recovery/draft.json`, lorsque `project_root` est fourni ;
+- l’aperçu HTML ponctuel du document Qt non enregistré avec configuration Tk
+  vivante, via le vrai pipeline de publication et un scratch isolé ;
 - une erreur explicite avant toute modification du document pour les blocs ou
   feuilles inline que ce prototype ne sait pas conserver.
 
@@ -649,10 +727,9 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
-- construire en 7c un aperçu ponctuel qui demande d’abord la configuration
-  live, sérialise le document Qt courant dans un espace temporaire, puis appelle
-  le pipeline réel Markdown → Pandoc → TEI → XSLT sans réutiliser le fichier
-  utilisateur comme source intermédiaire ;
+- décider si l’étape suivante priorise un aperçu live avec debounce, build hors
+  thread GUI et politique d’obsolescence, ou le collage d’images Word/Google
+  Docs avec extraction/copie sûre des ressources MIME ;
 - décider, dans un lot fonctionnel distinct, si une commande utilisateur
   explicite « Convertir les `((...))` » présente un intérêt ; aucune conversion
   interactive automatique n’est prévue ;
@@ -673,8 +750,8 @@ refusé n’est ni réécrit ni archivé.
 - éventuelle commande explicite de conversion des `((note))` en notes
   structurées ;
 - tableaux WYSIWYG et blocs `verbatim` ;
-- aperçu HTML par le pipeline réel, gestion complète des fichiers et
-  métadonnées éditables ;
+- aperçu live automatique, gestion complète des fichiers et métadonnées
+  éditables ;
 - toute commande IPC supplémentaire au-delà des réponses de configuration
   `config_snapshot` / `config_error`.
 

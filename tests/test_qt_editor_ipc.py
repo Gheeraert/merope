@@ -236,7 +236,8 @@ def test_stdin_eof_disables_live_config_but_not_qt(qapplication):
 
     assert failures and failures[0][0] == first_request
     second_request = bridge.request_config()
-    assert failures[-1][0] == second_request
+    assert failures[-1][0] != second_request
+    _wait_until(qapplication, lambda: failures[-1][0] == second_request)
     assert "indisponible" in failures[-1][1]
     bridge.shutdown()
 
@@ -248,5 +249,38 @@ def test_standalone_request_fails_explicitly_without_disk_fallback(qapplication)
 
     request_id = bridge.request_config()
 
-    assert failures == [(request_id, "Configuration live indisponible dans ce mode.")]
+    assert failures == []
+    _wait_until(qapplication, lambda: bool(failures))
+    assert failures == [
+        (
+            request_id,
+            "Configuration live indisponible dans ce mode. Lancez l’éditeur Qt "
+            "depuis Mérope pour utiliser l’aperçu HTML.",
+        )
+    ]
+    bridge.shutdown()
+
+
+def test_immediate_stdout_failure_is_delivered_after_request_returns(qapplication):
+    class BrokenOutput:
+        def write(self, value):
+            raise BrokenPipeError
+
+        def flush(self):
+            raise AssertionError("flush should not follow failed write")
+
+    bridge = QtEditorIpcBridge(
+        enabled=True,
+        input_stream=_BlockingLines(),
+        output_stream=BrokenOutput(),
+        start_reader=False,
+    )
+    failures = []
+    bridge.configFailed.connect(lambda *args: failures.append(args))
+
+    request_id = bridge.request_config()
+
+    assert failures == []
+    _wait_until(qapplication, lambda: bool(failures))
+    assert failures[0][0] == request_id
     bridge.shutdown()

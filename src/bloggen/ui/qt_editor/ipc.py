@@ -21,7 +21,10 @@ from bloggen.ui.qt_editor_protocol import (
 )
 
 
-_UNAVAILABLE_MESSAGE = "Configuration live indisponible dans ce mode."
+_UNAVAILABLE_MESSAGE = (
+    "Configuration live indisponible dans ce mode. Lancez l’éditeur Qt "
+    "depuis Mérope pour utiliser l’aperçu HTML."
+)
 _PARENT_GONE_MESSAGE = "La configuration live est indisponible : le processus Tk a fermé."
 
 
@@ -49,9 +52,7 @@ class QtEditorIpcBridge(QObject):
         self._stopped = False
         self._next_request_id = 1
         self._pending_request_ids: set[int] = set()
-        self._incoming: queue.SimpleQueue[
-            tuple[str, ProtocolCommand | str | None]
-        ] = queue.SimpleQueue()
+        self._incoming: queue.SimpleQueue[tuple[str, object]] = queue.SimpleQueue()
         self._drain_timer = QTimer(self)
         self._drain_timer.setInterval(poll_interval_ms)
         self._drain_timer.timeout.connect(self.drain_pending)
@@ -74,7 +75,7 @@ class QtEditorIpcBridge(QObject):
         request_id = self._next_request_id
         self._next_request_id += 1
         if not self.available:
-            self.configFailed.emit(request_id, _UNAVAILABLE_MESSAGE)
+            self._queue_failure(request_id, _UNAVAILABLE_MESSAGE)
             return request_id
 
         self._pending_request_ids.add(request_id)
@@ -85,7 +86,7 @@ class QtEditorIpcBridge(QObject):
         ):
             self._pending_request_ids.discard(request_id)
             self._available = False
-            self.configFailed.emit(request_id, _PARENT_GONE_MESSAGE)
+            self._queue_failure(request_id, _PARENT_GONE_MESSAGE)
         return request_id
 
     def drain_pending(self) -> None:
@@ -105,6 +106,9 @@ class QtEditorIpcBridge(QObject):
                 self.protocolError.emit(str(payload))
             elif kind == "eof":
                 self._mark_parent_unavailable()
+            elif kind == "failure":
+                request_id, message = payload
+                self.configFailed.emit(request_id, message)
 
     def shutdown(self) -> None:
         """Stop Qt delivery without joining a potentially blocked stdin thread."""
@@ -128,6 +132,12 @@ class QtEditorIpcBridge(QObject):
             self._incoming.put(("protocol_error", f"Lecture stdin impossible : {exc}"))
         finally:
             self._incoming.put(("eof", None))
+
+    def _queue_failure(self, request_id: int, message: str) -> None:
+        """Deliver even immediate request failures on a later Qt turn."""
+
+        self._incoming.put(("failure", (request_id, message)))
+        QTimer.singleShot(0, self.drain_pending)
 
     def _handle_command(self, command: ProtocolCommand) -> None:
         request_id = command.request_id

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from bloggen.config.models import ProjectConfig
 from bloggen.content.footnotes import (
     FootnoteDefinitions,
     footnote_definition_blocks,
@@ -67,6 +69,22 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_strikethrough,
     toggle_superscript,
 )
+from bloggen.ui.editor_recovery import (
+    RecoveryDraft,
+    clear_draft,
+    load_draft,
+    save_draft,
+)
+from bloggen.ui.qt_editor.footnote_editor import (
+    FootnoteEditorDialog,
+    footnote_runs_semantically_equal,
+    validate_footnote_runs,
+)
+from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
+from bloggen.ui.qt_editor.footnote_store import (
+    FootnoteStore,
+    FootnoteStoreSnapshot,
+)
 from bloggen.ui.qt_editor.image_crop import validate_source_box
 from bloggen.ui.qt_editor.image_crop_dialog import CropImageDialog, crop_source_size
 from bloggen.ui.qt_editor.image_dialog import ImageMetadataDialog
@@ -76,21 +94,14 @@ from bloggen.ui.qt_editor.image_selection import (
     targeted_merope_image,
 )
 from bloggen.ui.qt_editor.ipc import QtEditorIpcBridge
-from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
-from bloggen.ui.qt_editor.footnote_editor import (
-    FootnoteEditorDialog,
-    footnote_runs_semantically_equal,
-    validate_footnote_runs,
-)
-from bloggen.ui.qt_editor.footnote_store import (
-    FootnoteStore,
-    FootnoteStoreSnapshot,
-)
-from bloggen.ui.editor_recovery import (
-    RecoveryDraft,
-    clear_draft,
-    load_draft,
-    save_draft,
+from bloggen.ui.qt_editor.preview import (
+    PreviewArtifact,
+    PreviewBuildError,
+    PreviewSnapshot,
+    build_preview_artifact,
+    launch_preview_process,
+    pywebview_available,
+    remove_preview_artifact,
 )
 from bloggen.ui.qt_editor.recovery import (
     AUTOSAVE_INTERVAL_MS,
@@ -131,7 +142,14 @@ class QtEditorWindow(QMainWindow):
         self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
         self.images_dir = Path(images_dir) if images_dir is not None else None
         self.ipc = ipc
+        self._pending_preview_request_id: int | None = None
+        self._pending_preview_snapshots: dict[int, PreviewSnapshot] = {}
+        self._preview_artifact: PreviewArtifact | None = None
+        self._preview_process: subprocess.Popen | None = None
         self.ipc_bridge = QtEditorIpcBridge(enabled=ipc, parent=self)
+        self.ipc_bridge.configReady.connect(self._on_preview_config_ready)
+        self.ipc_bridge.configFailed.connect(self._on_preview_config_failed)
+        self.ipc_bridge.protocolError.connect(self._on_preview_protocol_error)
         self.resize(920, 700)
         self.editor = MeropeTextEdit(self)
         self.editor.pasteRefused.connect(self._show_paste_refused)
@@ -315,6 +333,11 @@ class QtEditorWindow(QMainWindow):
             toolbar, "Enregistrer", self.save_document, "Ctrl+S"
         )
         self.save_action.setEnabled(False)
+        self.preview_action = self._add_action(
+            toolbar,
+            "Aperçu HTML",
+            self._request_html_preview,
+        )
         toolbar.addSeparator()
         self._add_action(toolbar, "Gras", lambda: toggle_bold(self.editor), "Ctrl+B")
         self._add_action(toolbar, "Italique", lambda: toggle_italic(self.editor), "Ctrl+I")
@@ -892,6 +915,7 @@ class QtEditorWindow(QMainWindow):
             if had_unsaved_changes:
                 self._clear_recovery_draft()
             self.autosave_timer.stop()
+            self._close_html_preview()
             self.ipc_bridge.shutdown()
             event.accept()
         else:
@@ -901,6 +925,120 @@ class QtEditorWindow(QMainWindow):
         """Request a fresh parent-owned ProjectConfig snapshot asynchronously."""
 
         return self.ipc_bridge.request_config()
+
+    def _request_html_preview(self) -> None:
+        """Snapshot the current model, then asynchronously request live config."""
+
+        if self.current_path is None:
+            self._show_preview_error(
+                "L’aperçu exige un document Mérope déjà ouvert afin de résoudre "
+                "ses ressources relatives."
+            )
+            return
+        try:
+            body_blocks = extract_blocks(self.editor.document())
+            all_blocks = body_blocks + footnote_definition_blocks(
+                self.footnote_store.definitions
+            )
+            snapshot = PreviewSnapshot(
+                body_markdown=blocks_to_markdown(all_blocks),
+                metadata=dict(self.metadata),
+                current_path=self.current_path,
+                current_kind=self.current_kind,
+            )
+        except (UnsupportedDocumentError, ValueError) as exc:
+            self._show_preview_error(str(exc))
+            return
+
+        request_id = self.request_live_config()
+        self._pending_preview_request_id = request_id
+        self._pending_preview_snapshots[request_id] = snapshot
+        self.preview_action.setEnabled(False)
+
+    def _on_preview_config_ready(
+        self,
+        request_id: int,
+        config: ProjectConfig,
+    ) -> None:
+        snapshot = self._pending_preview_snapshots.pop(request_id, None)
+        if request_id != self._pending_preview_request_id or snapshot is None:
+            return
+        try:
+            if self.project_root is None:
+                raise PreviewBuildError(
+                    "L’aperçu exige la racine de projet fixe transmise par Mérope."
+                )
+            artifact = build_preview_artifact(
+                snapshot,
+                config=config,
+                project_root=self.project_root,
+            )
+            self._activate_preview_artifact(artifact)
+        except PreviewBuildError as exc:
+            self._show_preview_error(str(exc))
+        finally:
+            self._finish_preview_request(request_id)
+
+    def _on_preview_config_failed(self, request_id: int, message: str) -> None:
+        self._pending_preview_snapshots.pop(request_id, None)
+        if request_id != self._pending_preview_request_id:
+            return
+        self._show_preview_error(message)
+        self._finish_preview_request(request_id)
+
+    def _on_preview_protocol_error(self, message: str) -> None:
+        request_id = self._pending_preview_request_id
+        if request_id is None:
+            return
+        self._show_preview_error(f"Réponse de configuration invalide : {message}")
+        self._finish_preview_request(request_id)
+
+    def _finish_preview_request(self, request_id: int) -> None:
+        if request_id != self._pending_preview_request_id:
+            return
+        self._pending_preview_request_id = None
+        self._pending_preview_snapshots.clear()
+        self.preview_action.setEnabled(True)
+
+    def _activate_preview_artifact(self, artifact: PreviewArtifact) -> None:
+        """Swap preview process/scratch only after the new build succeeded."""
+
+        if not pywebview_available():
+            remove_preview_artifact(artifact)
+            raise PreviewBuildError(
+                "Aperçu HTML indisponible : pywebview n’est pas installé."
+            )
+        old_process = self._preview_process
+        old_artifact = self._preview_artifact
+        if old_process is not None and old_process.poll() is None:
+            try:
+                old_process.terminate()
+            except OSError:
+                pass
+        self._preview_process = None
+        self._preview_artifact = None
+        remove_preview_artifact(old_artifact)
+        try:
+            process = launch_preview_process(artifact)
+        except PreviewBuildError:
+            remove_preview_artifact(artifact)
+            raise
+        self._preview_process = process
+        self._preview_artifact = artifact
+
+    def _close_html_preview(self) -> None:
+        process = self._preview_process
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+        self._preview_process = None
+        remove_preview_artifact(self._preview_artifact)
+        self._preview_artifact = None
+
+    def _show_preview_error(self, message: str) -> None:
+        QMessageBox.critical(self, "Aperçu HTML", message)
 
     def _emit(
         self,
