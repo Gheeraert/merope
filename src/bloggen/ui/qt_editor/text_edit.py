@@ -7,11 +7,12 @@ from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
 from typing import Callable
 
-from PySide6.QtCore import QMimeData, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QByteArray, QMimeData, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
     QKeyEvent,
+    QKeySequence,
     QMouseEvent,
     QPaintEvent,
     QPainter,
@@ -20,7 +21,7 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
 )
-from PySide6.QtWidgets import QTextEdit
+from PySide6.QtWidgets import QApplication, QTextEdit
 
 from bloggen.markdown.html_paste_import import (
     UnsupportedHtmlStructureError,
@@ -46,6 +47,12 @@ from bloggen.markdown.typography import (
     fix_period_spacing,
     is_valid_century_ordinal,
     oe_ligature_replacement,
+)
+from bloggen.ui.qt_editor.clipboard_fragment import (
+    MEROPE_FRAGMENT_MIME,
+    InvalidMeropeClipboardFragment,
+    decode_markdown_fragment,
+    encode_selection_as_markdown,
 )
 from bloggen.ui.qt_editor.constants import (
     BOLD_PROPERTY,
@@ -104,6 +111,7 @@ class MeropeTextEdit(QTextEdit):
     """
 
     pasteRefused = Signal(str)
+    clipboardRefused = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -114,6 +122,18 @@ class MeropeTextEdit(QTextEdit):
         self.document().contentsChanged.connect(self.viewport().update)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self.copy()
+            event.accept()
+            return
+        if event.matches(QKeySequence.StandardKey.Cut):
+            self.cut()
+            event.accept()
+            return
+        if event.matches(QKeySequence.StandardKey.Paste):
+            self.paste()
+            event.accept()
+            return
         if self._handle_atomic_footnote_key(event):
             return
 
@@ -253,11 +273,53 @@ class MeropeTextEdit(QTextEdit):
             replacement_format = QTextCharFormat()
         return replacement_format
 
+    def copy(self) -> None:
+        if not self._copy_footnote_selection(cut=False):
+            super().copy()
+
     def cut(self) -> None:
-        cursor, contains_note = expand_selection_to_footnotes(self.textCursor())
-        if contains_note:
-            self.setTextCursor(cursor)
+        if self.isReadOnly():
+            self.copy()
+            return
+        if self._copy_footnote_selection(cut=True):
+            return
         super().cut()
+
+    def _copy_footnote_selection(self, *, cut: bool) -> bool:
+        try:
+            cursor, contains_note = expand_selection_to_footnotes(
+                self.textCursor()
+            )
+        except UnsupportedDocumentError as exc:
+            self.clipboardRefused.emit(
+                f"La sélection Mérope n’a pas pu être copiée sans perte : {exc}"
+            )
+            return True
+        if not contains_note:
+            return False
+        self.setTextCursor(cursor)
+        try:
+            native_mime = super().createMimeDataFromSelection()
+            mime_data = QMimeData()
+            for mime_type in native_mime.formats():
+                mime_data.setData(mime_type, native_mime.data(mime_type))
+            payload = encode_selection_as_markdown(cursor)
+            mime_data.setData(MEROPE_FRAGMENT_MIME, QByteArray(payload))
+        except (ValueError, UnsupportedDocumentError) as exc:
+            self.clipboardRefused.emit(
+                f"La sélection Mérope n’a pas pu être copiée sans perte : {exc}"
+            )
+            return True
+
+        QApplication.clipboard().setMimeData(mime_data)
+        if cut:
+            cursor.beginEditBlock()
+            try:
+                cursor.removeSelectedText()
+            finally:
+                cursor.endEditBlock()
+            self.setTextCursor(cursor)
+        return True
 
     def _image_at_viewport_point(self, point: QPoint) -> ImageTarget | None:
         hit_cursor = self.cursorForPosition(point)
@@ -394,6 +456,8 @@ class MeropeTextEdit(QTextEdit):
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         """Accept only MIME content that Merope can inspect safely itself."""
 
+        if source.hasFormat(MEROPE_FRAGMENT_MIME):
+            return True
         if source.hasHtml() and bool(source.html().strip()):
             return True
         return source.hasText() and bool(source.text())
@@ -406,6 +470,20 @@ class MeropeTextEdit(QTextEdit):
         semantic structures refuse the entire paste before the selection or
         document is touched.
         """
+
+        if source.hasFormat(MEROPE_FRAGMENT_MIME):
+            try:
+                blocks = decode_markdown_fragment(source.data(MEROPE_FRAGMENT_MIME))
+                cursor, contains_note = expand_selection_to_footnotes(
+                    self.textCursor()
+                )
+                if contains_note:
+                    self.setTextCursor(cursor)
+                cursor = insert_blocks(self.textCursor(), blocks)
+                self.setTextCursor(cursor)
+            except (InvalidMeropeClipboardFragment, UnsupportedDocumentError) as exc:
+                self.pasteRefused.emit(f"Fragment Mérope invalide : {exc}")
+            return
 
         cursor, contains_note = expand_selection_to_footnotes(self.textCursor())
         if contains_note:

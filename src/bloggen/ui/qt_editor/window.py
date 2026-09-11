@@ -89,6 +89,7 @@ class QtEditorWindow(QMainWindow):
         self.resize(920, 700)
         self.editor = MeropeTextEdit(self)
         self.editor.pasteRefused.connect(self._show_paste_refused)
+        self.editor.clipboardRefused.connect(self._show_clipboard_refused)
         self.setCentralWidget(self.editor)
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
@@ -497,6 +498,9 @@ class QtEditorWindow(QMainWindow):
             "Collage impossible",
             f"Le contenu n’a pas été collé afin d’éviter une perte de données.\n\n{message}",
         )
+
+    def _show_clipboard_refused(self, message: str) -> None:
+        QMessageBox.warning(self, "Copie impossible", message)
 
     def _open_from_dialog(self) -> None:
         path, _selected_filter = QFileDialog.getOpenFileName(

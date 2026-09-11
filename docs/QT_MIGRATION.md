@@ -407,6 +407,28 @@ stockés et sans rendre le document dirty. Les IDs existants ne sont pas
 renumérotés. Une définition sans appel et un appel sans définition sont tous
 deux conservés lors de la sauvegarde.
 
+Le presse-papiers distingue désormais deux contrats :
+
+```text
+clipboard externe : text/plain + text/html produits par Qt
+clipboard Mérope  : application/x-merope-markdown-fragment en supplément
+```
+
+Pour une sélection contenant un appel de note, copy/cut étend d’abord chaque
+marqueur partiel à sa plage complète. Les formats standards restent présents
+pour Word, un navigateur ou tout autre logiciel, où l’appel apparaît simplement
+comme `[1]`. Le MIME interne contient en UTF-8 le Markdown canonique obtenu par
+`QTextDocumentFragment → extract_blocks → blocks_to_markdown`.
+
+Au collage, ce MIME est prioritaire sur HTML puis texte brut. Il repasse par
+`markdown_to_blocks`, la validation complète de l’adaptateur et `insert_blocks`.
+Un payload interne invalide refuse toute l’opération sans fallback et sans
+mutation du document. Seul le fragment du corps est transporté : les
+définitions ne le sont pas, et une référence collée peut donc rester sans
+définition. Les `UserProperty` Qt ne sont jamais un format de sérialisation
+entre widgets ; de nouvelles propriétés d’instance sont recréées lors de
+l’insertion canonique.
+
 ## Explicitement refusé
 
 - l’ouverture éditable et l’enregistrement de fichiers contenant tableaux,
