@@ -127,6 +127,10 @@ class MeropeTextEdit(QTextEdit):
 
     The widget owns interaction behaviour only.  ``Block`` / ``InlineRun``
     remain canonical and are still converted by ``document_adapter``.
+
+    The historical ``((note))`` shorthand deliberately remains ordinary rich
+    text here (including during paste). Only Markdown normalization in the
+    build/preview pipeline converts that syntax to a Pandoc inline footnote.
     """
 
     pasteRefused = Signal(str)

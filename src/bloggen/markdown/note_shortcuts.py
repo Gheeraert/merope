@@ -7,12 +7,12 @@ version of this module required one, which meant the extremely common
 "note right before the sentence's closing punctuation" case silently never
 converted).
 
-The shorthand is deliberately left untouched while typing or pasting in
-:mod:`bloggen.ui.content_editor` — converting it live used to flatten it
+The shorthand is deliberately left untouched while typing or pasting in the
+Tk and Qt content editors — converting it live used to flatten it
 to a resolved footnote reference immediately, which meant the note text
 could no longer be edited like normal body text (selecting it to toggle
 bold/italic, for instance, meant reopening the footnote panel). Instead
-the editor stores ``((note))`` as plain text, and it is only ever
+the editors store ``((note))`` as ordinary rich text, and it is only ever
 resolved at Markdown-normalization time, via
 :func:`convert_double_paren_notes_in_markdown_text` (rewrites straight to
 Pandoc's inline footnote syntax, ``^[note text]``) — see
@@ -199,12 +199,52 @@ def _convert_markdown_line(line: str) -> str:
     for index, part in enumerate(parts):
         if part.startswith("`"):
             continue
-        parts[index] = DOUBLE_PAREN_NOTE_RE.sub(_markdown_replacement, part)
+        parts[index] = _convert_markdown_segment(part)
     return "".join(parts)
 
 
-def _markdown_replacement(match: re.Match[str]) -> str:
-    note_text = match.group(1).strip()
-    if not note_text:
-        return match.group(0)
-    return f"^[{note_text}]"
+def _convert_markdown_segment(text: str) -> str:
+    """Convert shortcuts while respecting balanced parentheses in content.
+
+    A Markdown link ending immediately before the shortcut delimiter contains
+    three consecutive closing parentheses: one closes the URL, then two close
+    the note. A non-greedy regular expression mistakes the first two for the
+    note delimiter. This small scanner distinguishes balanced inner
+    parentheses from the outer ``))`` without parsing Markdown generally.
+    """
+
+    converted: list[str] = []
+    cursor = 0
+    while True:
+        start = text.find("((", cursor)
+        if start < 0:
+            converted.append(text[cursor:])
+            break
+        end = _find_double_paren_note_end(text, start + 2)
+        if end is None:
+            converted.append(text[cursor:])
+            break
+        note_text = text[start + 2 : end].strip()
+        converted.append(text[cursor:start])
+        if note_text:
+            converted.append(f"^[{note_text}]")
+        else:
+            converted.append(text[start : end + 2])
+        cursor = end + 2
+    return "".join(converted)
+
+
+def _find_double_paren_note_end(text: str, start: int) -> int | None:
+    depth = 0
+    position = start
+    while position < len(text) - 1:
+        character = text[position]
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            if depth:
+                depth -= 1
+            elif text[position + 1] == ")":
+                return position
+        position += 1
+    return None

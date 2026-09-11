@@ -262,6 +262,14 @@ def test_markdown_note_containing_a_markdown_link_converts():
     )
 
 
+def test_markdown_note_ending_with_link_keeps_the_link_closing_parenthesis():
+    text = "Bossuet((voir [Meaux](https://example.org)))."
+
+    result = convert_double_paren_notes_in_markdown_text(text)
+
+    assert result == "Bossuet^[voir [Meaux](https://example.org)]."
+
+
 def test_note_formatting_is_preserved_in_the_registered_runs():
     """Regression: a note containing formatted text (e.g. an italicized
     title) used to lose that formatting entirely — register_note received

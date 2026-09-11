@@ -502,6 +502,36 @@ définition. Les `UserProperty` Qt ne sont jamais un format de sérialisation
 entre widgets ; de nouvelles propriétés d’instance sont recréées lors de
 l’insertion canonique.
 
+### Notes structurées et raccourci `((...))`
+
+Deux mécanismes volontairement distincts coexistent :
+
+```text
+note structurée Qt
+  → InlineRun(footnote_ref)
+  → FootnoteStore
+  → appel + définition Markdown
+
+raccourci Hypothèses
+  → texte riche ordinaire ((...))
+  → sauvegardé et rouvert sous cette forme
+  → conversion uniquement par normalize_markdown_text()
+```
+
+`MeropeTextEdit` ne branche donc ni `split_double_paren_notes` ni
+`convert_double_paren_notes_in_blocks` sur la frappe, le collage, le curseur ou
+la sauvegarde. Les doubles parenthèses ne portent aucune `UserProperty` et
+peuvent traverser plusieurs `InlineRun` (gras, italique ou lien) comme n’importe
+quel texte riche. Le MIME Mérope interne et l’import HTML les conservent eux
+aussi littéralement.
+
+La renumérotation ne voit que les véritables `InlineRun.footnote_ref` et ignore
+entièrement cette syntaxe textuelle. Au build ou dans l’aperçu utilisant le vrai
+pipeline, `normalize_markdown_text` la transforme en note inline Pandoc `^[...]`,
+tout en laissant intacts le code en ligne et les blocs de code clôturés. Cette
+distinction maintient le contenu du raccourci normalement éditable et correspond
+au contrat historique de Mérope.
+
 ## Explicitement refusé
 
 - l’ouverture éditable et l’enregistrement de fichiers contenant tableaux,
@@ -515,8 +545,9 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
-- porter le raccourci `((note))` en réutilisant le dialogue riche et les
-  opérations canoniques `FootnoteStore.register` / `insert_footnote_reference` ;
+- décider, dans un lot fonctionnel distinct, si une commande utilisateur
+  explicite « Convertir les `((...))` » présente un intérêt ; aucune conversion
+  interactive automatique n’est prévue ;
 - vérifier manuellement les formats MIME réellement exposés par Word et Google
   Docs sous Windows ;
 - éprouver le redimensionnement sous les facteurs d’échelle d’écran réellement
@@ -531,7 +562,8 @@ refusé n’est ni réécrit ni archivé.
 ## Volontairement différé
 
 - collage d’images et édition riche des légendes ;
-- raccourci `((note))` dans l’interface Qt ;
+- éventuelle commande explicite de conversion des `((note))` en notes
+  structurées ;
 - tableaux WYSIWYG et blocs `verbatim` ;
 - autosauvegarde et récupération après incident ;
 - aperçu HTML par le pipeline réel, gestion complète des fichiers et
