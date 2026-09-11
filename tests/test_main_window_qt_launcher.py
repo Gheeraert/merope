@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from bloggen.ui import main_window as main_window_module
+from bloggen.config.models import ProjectConfig
 from bloggen.ui.main_window import MainWindow
 from bloggen.ui.qt_editor_launcher import (
     ProcessExited,
@@ -198,3 +199,133 @@ def test_startup_timeout_offers_fallback_and_releases_launcher():
     assert host._qt_editor_launcher is None
     assert len(fallbacks) == 1
     assert "10 s" in fallbacks[0]
+
+
+class _ConfigRequestLauncher:
+    ready = True
+
+    def __init__(self, context, notifications=()):
+        self.context = context
+        self.notifications = list(notifications)
+        self.snapshots = []
+        self.errors = []
+
+    def drain_notifications(self):
+        result = self.notifications
+        self.notifications = []
+        return result
+
+    def check_startup_timeout(self):
+        return None
+
+    def send_config_snapshot(self, request_id, payload):
+        self.snapshots.append((request_id, payload))
+
+    def send_config_error(self, request_id, message):
+        self.errors.append((request_id, message))
+
+
+def test_poll_collects_a_fresh_unsaved_form_snapshot_for_every_request(
+    tmp_path, monkeypatch
+):
+    context = _context(tmp_path)
+    (tmp_path / "site.json").write_text(
+        '{"site":{"title":"DISQUE"}}',
+        encoding="utf-8",
+    )
+    launcher = _ConfigRequestLauncher(
+        context,
+        [ProtocolEvent(1, "config_requested", request_id=1)],
+    )
+    live_title = ["A"]
+    disk_loads = []
+
+    def collect():
+        config = ProjectConfig()
+        config.site.title = live_title[0]
+        return config
+
+    host = SimpleNamespace(
+        _qt_editor_launcher=launcher,
+        _qt_editor_diagnostics=[],
+        _qt_editor_last_event=ProtocolEvent(1, "ready"),
+        _collect_from_form=collect,
+        _resolve_content_editor_context=lambda: context,
+        after=lambda *args: None,
+        _offer_tk_editor_fallback=lambda detail: None,
+    )
+    host._answer_qt_config_request = (
+        lambda actual_launcher, event: MainWindow._answer_qt_config_request(
+            host, actual_launcher, event
+        )
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "load_config",
+        lambda *args, **kwargs: disk_loads.append(args),
+    )
+
+    MainWindow._poll_qt_editor(host)
+    live_title[0] = "B"
+    launcher.notifications = [ProtocolEvent(1, "config_requested", request_id=2)]
+    MainWindow._poll_qt_editor(host)
+
+    assert [payload["site"]["title"] for _, payload in launcher.snapshots] == [
+        "A",
+        "B",
+    ]
+    assert all("ftp" not in payload for _, payload in launcher.snapshots)
+    assert launcher.errors == []
+    assert disk_loads == []
+    assert host._qt_editor_last_event.type == "ready"
+
+
+def test_invalid_live_form_returns_config_error(tmp_path):
+    context = _context(tmp_path)
+    launcher = _ConfigRequestLauncher(context)
+    config = ProjectConfig()
+    config.site.title = ""
+    host = SimpleNamespace(
+        _qt_editor_launcher=launcher,
+        _qt_editor_diagnostics=[],
+        _collect_from_form=lambda: config,
+        _resolve_content_editor_context=lambda: context,
+    )
+
+    MainWindow._answer_qt_config_request(
+        host,
+        launcher,
+        ProtocolEvent(1, "config_requested", request_id=9),
+    )
+
+    assert launcher.snapshots == []
+    assert launcher.errors and launcher.errors[0][0] == 9
+    assert "site.title" in launcher.errors[0][1]
+
+
+def test_structural_context_change_requires_reopening_editor(tmp_path):
+    launch_context = _context(tmp_path)
+    current_context = QtEditorLaunchContext(
+        project_root=launch_context.project_root,
+        pages_dir=launch_context.pages_dir / "nouveau",
+        posts_dir=launch_context.posts_dir,
+        images_dir=launch_context.images_dir,
+        slugify_mode=launch_context.slugify_mode,
+    )
+    launcher = _ConfigRequestLauncher(launch_context)
+    host = SimpleNamespace(
+        _qt_editor_launcher=launcher,
+        _qt_editor_diagnostics=[],
+        _collect_from_form=ProjectConfig,
+        _resolve_content_editor_context=lambda: current_context,
+    )
+
+    MainWindow._answer_qt_config_request(
+        host,
+        launcher,
+        ProtocolEvent(1, "config_requested", request_id=5),
+    )
+
+    assert launcher.snapshots == []
+    assert launcher.errors[0][0] == 5
+    assert "Fermez et rouvrez" in launcher.errors[0][1]

@@ -15,7 +15,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence, TextIO
 
-from bloggen.ui.qt_editor_protocol import ProtocolError, ProtocolEvent, parse_event_line
+from bloggen.ui.qt_editor_protocol import (
+    PROTOCOL_VERSION,
+    ProtocolCommand,
+    ProtocolError,
+    ProtocolEvent,
+    encode_command,
+    parse_event_line,
+)
 
 
 QT_EDITOR_READY_TIMEOUT_SECONDS = 10.0
@@ -61,6 +68,10 @@ class QtEditorLaunchError(RuntimeError):
 
 class QtEditorAlreadyRunning(RuntimeError):
     """A second experimental editor was requested while one is active."""
+
+
+class QtEditorCommandError(RuntimeError):
+    """A parent-to-child command could not be delivered safely."""
 
 
 def build_qt_editor_command(
@@ -115,6 +126,7 @@ class QtEditorLauncher:
         self._started_at: float | None = None
         self._ready_seen: threading.Event | None = None
         self._timed_out = False
+        self._stdin_lock = threading.Lock()
 
     @property
     def is_running(self) -> bool:
@@ -143,6 +155,7 @@ class QtEditorLauncher:
             process = self._popen_factory(
                 child_command,
                 cwd=str(self.context.project_root),
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -153,7 +166,11 @@ class QtEditorLauncher:
         except OSError as exc:
             raise QtEditorLaunchError(f"Impossible de lancer l’éditeur Qt : {exc}") from exc
 
-        if process.stdout is None or process.stderr is None:
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
             raise QtEditorLaunchError("Les flux du processus Qt n’ont pas pu être ouverts")
 
         self._generation += 1
@@ -186,6 +203,49 @@ class QtEditorLauncher:
             name="merope-qt-process",
         ).start()
         return process
+
+    def send_command(self, command: ProtocolCommand) -> None:
+        """Write and flush one command without exposing pipe errors to Tk."""
+
+        encoded = encode_command(command)
+        with self._stdin_lock:
+            process = self._process
+            if process is None or process.poll() is not None:
+                raise QtEditorCommandError("Le processus Qt n’est plus disponible")
+            stream = process.stdin
+            if stream is None or stream.closed:
+                raise QtEditorCommandError("Le canal stdin de l’éditeur Qt est fermé")
+            try:
+                stream.write(encoded + "\n")
+                stream.flush()
+            except (BrokenPipeError, OSError, ValueError) as exc:
+                raise QtEditorCommandError(
+                    "Impossible d’envoyer une commande à l’éditeur Qt"
+                ) from exc
+
+    def send_config_snapshot(
+        self,
+        request_id: int,
+        config: dict[str, object],
+    ) -> None:
+        self.send_command(
+            ProtocolCommand(
+                protocol=PROTOCOL_VERSION,
+                type="config_snapshot",
+                request_id=request_id,
+                config=config,
+            )
+        )
+
+    def send_config_error(self, request_id: int, message: str) -> None:
+        self.send_command(
+            ProtocolCommand(
+                protocol=PROTOCOL_VERSION,
+                type="config_error",
+                request_id=request_id,
+                message=message,
+            )
+        )
 
     def check_startup_timeout(self) -> StartupTimedOut | None:
         """Fail a living child that has not emitted ``ready`` in time.

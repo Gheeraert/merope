@@ -12,6 +12,7 @@ from bloggen.ui.qt_editor_launcher import (
     ProcessExited,
     ProtocolDiagnostic,
     QtEditorAlreadyRunning,
+    QtEditorCommandError,
     QtEditorLaunchContext,
     QtEditorLaunchError,
     QtEditorLauncher,
@@ -259,3 +260,66 @@ def test_os_start_failure_is_wrapped(tmp_path):
 
     with pytest.raises(QtEditorLaunchError, match="interpréteur introuvable"):
         launcher.start()
+
+
+def test_real_child_requests_and_reads_config_snapshot_from_stdin(tmp_path):
+    launcher = QtEditorLauncher(_context(tmp_path))
+    launcher.start(command=_fake_command("config-request"))
+
+    deadline = time.monotonic() + 3.0
+    request = None
+    seen = []
+    while request is None and time.monotonic() < deadline:
+        batch = launcher.drain_notifications()
+        seen.extend(batch)
+        request = next(
+            (
+                item
+                for item in batch
+                if isinstance(item, ProtocolEvent)
+                and item.type == "config_requested"
+            ),
+            None,
+        )
+        time.sleep(0.01)
+
+    assert request is not None
+    assert request.request_id == 7
+    launcher.send_config_snapshot(7, {"site": {"title": "Live"}})
+    notifications = seen + _wait_for_exit(launcher)
+    assert any(
+        isinstance(item, ProtocolEvent) and item.type == "closed"
+        for item in notifications
+    )
+    assert launcher.returncode == 0
+
+
+def test_send_command_after_process_exit_is_controlled(tmp_path):
+    launcher = QtEditorLauncher(_context(tmp_path))
+    launcher.start(command=_fake_command("normal"))
+    _wait_for_exit(launcher)
+
+    with pytest.raises(QtEditorCommandError, match="plus disponible"):
+        launcher.send_config_error(1, "trop tard")
+
+
+def test_broken_stdin_pipe_is_wrapped(tmp_path):
+    class BrokenStream:
+        closed = False
+
+        def write(self, value):
+            raise BrokenPipeError
+
+        def flush(self):
+            pytest.fail("flush ne doit pas suivre un write en échec")
+
+    launcher = QtEditorLauncher(_context(tmp_path))
+    SimpleProcess = type(
+        "SimpleProcess",
+        (),
+        {"poll": lambda self: None, "stdin": BrokenStream()},
+    )
+    launcher._process = SimpleProcess()
+
+    with pytest.raises(QtEditorCommandError, match="Impossible d’envoyer"):
+        launcher.send_config_error(1, "pipe fermée")

@@ -21,7 +21,7 @@ reste inchangé : Markdown → Pandoc → TEI Commons Publishing → XSLT → HT
 ```text
 processus principal = Tkinter
 processus enfant    = PySide6
-transport           = subprocess + JSON Lines sur stdout
+transport           = subprocess + JSON Lines sur stdout et stdin
 document            = lu et écrit directement par Qt
 Block / InlineRun   = jamais sérialisé sur IPC
 ```
@@ -37,8 +37,9 @@ sys.executable -m bloggen.ui.qt_editor --ipc
 
 Le launcher n’importe que la bibliothèque standard et le module de protocole.
 Il lit stdout et stderr dans des threads daemon, place les résultats dans une
-file, puis `MainWindow` les traite sur le thread Tk avec `after()`. Fermer
-Mérope ne tue jamais le processus Qt.
+file, puis `MainWindow` les traite sur le thread Tk avec `after()`. Ses écritures
+sur stdin sont sérialisées par un verrou. Fermer Mérope ne tue jamais le
+processus Qt.
 
 Le démarrage possède un délai maximal centralisé de 10 secondes, mesuré avec
 `time.monotonic()`. Le polling `after()` contrôle ce délai sans bloquer Tk. Si
@@ -47,12 +48,55 @@ encore aucun document éditable), libère l’instance expérimentale et propose
 fallback Tkinter.
 
 En mode IPC, stdout est réservé à une ligne JSON UTF-8 par événement, flushée
-immédiatement. Le protocole version 1 autorise seulement `ready`, `opened`,
-`saved`, `open_refused`, `error` et `closed`, avec `path` ou `message` lorsque
-le type l’exige. stderr reste réservé aux diagnostics humains.
+immédiatement. Le protocole version 1 conserve `ready`, `opened`, `saved`,
+`open_refused`, `error` et `closed`, avec `path` ou `message` lorsque le type
+l’exige, et ajoute `config_requested` avec un `request_id` entier positif.
+stderr reste réservé aux diagnostics humains.
 
-Le protocole est volontairement unidirectionnel : Qt publie son état vers Tk,
-mais Tk ne lui envoie aucune commande après le lancement.
+### Configuration vivante pour le futur aperçu
+
+La propriété des données reste explicite : Tk possède le `ProjectConfig`
+vivant, y compris les champs de formulaire non enregistrés ; Qt possède seul
+le document éditorial. Aucun Markdown, `Block`, `InlineRun`, objet image ou
+store de notes ne traverse l’IPC.
+
+```text
+                 stdout JSONL
+Qt --------------------------------> Tk
+       événements + config_requested(request_id)
+
+                 stdin JSONL
+Qt <-------------------------------- Tk
+       config_snapshot / config_error
+```
+
+`QtEditorIpcBridge.request_config()` alloue des identifiants positifs croissants.
+À chaque requête, et seulement à ce moment, `MainWindow` appelle
+`_collect_from_form()`, valide le modèle puis fabrique un snapshot runtime. Il
+n’existe aucun cache poussé périodiquement et aucun rechargement de `site.json`.
+Plusieurs réponses peuvent donc être corrélées même si elles reviennent dans un
+ordre différent.
+
+Le snapshot est le dictionnaire presque complet de `ProjectConfig`, mais la
+section `ftp` est supprimée en entier par un helper pur centralisé. Il ne passe
+jamais par `serialize_config`, `parse_config` ou le credential store. Qt valide
+le dictionnaire reçu puis le reconstruit directement avec
+`ProjectConfig.from_dict`; `config.ftp` devient alors le `FtpConfig` vide par
+défaut. Un payload invalide produit `configFailed`, sans fallback silencieux
+vers une configuration disque.
+
+Le contexte structurel de session (`project_root`, dossiers pages, billets et
+images, mode de slugification) reste celui fixé au lancement. À la réception
+d’une requête, Tk le recalcule et le compare au contexte du launcher. S’il a
+changé, Tk répond `config_error` et demande de fermer puis rouvrir l’éditeur ;
+les réglages non structurels, eux, restent transmis avec leur valeur live.
+
+Sous Qt, un thread daemon lit stdin et place les commandes dans une file qu’un
+`QTimer` vide sur le thread QApplication. L’event loop ne bloque donc jamais
+sur une pipe Windows. Un EOF rend seulement la configuration live indisponible :
+la fenêtre et son document restent ouverts. Le timer est arrêté à la fermeture,
+sans `join()` susceptible de bloquer. En mode autonome sans `--ipc`, toute
+demande échoue explicitement et aucune configuration disque n’est consultée.
 
 ## Fonctionne maintenant
 
@@ -605,6 +649,10 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
+- construire en 7c un aperçu ponctuel qui demande d’abord la configuration
+  live, sérialise le document Qt courant dans un espace temporaire, puis appelle
+  le pipeline réel Markdown → Pandoc → TEI → XSLT sans réutiliser le fichier
+  utilisateur comme source intermédiaire ;
 - décider, dans un lot fonctionnel distinct, si une commande utilisateur
   explicite « Convertir les `((...))` » présente un intérêt ; aucune conversion
   interactive automatique n’est prévue ;
@@ -627,8 +675,8 @@ refusé n’est ni réécrit ni archivé.
 - tableaux WYSIWYG et blocs `verbatim` ;
 - aperçu HTML par le pipeline réel, gestion complète des fichiers et
   métadonnées éditables ;
-- toute extension bidirectionnelle du protocole, notamment la transmission
-  d’une configuration de preview modifiée pendant que Qt reste ouvert.
+- toute commande IPC supplémentaire au-delà des réponses de configuration
+  `config_snapshot` / `config_error`.
 
 Restent également liés à l’ancien adaptateur Tkinter : construction du widget
 `Text`, tags et marques, undo compensatoire, formatage GUI, affichage des

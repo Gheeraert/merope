@@ -75,6 +75,7 @@ from bloggen.ui.qt_editor.image_selection import (
     replace_merope_image,
     targeted_merope_image,
 )
+from bloggen.ui.qt_editor.ipc import QtEditorIpcBridge
 from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
 from bloggen.ui.qt_editor.footnote_editor import (
     FootnoteEditorDialog,
@@ -130,6 +131,7 @@ class QtEditorWindow(QMainWindow):
         self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
         self.images_dir = Path(images_dir) if images_dir is not None else None
         self.ipc = ipc
+        self.ipc_bridge = QtEditorIpcBridge(enabled=ipc, parent=self)
         self.resize(920, 700)
         self.editor = MeropeTextEdit(self)
         self.editor.pasteRefused.connect(self._show_paste_refused)
@@ -890,9 +892,15 @@ class QtEditorWindow(QMainWindow):
             if had_unsaved_changes:
                 self._clear_recovery_draft()
             self.autosave_timer.stop()
+            self.ipc_bridge.shutdown()
             event.accept()
         else:
             event.ignore()
+
+    def request_live_config(self) -> int:
+        """Request a fresh parent-owned ProjectConfig snapshot asynchronously."""
+
+        return self.ipc_bridge.request_config()
 
     def _emit(
         self,

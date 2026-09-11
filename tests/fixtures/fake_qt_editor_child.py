@@ -31,5 +31,19 @@ elif mode == "invalid":
     emit("closed")
 elif mode == "never-ready":
     time.sleep(5)
+elif mode == "config-request":
+    emit("ready")
+    emit("config_requested", request_id=7)
+    command = json.loads(sys.stdin.readline())
+    if (
+        command.get("protocol") != 1
+        or command.get("type") != "config_snapshot"
+        or command.get("request_id") != 7
+        or not isinstance(command.get("config"), dict)
+        or "ftp" in command["config"]
+    ):
+        print("invalid config response", file=sys.stderr, flush=True)
+        raise SystemExit(9)
+    emit("closed")
 else:
     raise SystemExit(2)

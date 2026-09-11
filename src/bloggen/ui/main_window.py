@@ -26,6 +26,7 @@ from bloggen.config.models import (
     SearchConfig,
     SiteConfig,
 )
+from bloggen.config.runtime_snapshot import project_config_to_runtime_payload
 from bloggen.config.validator import validate_config_model
 from bloggen.content.writer import list_content_targets
 from bloggen.ui.banner_panel import BannerPanel
@@ -38,6 +39,7 @@ from bloggen.ui.qt_editor_launcher import (
     ProcessExited,
     ProtocolDiagnostic,
     QtEditorAlreadyRunning,
+    QtEditorCommandError,
     QtEditorLaunchContext,
     QtEditorLaunchError,
     QtEditorLauncher,
@@ -1033,6 +1035,9 @@ class MainWindow(tk.Tk):
                 self._qt_editor_diagnostics.append(diagnostic)
                 messagebox.showwarning("Éditeur Qt", diagnostic, parent=self)
             elif isinstance(notification, ProtocolEvent):
+                if notification.type == "config_requested":
+                    self._answer_qt_config_request(launcher, notification)
+                    continue
                 self._qt_editor_last_event = notification
                 if notification.type == "error":
                     error_message = notification.message or "Erreur inconnue dans l’éditeur Qt."
@@ -1073,6 +1078,34 @@ class MainWindow(tk.Tk):
             )
             return
         self.after(75, lambda: self._poll_qt_editor(launcher))
+
+    def _answer_qt_config_request(
+        self,
+        launcher: QtEditorLauncher,
+        event: ProtocolEvent,
+    ) -> None:
+        """Collect and return the live form state for one correlated request."""
+
+        if self._qt_editor_launcher is not launcher or event.request_id is None:
+            return
+        try:
+            config = self._collect_from_form()
+            payload = project_config_to_runtime_payload(config)
+            current_context = self._resolve_content_editor_context()
+            if current_context != launcher.context:
+                raise ValueError(
+                    "La configuration structurelle du projet a changé depuis "
+                    "l’ouverture de l’éditeur Qt. Fermez et rouvrez l’éditeur "
+                    "pour appliquer ces nouveaux chemins."
+                )
+            launcher.send_config_snapshot(event.request_id, payload)
+        except (ConfigValidationError, OSError, ValueError) as exc:
+            try:
+                launcher.send_config_error(event.request_id, str(exc))
+            except QtEditorCommandError as send_exc:
+                self._qt_editor_diagnostics.append(str(send_exc))
+        except QtEditorCommandError as exc:
+            self._qt_editor_diagnostics.append(str(exc))
 
     def _offer_tk_editor_fallback(self, detail: str) -> None:
         use_tk = messagebox.askyesno(
