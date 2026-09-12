@@ -454,11 +454,27 @@ relative pour l’affichage sans modifier ce qui sera réexporté. Une image
 absente reste une image sémantique valide et Qt peut afficher son indication
 de ressource manquante.
 
-Les dimensions Markdown restent des chaînes ou `None`. Seules les valeurs
-entières positives sont recopiées dans la largeur ou la hauteur visuelle
-native de Qt ; une dimension absente ou non traduisible n’est jamais inventée
-à partir du rendu. L’alignement `left`, `center` ou `right` est conservé comme
-donnée Mérope sans simuler pour l’instant le rendu publié. `image_alt` reste
+Les dimensions Markdown restent des chaînes ou `None`, interprétées par le
+module pur `bloggen.content.image_size` :
+
+- `width=50%` (forme actuelle) est un **plafond** relatif à la colonne de
+  texte : l’image occupe au plus la moitié de la colonne, garde ses
+  proportions et n’est jamais agrandie au-delà de sa taille réelle ;
+- `width=400` (forme historique) reste une largeur fixe en pixels ;
+- sans largeur, l’image garde sa taille réelle, limitée à la colonne.
+
+Qt reproduit exactement cette règle avec
+`QTextImageFormat.setMaximumWidth(QTextLength(PercentageLength, …))`, qui suit
+la largeur de la fenêtre. Une largeur historique en pixels est appliquée seule :
+une hauteur stockée n’est jamais imposée à l’affichage, sinon le plafond de
+colonne déformerait l’image (le site l’ignore aussi, via `height:auto`). Les
+figures flottantes (`left`/`right`) sont limitées à 50 % de la colonne, comme
+dans la feuille de style du site. Côté HTML, le XSLT convertit un pourcentage en
+`style="max-width:NN%"` et `data-width` sur `<figure>`, ce qui fonctionne aussi
+avec un thème CSS personnalisé ; sous 40rem de large, la CSS intégrée rend la
+pleine largeur à ces figures. L’éditeur Tkinter affiche un pourcentage sur une
+colonne de référence de 700 px et le réécrit tel quel, sauf s’il redimensionne
+lui-même l’image (il repasse alors en pixels). `image_alt` reste
 le champ historique de légende et conserve littéralement ses marqueurs `*` et
 `**` ; aucun modèle de légende distinct n’est introduit.
 
@@ -477,13 +493,12 @@ l’objet sélectionne exactement cette plage, sans widget superposé. Les image
 Qt étrangères sans marqueur Mérope sont refusées.
 
 L’action « Image... » ouvre un dialogue simple : `src` en lecture seule,
-`image_alt`, largeur, hauteur et alignement. Elle remplace l’objet ciblé par un
-`QTextImageFormat` neuf produit par `make_image_format`, dans une seule
-opération undo. Cette reconstruction élimine notamment toute ancienne taille
-visuelle lorsqu’une dimension devient `None`, vide ou non numérique. Les
-champs non touchés conservent exactement `None` ou `""`; vider explicitement
-une largeur ou une hauteur signifie `None`, tandis qu’une légende vidée reste
-la chaîne vide.
+`image_alt`, largeur en % de la colonne (ou case « Taille réelle ») et
+alignement. Elle remplace l’objet ciblé par un `QTextImageFormat` neuf produit
+par `make_image_format`, dans une seule opération undo. Les champs non touchés
+conservent exactement leur valeur, y compris une taille historique en pixels
+(signalée dans le dialogue) ; toucher la largeur écrit un pourcentage et
+supprime la hauteur. Une légende vidée reste la chaîne vide.
 
 Les commandes gras, italique, barré, exposant et lien parcourent désormais
 seulement les intervalles textuels d’une sélection. Une image traversée reste
@@ -497,34 +512,32 @@ même objet documentaire :
 ```text
 ImageTarget
   → rectangle visuel courant
-  → poignée inférieure droite
-  → drag à ratio constant
-  → nouvel InlineRun (width/height)
+  → l’une des quatre poignées d’angle
+  → cadre fantôme + bulle « 50 % de la colonne · 438 × 292 px »
+  → relâchement : nouvel InlineRun (width=NN%, height=None)
   → make_image_format
   → QTextImageFormat
 ```
 
-Le cadre et la poignée ne sont dessinés que pour la sélection exacte d’une
+Le cadre et les poignées ne sont dessinés que pour la sélection exacte d’une
 unique image Mérope dont la ressource possède une taille réellement lisible.
-Ils sont repeints depuis les coordonnées courantes du viewport après sélection,
-scroll, redimensionnement de fenêtre ou changement du document ; aucune
+Ils sont repeints depuis les coordonnées courantes du viewport ; aucune
 géométrie d’écran n’entre dans le modèle. Une image manquante reste
 sélectionnable et éditable avec « Image... », mais ne propose pas de resize.
 
-Le ratio de départ est celui de la taille effectivement affichée. Après un
-geste volontaire, y compris lorsque les valeurs initiales étaient `None` ou
-`50%`, largeur et hauteur deviennent deux chaînes de pixels explicites. Le
-minimum de 40 px est appliqué par un facteur d’échelle commun afin de ne pas
-déformer le ratio. `src`, `image_alt` et `align` restent inchangés.
-
-La mutation documentaire commence seulement au-delà d’un seuil de déplacement
-de 3 px. Tout le drag est enveloppé dans un bloc d’édition Qt extérieur : les
-mises à jour visuelles intermédiaires forment une seule opération undo/redo.
-Une fois ce seuil franchi, le geste continue à suivre le pointeur jusque sous
-le seuil ; un retour exact à l’origine restaure les métadonnées initiales.
-Un clic sans déplacement effectif ne modifie ni le document, ni son état dirty,
-ni sa pile undo. Le resize ne modifie jamais le fichier bitmap ; undo/redo ne
-porte que sur les métadonnées documentaires.
+Pendant le glissement, seul un cadre fantôme bouge (l’angle opposé reste fixe)
+et **le document n’est écrit qu’une fois, au relâchement** : pas de
+reconstruction de l’image ni de relayout complet à chaque mouvement, et une
+seule entrée undo. La largeur est convertie en pourcentage de la colonne
+(`column_width` = largeur de texte moins les marges, la base de Qt), bornée
+entre 5 % et le plus petit de la colonne (50 % si flottante) et de la taille
+réelle. Elle s’aimante à 25/50/75/100 % et à la taille réelle à ±2 points
+près ; Alt désactive l’aimantation. Atteindre la taille réelle d’une petite
+image supprime la largeur. Échap annule le geste, un clic sans déplacement
+(seuil de 3 px) est un no-op, et un double-clic sur une poignée rend la taille
+réelle. Le clic droit sur une image propose aussi « Taille » : 25, 33, 50, 75
+ou 100 % de la colonne, ou « Taille réelle ». Le resize ne modifie jamais le
+fichier bitmap.
 
 Le remplacement contrôlé du fichier source suit le même ciblage sémantique :
 
@@ -544,11 +557,11 @@ il est ensuite copié sans collision et son chemin reste relatif au dossier du
 Markdown grâce au service partagé avec Tkinter. Aucun chemin absolu n’entre
 dans `InlineRun`.
 
-Seul `image_src` change. La légende historique `image_alt`, la largeur, la
-hauteur et l’alignement restent strictement identiques : le ratio naturel du
-nouveau bitmap ne provoque aucun recalcul documentaire. Un remplacement peut
-donc réparer une référence manquante, et le resize reste disponible ensuite si
-l’utilisateur souhaite adapter explicitement les dimensions.
+`image_src` change et la hauteur stockée est supprimée ; la légende
+historique `image_alt`, la largeur et l’alignement restent identiques. Une
+hauteur héritée de l’ancien bitmap déformerait le nouveau, dont les
+proportions peuvent différer. Un remplacement peut donc réparer une référence
+manquante, et le resize reste disponible ensuite.
 
 Le changement de source est une autorisation explicite de
 `replace_merope_image`; le chemin ordinaire du dialogue « Image... » continue
@@ -570,19 +583,25 @@ ImageTarget
   → QTextImageFormat
 ```
 
-Le resize est une modification documentaire non destructive de `width` et
-`height`. Le crop crée au contraire un nouveau bitmap et ne change que `src`.
-L’original reste intact ; `image_alt`, largeur, hauteur et alignement sont
-conservés exactement, même lorsque le crop modifie le ratio naturel.
+Le resize est une modification documentaire non destructive de la largeur.
+Le crop crée au contraire un nouveau bitmap : `src` change et, comme pour le
+remplacement, la hauteur stockée est supprimée ; `image_alt`, largeur et
+alignement sont conservés. L’original reste intact.
 
-Le dialogue charge l’image selon la même sémantique Pillow que le service
-partagé. Un noyau géométrique indépendant calcule une prévisualisation dont la
-plus grande dimension ne dépasse pas 700 px, un rectangle initial à environ
-10 % des bords, puis la conversion bornée des coordonnées preview vers la boîte
-source `(left, top, right, bottom)`. Ses quatre poignées autorisent un crop
-libre, sans conservation de ratio. Seule la boîte en pixels originaux est
-transmise à `write_cropped_copy` : le pixmap réduit n’est jamais recadré ni
-enregistré.
+Le dialogue (fenêtre redimensionnable, 75 % de l’écran) affiche une
+prévisualisation réduite (2048 px au plus, décodage JPEG directement réduit)
+orientée selon l’EXIF, comme le verront les navigateurs. La géométrie pure
+(`image_crop.py`) travaille directement en pixels réels de l’image affichée :
+aucun arrondi de prévisualisation n’atteint le fichier. Interactions : huit
+poignées (angles et bords, saisissables sur toute la longueur d’un bord),
+glisser dans le cadre pour le déplacer, hors du cadre pour en tracer un
+nouveau, Maj pour garder les proportions, grille des tiers et taille affichée
+pendant le geste, flèches pour ajuster (Maj : ×10), double-clic pour valider.
+Le panneau latéral propose les proportions (libre, d’origine, 1:1, 4:3, 3:2,
+16:9, avec inversion portrait/paysage), des champs X/Y/largeur/hauteur, la
+rotation d’un quart de tour, « Tout sélectionner » et « Réinitialiser ». Le
+dialogue rend une `CropRequest(box, quarter_turns)` ; la sélection de l’image
+entière sans rotation est un no-op qui n’écrit aucun fichier.
 
 « Recadrer... » est activé séparément des autres actions image : une image
 manquante, distante, absolue ou illisible reste éditable et remplaçable, mais
@@ -592,10 +611,20 @@ undo/redo porte uniquement sur le nouveau `src`; le fichier `-cropN` reste sur
 disque après undo, et pourrait également rester orphelin si le remplacement
 documentaire échouait après son écriture.
 
-Le service partagé conserve son comportement historique : il convertit le
-résultat en RGB avant sauvegarde. Un PNG transparent peut donc perdre son canal
-alpha. Aucune correction EXIF, conversion de format ou modification de cette
-politique commune n’est introduite par la migration Qt.
+`write_cropped_copy` applique l’orientation EXIF puis la rotation demandée,
+recadre, et enregistre sans perte évitable : transparence conservée (PNG,
+WebP, GIF), JPEG réencodé en qualité 95 avec le sous-échantillonnage de la
+source, profil de couleur ICC conservé. Les autres métadonnées EXIF (appareil,
+position GPS…) ne sont volontairement pas recopiées dans une image publiée.
+Le fichier source est refermé immédiatement, et recadrer `photo-crop2.jpg`
+produit `photo-crop3.jpg` plutôt qu’une chaîne `-crop2-crop1`. L’éditeur
+Tkinter oriente lui aussi ses images selon l’EXIF, ses boîtes de recadrage
+restant ainsi cohérentes avec ce service.
+
+L’état des actions image est recalculé à chaque mouvement du curseur. Il
+s’appuie sur `probe_image`, qui ne lit que l’en-tête du fichier et met le
+résultat en cache par (date de modification, taille) : aucun fichier n’est
+relu tant qu’il ne change pas.
 
 Les images venant du collage HTML (`img`, `v:imagedata`, `v:shape`) et les
 bitmaps seuls du presse-papiers restent refusés : leur extraction et leur

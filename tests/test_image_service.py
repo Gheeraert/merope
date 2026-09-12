@@ -83,6 +83,132 @@ def test_write_cropped_copy_keeps_original_and_numbers_copies(tmp_path):
         assert cropped.size == (6, 5)
 
 
+def test_cropping_a_crop_does_not_chain_suffixes(tmp_path):
+    source = tmp_path / "photo-crop2.png"
+    Image.new("RGB", (10, 8), color="red").save(source)
+    (tmp_path / "photo-crop1.png").write_bytes(b"x")
+
+    result = image_service.write_cropped_copy(source, (0, 0, 5, 5), tmp_path)
+
+    assert result == "photo-crop3.png"
+
+
+def test_crop_keeps_png_transparency_and_releases_the_source(tmp_path):
+    source = tmp_path / "logo.png"
+    image = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+    image.putpixel((5, 5), (255, 0, 0, 255))
+    image.save(source)
+
+    result = image_service.write_cropped_copy(source, (2, 2, 8, 8), tmp_path)
+
+    with Image.open(tmp_path / result) as cropped:
+        assert cropped.mode == "RGBA"
+        assert cropped.getpixel((0, 0)) == (0, 0, 0, 0)
+        assert cropped.getpixel((3, 3)) == (255, 0, 0, 255)
+    source.unlink()  # would fail on Windows if a handle were left open
+
+
+def test_jpeg_crop_is_reencoded_at_high_quality_with_icc_profile(tmp_path):
+    source = tmp_path / "photo.jpg"
+    noise = Image.effect_noise((64, 64), 80).convert("RGB")
+    noise.save(source, quality=95, icc_profile=b"fake-profile")
+
+    result = image_service.write_cropped_copy(source, (0, 0, 64, 32), tmp_path)
+
+    reference = tmp_path / "reference-q75.jpg"
+    noise.crop((0, 0, 64, 32)).save(reference)  # Pillow's default quality
+    with Image.open(tmp_path / result) as cropped, Image.open(reference) as default:
+        assert cropped.size == (64, 32)
+        assert cropped.info.get("icc_profile") == b"fake-profile"
+        assert max(cropped.quantization[0]) * 3 < max(default.quantization[0])
+
+
+def test_crop_box_refers_to_exif_oriented_then_rotated_pixels(tmp_path):
+    source = tmp_path / "phone.jpg"
+    raw = Image.new("RGB", (40, 20), "white")
+    raw.paste((255, 0, 0), (0, 0, 10, 20))  # red band on the stored left side
+    exif = Image.Exif()
+    exif[0x0112] = 6  # stored sideways: displayed rotated 90° clockwise
+    raw.save(source, exif=exif, quality=95)
+
+    assert image_service.probe_image(source) == (20, 40)
+    assert image_service.edited_size(source, quarter_turns=1) == (40, 20)
+
+    top_band = image_service.write_cropped_copy(source, (0, 0, 20, 10), tmp_path)
+    with Image.open(tmp_path / top_band) as cropped:
+        assert cropped.size == (20, 10)
+        red, green, blue = cropped.getpixel((10, 5))
+        assert red > 200 and green < 60 and blue < 60
+        assert cropped.getexif().get(0x0112) in (None, 1)
+
+    turned = image_service.write_cropped_copy(
+        source, (0, 0, 40, 20), tmp_path, quarter_turns=1
+    )
+    with Image.open(tmp_path / turned) as rotated:
+        assert rotated.size == (40, 20)
+
+
+def test_invalid_box_is_rejected_before_any_file_is_written(tmp_path):
+    source = tmp_path / "image.png"
+    Image.new("RGB", (10, 8)).save(source)
+
+    for box in ((0, 0, 11, 8), (5, 0, 5, 8), (0, 0, 10.0, 8)):
+        try:
+            image_service.write_cropped_copy(source, box, tmp_path)
+        except ValueError:
+            pass
+        else:  # pragma: no cover - explicit failure message
+            raise AssertionError(f"boîte acceptée : {box}")
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["image.png"]
+
+
+def test_crop_is_identity_only_for_full_unrotated_box(tmp_path):
+    source = tmp_path / "image.png"
+    Image.new("RGB", (10, 8)).save(source)
+
+    assert image_service.crop_is_identity(source, (0, 0, 10, 8))
+    assert not image_service.crop_is_identity(source, (0, 0, 10, 7))
+    assert not image_service.crop_is_identity(source, (0, 0, 8, 10), quarter_turns=1)
+
+
+def test_probe_is_cached_until_the_file_changes(tmp_path, monkeypatch):
+    source = tmp_path / "image.png"
+    Image.new("RGB", (10, 8)).save(source)
+    assert image_service.probe_image(source) == (10, 8)
+
+    opened = []
+    real_open = image_service.Image.open
+    monkeypatch.setattr(
+        image_service.Image,
+        "open",
+        lambda *args, **kwargs: opened.append(args) or real_open(*args, **kwargs),
+    )
+    assert image_service.probe_image(source) == (10, 8)
+    assert opened == []
+
+    Image.new("RGB", (30, 20)).save(source)
+    import os
+
+    stat = source.stat()
+    os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+    assert image_service.probe_image(source) == (30, 20)
+    assert len(opened) == 1
+    assert image_service.probe_image(tmp_path / "absent.png") is None
+    (tmp_path / "broken.png").write_bytes(b"not an image")
+    assert image_service.probe_image(tmp_path / "broken.png") is None
+
+
+def test_oriented_preview_is_reduced_and_reports_full_size(tmp_path):
+    source = tmp_path / "big.jpg"
+    Image.new("RGB", (3000, 1500), "navy").save(source)
+
+    preview, full_size = image_service.load_oriented_preview(source, 600)
+
+    assert full_size == (3000, 1500)
+    assert max(preview.size) <= 600
+    assert preview.mode == "RGBA"
+
+
 def test_load_image_or_placeholder_is_gui_independent(tmp_path):
     missing = image_service.load_image_or_placeholder(tmp_path / "missing.png")
 

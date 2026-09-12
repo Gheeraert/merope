@@ -149,6 +149,45 @@ def test_transform_pandoc_like_figure_without_paragraph_wrapper_or_caption_dupli
     assert "<p>Une image</p>" not in html
 
 
+def test_percent_width_becomes_figure_ceiling_without_img_dimensions():
+    tei = _tei_body(
+        "<figure><graphic url='assets/image.jpg' width='40%' height='300'/></figure>"
+    )
+    html = render_tei_xml_to_html_fragment(tei, parameters={"clickable_figures": False})
+
+    assert (
+        '<figure class="article-figure" style="max-width:40%" data-width="40%">'
+        in html
+    )
+    assert '<img src="assets/image.jpg" alt="Illustration">' in html
+
+
+def test_percent_width_of_floated_figure_is_capped_at_half_column():
+    tei = _tei_body(
+        "<figure><graphic url='assets/image.jpg' width='80%' rend='align-left'/></figure>"
+    )
+    html = render_tei_xml_to_html_fragment(tei, parameters={"clickable_figures": False})
+
+    assert 'class="article-figure align-left" style="max-width:50%"' in html
+
+
+def test_legacy_pixel_dimensions_stay_on_img_and_invalid_percent_is_ignored():
+    legacy = render_tei_xml_to_html_fragment(
+        _tei_body("<figure><graphic url='a.jpg' width='300' height='200'/></figure>"),
+        parameters={"clickable_figures": False},
+    )
+    invalid = render_tei_xml_to_html_fragment(
+        _tei_body("<figure><graphic url='a.jpg' width='abc%'/></figure>"),
+        parameters={"clickable_figures": False},
+    )
+
+    assert '<figure class="article-figure">' in legacy
+    assert '<img src="a.jpg" alt="Illustration" width="300" height="200">' in legacy
+    assert '<figure class="article-figure">' in invalid
+    assert "max-width" not in invalid
+    assert 'width="abc%"' not in invalid
+
+
 def test_transform_image_without_clickable_link():
     tei = _tei_body("<figure><graphic url='assets/image.jpg'/></figure>")
     html = render_tei_xml_to_html_fragment(tei, parameters={"clickable_figures": False})

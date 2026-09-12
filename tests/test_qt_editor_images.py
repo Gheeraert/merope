@@ -211,18 +211,42 @@ def test_dialog_modifies_caption_dimensions_and_alignment_without_parsing_markdo
     )
     dialog = ImageMetadataDialog(run)
 
+    assert "420 px" in dialog.legacy_label.text()
     dialog.alt_edit.setText("**Bossuet** à *Meaux*")
-    dialog.width_edit.setText("50%")
-    dialog.height_edit.clear()
+    dialog.width_spin.setValue(40)
     dialog.align_combo.setCurrentIndex(dialog.align_combo.findData("right"))
 
+    # The width becomes a percentage; the stale pixel height disappears.
     assert dialog.image_run() == InlineRun(
         image_src="image.png",
         image_alt="**Bossuet** à *Meaux*",
-        image_width="50%",
+        image_width="40%",
         image_height=None,
         image_align="right",
     )
+
+
+def test_dialog_keeps_legacy_pixels_until_width_is_touched():
+    run = InlineRun(image_src="image.png", image_width="420", image_height="300")
+    dialog = ImageMetadataDialog(run)
+
+    dialog.align_combo.setCurrentIndex(dialog.align_combo.findData("center"))
+
+    assert dialog.image_run() == InlineRun(
+        image_src="image.png",
+        image_width="420",
+        image_height="300",
+        image_align="center",
+    )
+
+
+def test_dialog_caps_floated_images_at_half_the_column():
+    dialog = ImageMetadataDialog(InlineRun(image_src="image.png", image_width="80%"))
+
+    dialog.align_combo.setCurrentIndex(dialog.align_combo.findData("left"))
+
+    assert dialog.width_spin.maximum() == 50
+    assert dialog.image_run().image_width == "50%"
 
 
 @pytest.mark.parametrize("alignment", [None, "left", "center", "right"])
@@ -233,7 +257,7 @@ def test_dialog_maps_every_alignment_value_exactly(alignment):
     assert dialog.image_run().image_align == alignment
 
 
-def test_dialog_explicitly_cleared_dimensions_become_none_and_caption_becomes_empty():
+def test_dialog_natural_size_clears_dimensions_and_caption_becomes_empty():
     dialog = ImageMetadataDialog(
         InlineRun(
             image_src="image.png",
@@ -244,8 +268,8 @@ def test_dialog_explicitly_cleared_dimensions_become_none_and_caption_becomes_em
     )
 
     dialog.alt_edit.clear()
-    dialog.width_edit.clear()
-    dialog.height_edit.clear()
+    dialog.natural_check.setChecked(True)
+    assert not dialog.width_spin.isEnabled()
 
     result = dialog.image_run()
     assert result.image_alt == ""
@@ -296,7 +320,8 @@ def test_numeric_dimension_update_refreshes_native_image_size():
 
     image_format = _first_image_format(editor.document())
     assert image_format.width() == 300
-    assert image_format.height() == 180
+    # The stored height is kept but never forced: proportions stay intact.
+    assert image_format.height() == 0
     assert extract_blocks(editor.document()) == [Block(kind=PARAGRAPH, runs=[new])]
 
 

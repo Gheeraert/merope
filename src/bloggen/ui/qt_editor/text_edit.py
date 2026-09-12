@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
@@ -90,15 +90,29 @@ from bloggen.ui.qt_editor.footnote_selection import (
     expand_selection_to_footnotes,
     merope_footnote_at_position,
 )
+from bloggen.content.image_size import (
+    MENU_PERCENTS,
+    ResizeOutcome,
+    format_percent,
+    max_percent_for,
+    parse_width,
+    resize_to_width,
+)
 from bloggen.ui.qt_editor.image_resize import (
     ImageResizeGeometry,
+    column_width,
+    displayed_size,
+    dragged_width,
+    ghost_rect,
     image_viewport_rect,
+    natural_image_size,
     resize_drag_is_effective,
-    ratio_preserving_size,
     selected_image_resize_geometry,
+    size_label,
 )
 from bloggen.ui.qt_editor.image_selection import (
     ImageTarget,
+    exactly_selected_merope_image,
     merope_image_at_position,
     replace_merope_image,
 )
@@ -133,12 +147,27 @@ def blocks_from_rich_mime_data(source: QMimeData) -> list[Block] | None:
 
 @dataclass
 class _ImageResizeState:
+    """One corner drag. The document is only written once, on release."""
+
     target: ImageTarget
-    original_target: ImageTarget
+    handle: str
     origin: QPoint
-    initial_size: QSize
+    initial_rect: QRect
+    natural: QSize
+    column: float
     activated: bool = False
-    edit_cursor: QTextCursor | None = None
+    outcome: ResizeOutcome | None = None
+    ghost: QRect | None = None
+    label: str = ""
+
+
+_RESIZE_CURSORS = {
+    "nw": Qt.CursorShape.SizeFDiagCursor,
+    "se": Qt.CursorShape.SizeFDiagCursor,
+    "ne": Qt.CursorShape.SizeBDiagCursor,
+    "sw": Qt.CursorShape.SizeBDiagCursor,
+}
+_RESIZE_ACCENT = QColor(42, 109, 181)
 
 
 class MeropeTextEdit(QTextEdit):
@@ -192,6 +221,10 @@ class MeropeTextEdit(QTextEdit):
         return self._external_paste_context
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._image_resize_state is not None and event.key() == Qt.Key.Key_Escape:
+            self.cancel_image_resize()
+            event.accept()
+            return
         if event.matches(QKeySequence.StandardKey.Copy):
             self.copy()
             event.accept()
@@ -231,10 +264,13 @@ class MeropeTextEdit(QTextEdit):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             geometry = self.image_resize_geometry()
-            if geometry is not None and geometry.handle_rect.contains(
-                event.position().toPoint()
-            ):
-                self._start_image_resize(geometry, event.position().toPoint())
+            handle = (
+                geometry.handle_at(event.position().toPoint())
+                if geometry is not None
+                else None
+            )
+            if geometry is not None and handle is not None:
+                self._start_image_resize(geometry, handle, event.position().toPoint())
                 event.accept()
                 return
 
@@ -264,8 +300,53 @@ class MeropeTextEdit(QTextEdit):
         menu.addSeparator()
         caption_action = menu.addAction("Légende...")
         caption_action.triggered.connect(self.imageMetadataRequested.emit)
+        self._add_image_size_menu(menu, target)
         menu.exec(event.globalPos())
         menu.deleteLater()
+
+    def _add_image_size_menu(self, menu, target: ImageTarget) -> None:
+        size_menu = menu.addMenu("Taille")
+        current = parse_width(target.run.image_width)
+        ceiling = max_percent_for(target.run.image_align)
+        for percent in MENU_PERCENTS:
+            if percent > ceiling:
+                continue
+            action = size_menu.addAction(f"{percent} % de la colonne")
+            action.setCheckable(True)
+            action.setChecked(
+                current is not None and current.is_percent and current.value == percent
+            )
+            action.triggered.connect(
+                lambda _checked=False, value=format_percent(percent): (
+                    self.set_selected_image_width(value)
+                )
+            )
+        size_menu.addSeparator()
+        natural = size_menu.addAction("Taille réelle (limitée à la colonne)")
+        natural.setCheckable(True)
+        natural.setChecked(current is None)
+        natural.triggered.connect(lambda _checked=False: self.set_selected_image_width(None))
+
+    def set_selected_image_width(self, width: str | None) -> bool:
+        """Give the exactly selected image a new width in one undo step.
+
+        ``width`` is a stored value ("50%") or ``None`` for the natural size.
+        A fixed height is always dropped so the proportions stay intact.
+        """
+
+        try:
+            target = exactly_selected_merope_image(self.textCursor())
+        except UnsupportedDocumentError:
+            return False
+        if target is None:
+            return False
+        new_run = replace(target.run, image_width=width, image_height=None)
+        if new_run == target.run:
+            return False
+        selected = replace_merope_image(self.document(), target, new_run)
+        self.setTextCursor(selected)
+        self.viewport().update()
+        return True
 
     def _footnote_at_viewport_point(self, point: QPoint):
         hit_cursor = self.cursorForPosition(point)
@@ -526,29 +607,43 @@ class MeropeTextEdit(QTextEdit):
         self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
 
     def _update_resize_cursor(self, point: QPoint | None = None) -> None:
-        if self._image_resize_state is not None:
-            self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+        state = self._image_resize_state
+        if state is not None:
+            self.viewport().setCursor(_RESIZE_CURSORS[state.handle])
             return
         geometry = self.image_resize_geometry()
-        if (
-            point is not None
-            and geometry is not None
-            and geometry.handle_rect.contains(point)
-        ):
-            self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+        handle = (
+            geometry.handle_at(point)
+            if point is not None and geometry is not None
+            else None
+        )
+        if handle is not None:
+            self.viewport().setCursor(_RESIZE_CURSORS[handle])
         else:
             self._set_normal_viewport_cursor()
 
-    def _start_image_resize(self, geometry: ImageResizeGeometry, point: QPoint) -> None:
+    def _start_image_resize(
+        self,
+        geometry: ImageResizeGeometry,
+        handle: str,
+        point: QPoint,
+    ) -> None:
+        natural = natural_image_size(self.document(), geometry.target)
+        if natural is None:
+            return
         self._image_resize_state = _ImageResizeState(
             target=geometry.target,
-            original_target=geometry.target,
+            handle=handle,
             origin=QPoint(point),
-            initial_size=geometry.image_rect.size(),
+            initial_rect=QRect(geometry.image_rect),
+            natural=natural,
+            column=column_width(self.document()),
         )
-        self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self.viewport().setCursor(_RESIZE_CURSORS[handle])
 
-    def _resize_selected_image_to(self, point: QPoint) -> None:
+    def _resize_selected_image_to(self, point: QPoint, modifiers=None) -> None:
+        """Update the ghost only; the document is untouched until release."""
+
         state = self._image_resize_state
         if state is None:
             return
@@ -556,39 +651,47 @@ class MeropeTextEdit(QTextEdit):
             if not resize_drag_is_effective(state.origin, point):
                 return
             state.activated = True
-
-        if point == state.origin:
-            new_run = state.original_target.run
-        else:
-            size = ratio_preserving_size(state.initial_size, point - state.origin)
-            new_run = replace(
-                state.target.run,
-                image_width=str(size.width()),
-                image_height=str(size.height()),
-            )
-        if new_run == state.target.run:
-            return
-
-        if state.edit_cursor is None:
-            state.edit_cursor = QTextCursor(self.document())
-            state.edit_cursor.beginEditBlock()
-
-        selected = replace_merope_image(self.document(), state.target, new_run)
-        state.target = ImageTarget(state.target.start, state.target.end, new_run)
-        self.setTextCursor(selected)
+        if modifiers is None:
+            modifiers = QApplication.keyboardModifiers()
+        outcome = resize_to_width(
+            dragged_width(state.initial_rect.size(), point - state.origin, state.handle),
+            column_width=state.column,
+            natural_width=state.natural.width(),
+            align=state.target.run.image_align,
+            snap=not modifiers & Qt.KeyboardModifier.AltModifier,
+        )
+        size = displayed_size(
+            outcome, state.natural, state.column, state.target.run.image_align
+        )
+        state.outcome = outcome
+        state.ghost = ghost_rect(state.initial_rect, state.handle, size)
+        state.label = size_label(outcome, size)
         self.viewport().update()
 
-    def _finish_image_resize(self) -> None:
+    def _finish_image_resize(self, *, commit: bool = True) -> bool:
         state = self._image_resize_state
         self._image_resize_state = None
-        if state is not None and state.edit_cursor is not None:
-            state.edit_cursor.endEditBlock()
+        changed = False
+        if commit and state is not None and state.activated and state.outcome is not None:
+            new_run = replace(
+                state.target.run,
+                image_width=state.outcome.width_value,
+                image_height=None,
+            )
+            if new_run != state.target.run:
+                selected = replace_merope_image(self.document(), state.target, new_run)
+                self.setTextCursor(selected)
+                changed = True
         self._set_normal_viewport_cursor()
         self.viewport().update()
+        return changed
+
+    def cancel_image_resize(self) -> None:
+        self._finish_image_resize(commit=False)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._image_resize_state is not None:
-            self._resize_selected_image_to(event.position().toPoint())
+            self._resize_selected_image_to(event.position().toPoint(), event.modifiers())
             event.accept()
             return
         self._update_resize_cursor(event.position().toPoint())
@@ -599,11 +702,22 @@ class MeropeTextEdit(QTextEdit):
             self._image_resize_state is not None
             and event.button() == Qt.MouseButton.LeftButton
         ):
-            self._resize_selected_image_to(event.position().toPoint())
+            self._resize_selected_image_to(event.position().toPoint(), event.modifiers())
             self._finish_image_resize()
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            geometry = self.image_resize_geometry()
+            if geometry is not None and geometry.handle_at(event.position().toPoint()):
+                # Double-clicking a handle returns the image to its natural size.
+                self.cancel_image_resize()
+                self.set_selected_image_width(None)
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
 
     def leaveEvent(self, event) -> None:
         if self._image_resize_state is None:
@@ -617,12 +731,43 @@ class MeropeTextEdit(QTextEdit):
             return
 
         painter = QPainter(self.viewport())
-        pen = QPen(QColor(42, 109, 181))
-        pen.setStyle(Qt.PenStyle.DashLine)
-        pen.setWidth(1)
-        painter.setPen(pen)
-        painter.drawRect(geometry.image_rect.adjusted(0, 0, -1, -1))
-        painter.fillRect(geometry.handle_rect, QColor(42, 109, 181))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(_RESIZE_ACCENT, 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(QRectF(geometry.image_rect).adjusted(0.5, 0.5, -0.5, -0.5))
+        painter.setBrush(Qt.GlobalColor.white)
+        for handle in geometry.handles.values():
+            painter.drawRect(QRectF(handle).adjusted(0.5, 0.5, -0.5, -0.5))
+
+        state = self._image_resize_state
+        if state is None or state.ghost is None:
+            return
+        # The selected image is already tinted by Qt's selection colour: a
+        # light veil with a black/white double outline stays readable on it.
+        ghost = QRectF(state.ghost).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(QPen(QColor(0, 0, 0, 150), 3))
+        painter.setBrush(QColor(255, 255, 255, 70))
+        painter.drawRect(ghost)
+        painter.setPen(QPen(Qt.GlobalColor.white, 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(ghost)
+        self._paint_resize_label(painter, state)
+
+    def _paint_resize_label(self, painter: QPainter, state: _ImageResizeState) -> None:
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(state.label) + 14
+        height = metrics.height() + 8
+        viewport = self.viewport().rect()
+        x = min(max(state.ghost.left(), 4), viewport.width() - width - 4)
+        y = state.ghost.bottom() + 8
+        if y + height > viewport.height() - 4:
+            y = max(4, state.ghost.top() - height - 8)
+        label = QRectF(x, y, width, height)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(30, 30, 30, 215))
+        painter.drawRoundedRect(label, 5, 5)
+        painter.setPen(Qt.GlobalColor.white)
+        painter.drawText(label, Qt.AlignmentFlag.AlignCenter, state.label)
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:
         super().scrollContentsBy(dx, dy)

@@ -148,6 +148,27 @@ def test_image_attributes_survive_real_pandoc_conversion_to_tei():
     assert "align-left" in html
 
 
+def test_percent_width_reaches_html_as_figure_ceiling_with_real_pandoc():
+    if shutil.which("pandoc") is None:
+        pytest.skip("Pandoc non disponible dans l'environnement de test.")
+
+    markdown_source = RUNTIME_DIR / "pipeline_image_percent_source.md"
+    markdown_source.write_text(
+        "![Une image](../../assets/images/exemple.jpg){width=40% align=center}\n",
+        encoding="utf-8",
+    )
+    output_path = RUNTIME_DIR / "pipeline_image_percent_output.xml"
+
+    result = convert_markdown_file_to_tei(markdown_source, output_path, pandoc_command="pandoc")
+
+    assert result.success is True
+    tei_content = output_path.read_text(encoding="utf-8")
+    assert 'width="40%"' in tei_content
+    html = render_tei_file_to_html_fragment(output_path, parameters={"article_slug": "pct"})
+    assert 'class="article-figure align-center" style="max-width:40%" data-width="40%"' in html
+    assert '<img src="../../assets/images/exemple.jpg" alt="Une image">' in html
+
+
 def test_setext_and_atx_headings_both_get_the_right_section_depth_with_real_pandoc():
     """Real pandoc + convert_markdown_file_to_tei's own
     extract_heading_levels/apply_heading_levels_in_tei_file call (not the

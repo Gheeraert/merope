@@ -424,6 +424,7 @@ class FormattingMixin:
         height: int | None = None,
         align: str | None = None,
         size_preset: str | None = None,
+        width_spec: str | None = None,
     ) -> ImageWidget:
         at = self.text.index(index)
         widget = ImageWidget(
@@ -436,6 +437,7 @@ class FormattingMixin:
             height=height,
             align=align,
             size_preset=size_preset,
+            width_spec=width_spec,
         )
         self.text.window_create(at, window=widget)
         # Purely cosmetic: center the widget in the editor regardless of the

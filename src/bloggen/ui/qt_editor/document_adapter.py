@@ -21,10 +21,12 @@ from PySide6.QtGui import (
     QTextCursor,
     QTextDocument,
     QTextImageFormat,
+    QTextLength,
     QTextListFormat,
 )
 
 from bloggen.content.footnotes import FootnoteDefinitions
+from bloggen.content.image_size import max_percent_for, parse_width
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -453,12 +455,18 @@ def make_image_format(run: InlineRun) -> QTextImageFormat:
     _set_optional_property(image_format, IMAGE_HEIGHT_PROPERTY, run.image_height)
     _set_optional_property(image_format, IMAGE_ALIGN_PROPERTY, run.image_align)
 
-    visual_width = _positive_pixel_dimension(run.image_width)
-    visual_height = _positive_pixel_dimension(run.image_height)
-    if visual_width is not None:
-        image_format.setWidth(visual_width)
-    if visual_height is not None:
-        image_format.setHeight(visual_height)
+    # Mirror the site's CSS: the column (half of it for floats) is always a
+    # ceiling, "NN%" is a lower ceiling, and a historical pixel width is
+    # applied alone so the height keeps following the image's proportions.
+    ceiling = max_percent_for(run.image_align)
+    spec = parse_width(run.image_width)
+    if spec is not None and spec.kind == "percent":
+        ceiling = min(ceiling, spec.value)
+    elif spec is not None:
+        image_format.setWidth(spec.value)
+    image_format.setMaximumWidth(
+        QTextLength(QTextLength.Type.PercentageLength, ceiling)
+    )
     return image_format
 
 
@@ -1227,13 +1235,6 @@ def _optional_image_property(
     ):
         raise UnsupportedInlineError("Propriete image Merope optionnelle invalide")
     return value[len(_OPTIONAL_IMAGE_STRING_PREFIX) :]
-
-
-def _positive_pixel_dimension(value: str | None) -> int | None:
-    if value is None or not value.isascii() or not value.isdecimal():
-        return None
-    pixels = int(value)
-    return pixels if pixels > 0 else None
 
 
 def _append_semantic_run(runs: list[InlineRun], run: InlineRun) -> None:

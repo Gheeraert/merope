@@ -8,6 +8,7 @@ import threading
 from tkinter import messagebox
 import tkinter as tk
 from bloggen.content.image_service import grab_clipboard_image, save_clipboard_image
+from bloggen.content.image_size import legacy_pixels
 from bloggen.markdown.html_paste_import import html_to_blocks
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
@@ -155,15 +156,14 @@ class PasteMixin:
     def _insert_runs_at_cursor(self, runs: list[InlineRun]) -> None:
         for run in runs:
             if run.image_src is not None:
-                width = int(run.image_width) if run.image_width else None
-                height = int(run.image_height) if run.image_height else None
                 self._insert_image_widget(
                     "insert",
                     run.image_src,
                     run.image_alt or "",
-                    width=width,
-                    height=height,
+                    width=legacy_pixels(run.image_width),
+                    height=legacy_pixels(run.image_height),
                     align=run.image_align,
+                    width_spec=run.image_width,
                 )
                 continue
             if run.footnote_ref is not None:

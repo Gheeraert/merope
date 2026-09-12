@@ -47,7 +47,13 @@ from bloggen.content.footnotes import (
     footnote_reference_order,
     plan_footnote_renumbering,
 )
-from bloggen.content.image_service import copy_into_images_dir, write_cropped_copy
+from bloggen.content.image_service import (
+    copy_into_images_dir,
+    crop_is_identity,
+    edited_size,
+    probe_image,
+    write_cropped_copy,
+)
 from bloggen.content.versioning import (
     convert_content_file,
     purge_versions,
@@ -114,7 +120,7 @@ from bloggen.ui.qt_editor.footnote_store import (
     FootnoteStoreSnapshot,
 )
 from bloggen.ui.qt_editor.image_crop import validate_source_box
-from bloggen.ui.qt_editor.image_crop_dialog import CropImageDialog, crop_source_size
+from bloggen.ui.qt_editor.image_crop_dialog import CropImageDialog
 from bloggen.ui.qt_editor.image_dialog import ImageMetadataDialog
 from bloggen.ui.qt_editor.image_selection import (
     ImageTarget,
@@ -158,6 +164,16 @@ class _RenumberSaveSnapshot:
     body_modified: bool
     cursor_position: int
     cursor_anchor: int
+
+
+def _run_for_new_bitmap(run: InlineRun, src: str) -> InlineRun:
+    """Point an image at a new bitmap (crop, rotation, replacement).
+
+    The display width is kept, but a stored height belonged to the former
+    proportions and would distort the new picture, so it is dropped.
+    """
+
+    return replace(run, image_src=src, image_height=None)
 
 
 class QtEditorWindow(QMainWindow):
@@ -1432,7 +1448,7 @@ class QtEditorWindow(QMainWindow):
             raise ValueError("Le fichier choisi n’est pas une image lisible par Qt.")
 
         src = copy_into_images_dir(source, self.images_dir, self.current_path.parent)
-        run = replace(target.run, image_src=src)
+        run = _run_for_new_bitmap(target.run, src)
         cursor = replace_merope_image(
             self.editor.document(),
             target,
@@ -1478,8 +1494,17 @@ class QtEditorWindow(QMainWindow):
             QMessageBox.critical(self, "Remplacement impossible", str(exc))
             return False
 
-    def crop_targeted_image(self, box: tuple[int, int, int, int]) -> bool:
-        """Crop the targeted local bitmap copy and update only its source."""
+    def crop_targeted_image(
+        self,
+        box: tuple[int, int, int, int],
+        *,
+        quarter_turns: int = 0,
+    ) -> bool:
+        """Crop/rotate a copy of the targeted local bitmap; update only its source.
+
+        ``box`` refers to the displayed image rotated by ``quarter_turns``
+        clockwise quarter turns. Choosing the whole unrotated image is a no-op.
+        """
 
         capability = self._targeted_crop_source()
         if capability is None:
@@ -1487,10 +1512,17 @@ class QtEditorWindow(QMainWindow):
                 "L’image ciblée n’a pas de fichier source local lisible à recadrer."
             )
         target, source_path = capability
-        width, height = crop_source_size(source_path)
+        width, height = edited_size(source_path, quarter_turns)
         box = validate_source_box(box, width, height)
-        new_src = write_cropped_copy(source_path, box, self.current_path.parent)
-        run = replace(target.run, image_src=new_src)
+        if crop_is_identity(source_path, box, quarter_turns):
+            return False
+        new_src = write_cropped_copy(
+            source_path,
+            box,
+            self.current_path.parent,
+            quarter_turns=quarter_turns,
+        )
+        run = _run_for_new_bitmap(target.run, new_src)
         cursor = replace_merope_image(
             self.editor.document(),
             target,
@@ -1517,8 +1549,12 @@ class QtEditorWindow(QMainWindow):
             return False
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
+        request = dialog.crop_request()
         try:
-            return self.crop_targeted_image(dialog.crop_box())
+            return self.crop_targeted_image(
+                request.box,
+                quarter_turns=request.quarter_turns,
+            )
         except (OSError, ValueError, UnsupportedDocumentError) as exc:
             QMessageBox.critical(self, "Recadrage impossible", str(exc))
             return False
@@ -1533,11 +1569,7 @@ class QtEditorWindow(QMainWindow):
         if target is None:
             return None
         source_path = self._local_image_source(target.run.image_src)
-        if source_path is None:
-            return None
-        try:
-            crop_source_size(source_path)
-        except ValueError:
+        if source_path is None or probe_image(source_path) is None:
             return None
         return target, source_path
 

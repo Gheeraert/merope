@@ -7,7 +7,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtGui import QTextCursor, QTextDocument, QTextImageFormat
+from PySide6.QtGui import QTextCursor, QTextDocument, QTextImageFormat, QTextLength
 
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks
@@ -283,8 +283,8 @@ def test_image_none_and_empty_optional_values_remain_distinct():
     assert extract_blocks(document)[0].runs == [image]
 
 
-def test_only_positive_integer_dimensions_affect_native_qt_rendering():
-    semantic_only = InlineRun(
+def test_native_qt_rendering_mirrors_site_width_rules():
+    percent = InlineRun(
         image_src="images/a.png",
         image_width="50%",
         image_height="auto",
@@ -294,8 +294,10 @@ def test_only_positive_integer_dimensions_affect_native_qt_rendering():
         image_width="240",
         image_height="180",
     )
+    natural = InlineRun(image_src="images/c.png")
+    floated = InlineRun(image_src="images/d.png", image_width="80%", image_align="left")
     document = QTextDocument()
-    blocks = [Block(kind=PARAGRAPH, runs=[semantic_only, pixels])]
+    blocks = [Block(kind=PARAGRAPH, runs=[percent, pixels, natural, floated])]
 
     populate_document(document, blocks)
 
@@ -306,10 +308,15 @@ def test_only_positive_integer_dimensions_affect_native_qt_rendering():
         if fragment.isValid() and fragment.charFormat().isImageFormat():
             formats.append(QTextImageFormat(fragment.charFormat()))
         iterator += 1
-    assert formats[0].width() == 0
-    assert formats[0].height() == 0
-    assert formats[1].width() == 240
-    assert formats[1].height() == 180
+    percentage = QTextLength.Type.PercentageLength
+    ceilings = [
+        (fmt.maximumWidth().type(), fmt.maximumWidth().rawValue()) for fmt in formats
+    ]
+    assert ceilings == [(percentage, 50), (percentage, 100), (percentage, 100), (percentage, 50)]
+    # Only a historical pixel width is fixed; heights never are, so the
+    # proportions survive any ceiling.
+    assert [fmt.width() for fmt in formats] == [0, 240, 0, 0]
+    assert [fmt.height() for fmt in formats] == [0, 0, 0, 0]
     assert extract_blocks(document) == blocks
 
 

@@ -114,21 +114,26 @@ def test_replacement_changes_only_source_and_is_one_native_undo(tmp_path):
     _write_image(tmp_path / "assets" / "images" / "ancien.png", "navy")
     source = tmp_path / "imports" / "nouveau.png"
     source_bytes = _write_image(source, "gold", (800, 300))
-    window.resize(720, 480)
+    # Wide enough for the side docks to leave the 300 px image uncapped.
+    window.resize(1600, 700)
     window.show()
 
     assert window.replace_targeted_image_file(source)
     QApplication.processEvents()
 
     changed = targeted_merope_image(window.editor.textCursor()).run
-    assert changed == replace(run, image_src="../../assets/images/nouveau.png")
+    # The width is kept; the former 3:2 height would stretch the 8:3 picture.
+    assert changed == replace(
+        run, image_src="../../assets/images/nouveau.png", image_height=None
+    )
     assert (tmp_path / "assets" / "images" / "nouveau.png").read_bytes() == source_bytes
     image_format = _image_format(window.editor.document())
     assert image_format.name() == "../../assets/images/nouveau.png"
-    assert (image_format.width(), image_format.height()) == (300, 200)
+    assert (image_format.width(), image_format.height()) == (300, 0)
     geometry = window.editor.image_resize_geometry()
     assert geometry is not None
-    assert (geometry.image_rect.width(), geometry.image_rect.height()) == (300, 200)
+    assert geometry.image_rect.width() == 300
+    assert abs(geometry.image_rect.height() - 300 * 300 / 800) <= 1.5
     assert window.editor.document().isModified()
     assert window.windowTitle().endswith("*")
 
@@ -233,9 +238,10 @@ def test_replacement_survives_save_and_reopen_with_front_matter(tmp_path):
 
     metadata, saved = read_content_file(path)
     assert metadata == {"title": "Article"}
+    # The 3:2 height would distort the 3:1 replacement, so only the width stays.
     assert saved.strip() == (
         "![**Bossuet**](../../assets/images/nouveau.png)"
-        "{width=300 height=200 align=center}"
+        "{width=300 align=center}"
     )
     assert markdown_to_blocks(saved) == [Block(kind=PARAGRAPH, runs=[changed])]
     reopened = QTextDocument()

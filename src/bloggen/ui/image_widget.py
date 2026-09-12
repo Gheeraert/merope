@@ -18,8 +18,9 @@ from pathlib import Path
 from tkinter import filedialog, simpledialog, ttk
 import tkinter as tk
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageOps, ImageTk
 
+from bloggen.content.image_size import max_percent_for, parse_width
 from bloggen.content.image_service import (
     DEFAULT_SIZE_PRESET as _DEFAULT_SIZE,
     SIZE_PRESETS,
@@ -37,6 +38,8 @@ _HANDLE_SIZE = 8
 _CROP_HANDLE_HIT = 16
 _MIN_SIZE = 40
 _MAX_CROP_PREVIEW_DIM = 700
+# Column width used to display a percentage width in this pixel-based editor.
+_PERCENT_REFERENCE_WIDTH = 700
 _ALIGN_LABELS = {"left": "gauche", "center": "centré", "right": "droite"}
 
 _SIZE_LABELS = {
@@ -146,6 +149,7 @@ class ImageWidget(tk.Frame):
         height: int | None = None,
         align: str | None = None,
         size_preset: str | None = None,
+        width_spec: str | None = None,
     ) -> None:
         super().__init__(master, borderwidth=1, relief="solid")
         self.images_dir = Path(images_dir)
@@ -156,20 +160,36 @@ class ImageWidget(tk.Frame):
         self._resize_corner: str | None = None
         self._resize_start = (0, 0)
         self._resize_start_size = (0, 0)
+        # A percentage width written by the Qt editor ("50%") is shown at
+        # that share of a reference column and saved back unchanged unless
+        # the image is resized here (this editor only knows pixels).
+        spec = parse_width(width_spec)
+        self.width_spec = width_spec if spec is not None and spec.is_percent else None
 
         self._source_image = self._load_source_image()
-        self.width, self.height = calculate_display_size(
-            self._source_image.size,
-            width=width,
-            height=height,
-            size_preset=size_preset,
-        )
+        if self.width_spec is not None:
+            self._apply_width_spec()
+        else:
+            self.width, self.height = calculate_display_size(
+                self._source_image.size,
+                width=width,
+                height=height,
+                size_preset=size_preset,
+            )
 
         self._build_ui()
         self._render_preview()
 
     def _resolve_path(self) -> Path:
         return (self.doc_dir / self.src).resolve()
+
+    def _apply_width_spec(self) -> None:
+        spec = parse_width(self.width_spec)
+        natural_width, natural_height = self._source_image.size
+        percent = min(spec.value if spec else 100, max_percent_for(self.align))
+        width = min(natural_width, round(_PERCENT_REFERENCE_WIDTH * percent / 100))
+        self.width = max(1, width)
+        self.height = max(1, round(natural_height * self.width / max(natural_width, 1)))
 
     def _load_source_image(self) -> Image.Image:
         return load_image_or_placeholder(self._resolve_path())
@@ -264,6 +284,7 @@ class ImageWidget(tk.Frame):
         ratio = new_width / start_w if start_w else 1
         new_height = max(_MIN_SIZE, round(start_h * ratio))
         self.width, self.height = int(new_width), int(new_height)
+        self.width_spec = None
         self._render_preview()
 
     def _end_resize(self, _event: tk.Event) -> None:
@@ -278,6 +299,8 @@ class ImageWidget(tk.Frame):
             return
         self.src = copy_into_images_dir(Path(source), self.images_dir, self.doc_dir)
         self._source_image = self._load_source_image()
+        if self.width_spec is not None:
+            self._apply_width_spec()
         self._render_preview()
 
     def _edit_caption(self) -> None:
@@ -298,6 +321,8 @@ class ImageWidget(tk.Frame):
             return
         self.src = _write_cropped_copy(self._resolve_path(), dialog.result, self.doc_dir)
         self._source_image = self._load_source_image()
+        if self.width_spec is not None:
+            self._apply_width_spec()
         self._render_preview()
 
 
@@ -311,7 +336,9 @@ class CropDialog(tk.Toplevel):
         self.title("Recadrer l'image")
         self.result: tuple[int, int, int, int] | None = None
 
-        self._original = Image.open(image_path).convert("RGB")
+        # Crop boxes refer to the EXIF-oriented image (see write_cropped_copy).
+        with Image.open(image_path) as opened:
+            self._original = ImageOps.exif_transpose(opened).convert("RGB")
         orig_w, orig_h = self._original.size
         self._scale = min(1.0, _MAX_CROP_PREVIEW_DIM / max(orig_w, orig_h)) if max(orig_w, orig_h) else 1.0
         display_w, display_h = max(1, int(orig_w * self._scale)), max(1, int(orig_h * self._scale))

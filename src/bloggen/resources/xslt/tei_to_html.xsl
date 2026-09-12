@@ -192,8 +192,40 @@
         <xsl:value-of select="$rend"/>
       </xsl:if>
     </xsl:variable>
+    <!-- width="50%" is a ceiling relative to the text column (never an
+         enlargement); floated figures keep the stylesheet's 50 % limit.
+         Plain numbers remain historical pixel attributes on <img>. -->
+    <xsl:variable name="isPercent" select="substring($width, string-length($width)) = '%'"/>
+    <xsl:variable name="rawPercent" select="number(normalize-space(substring($width, 1, string-length($width) - 1)))"/>
+    <xsl:variable name="percentCeiling">
+      <xsl:choose>
+        <xsl:when test="$rend = 'align-left' or $rend = 'align-right'">50</xsl:when>
+        <xsl:otherwise>100</xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+    <xsl:variable name="percent">
+      <xsl:choose>
+        <xsl:when test="not($isPercent) or string($rawPercent) = 'NaN' or $rawPercent &lt;= 0"/>
+        <xsl:when test="$rawPercent &gt; number($percentCeiling)"><xsl:value-of select="$percentCeiling"/></xsl:when>
+        <xsl:otherwise><xsl:value-of select="$rawPercent"/></xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+    <xsl:variable name="imgWidth">
+      <xsl:if test="not($isPercent)"><xsl:value-of select="$width"/></xsl:if>
+    </xsl:variable>
+    <xsl:variable name="imgHeight">
+      <xsl:if test="not($isPercent)"><xsl:value-of select="$height"/></xsl:if>
+    </xsl:variable>
 
     <figure class="{normalize-space($figureClass)}">
+      <xsl:if test="$percent != ''">
+        <xsl:attribute name="style">
+          <xsl:value-of select="concat('max-width:', $percent, '%')"/>
+        </xsl:attribute>
+        <xsl:attribute name="data-width">
+          <xsl:value-of select="concat($percent, '%')"/>
+        </xsl:attribute>
+      </xsl:if>
       <xsl:if test="$url != ''">
         <xsl:choose>
           <xsl:when test="$clickable_figures = '1'">
@@ -201,8 +233,8 @@
               <img src="{$url}">
                 <xsl:call-template name="figure-img-common-attrs">
                   <xsl:with-param name="captionText" select="$captionText"/>
-                  <xsl:with-param name="width" select="$width"/>
-                  <xsl:with-param name="height" select="$height"/>
+                  <xsl:with-param name="width" select="$imgWidth"/>
+                  <xsl:with-param name="height" select="$imgHeight"/>
                 </xsl:call-template>
               </img>
             </a>
@@ -211,8 +243,8 @@
             <img src="{$url}">
               <xsl:call-template name="figure-img-common-attrs">
                 <xsl:with-param name="captionText" select="$captionText"/>
-                <xsl:with-param name="width" select="$width"/>
-                <xsl:with-param name="height" select="$height"/>
+                <xsl:with-param name="width" select="$imgWidth"/>
+                <xsl:with-param name="height" select="$imgHeight"/>
               </xsl:call-template>
             </img>
           </xsl:otherwise>

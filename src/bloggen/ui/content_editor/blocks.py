@@ -3,6 +3,7 @@ model: extract_blocks() on save, _populate_from_blocks() on load."""
 
 from __future__ import annotations
 
+from bloggen.content.image_size import legacy_pixels
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import parse_table_lines
 from bloggen.markdown.rich_text_model import (
@@ -91,12 +92,14 @@ class BlocksMixin:
                 flush()
                 widget = self.text.nametowidget(value)
                 if isinstance(widget, ImageWidget):
+                    # A percentage from the Qt editor survives untouched.
+                    percent = widget.width_spec
                     runs.append(
                         InlineRun(
                             image_src=widget.src,
                             image_alt=widget.alt,
-                            image_width=str(widget.width),
-                            image_height=str(widget.height),
+                            image_width=percent or str(widget.width),
+                            image_height=None if percent else str(widget.height),
                             image_align=widget.align,
                         )
                     )
@@ -262,15 +265,14 @@ class BlocksMixin:
     def _insert_runs(self, runs: list[InlineRun]) -> None:
         for run in runs:
             if run.image_src is not None:
-                width = int(run.image_width) if run.image_width else None
-                height = int(run.image_height) if run.image_height else None
                 self._insert_image_widget(
                     "end",
                     run.image_src,
                     run.image_alt or "",
-                    width=width,
-                    height=height,
+                    width=legacy_pixels(run.image_width),
+                    height=legacy_pixels(run.image_height),
                     align=run.image_align,
+                    width_spec=run.image_width,
                 )
                 continue
             if run.footnote_ref is not None:

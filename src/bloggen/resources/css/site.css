@@ -642,6 +642,15 @@ button:focus-visible {
   margin-right: auto;
 }
 
+/* An author-set width ("50%") arrives as an inline max-width on the figure:
+   a ceiling relative to the text column, never an enlargement. On narrow
+   screens a 30% figure would be unreadable, so it may use the full column. */
+@media (max-width: 40rem) {
+  .article-figure[data-width] {
+    max-width: 100% !important;
+  }
+}
+
 .figure-image-link,
 .article-figure img {
   display: block;
