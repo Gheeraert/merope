@@ -50,11 +50,13 @@ from bloggen.ui.qt_editor.constants import (
     FOOTNOTE_ID_PROPERTY,
     FOOTNOTE_INSTANCE_PROPERTY,
     FOOTNOTE_MARKER_PROPERTY,
+    HEADING_MARGINS,
     HEADING_LEVEL_PROPERTY,
     HEADING_POINT_SIZES,
     IMAGE_ALIGN_PROPERTY,
     IMAGE_ALT_PROPERTY,
     IMAGE_HEIGHT_PROPERTY,
+    IMAGE_BLOCK_MARGINS,
     IMAGE_MARKER_PROPERTY,
     IMAGE_SRC_PROPERTY,
     IMAGE_WIDTH_PROPERTY,
@@ -104,6 +106,7 @@ def populate_document(document: QTextDocument, blocks: list[Block]) -> None:
 
     cursor.movePosition(QTextCursor.MoveOperation.Start)
     document.clearUndoRedoStacks()
+    document.setModified(False)
 
 
 def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
@@ -135,6 +138,7 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
         if len(blocks) == 1 and blocks[0].kind == PARAGRAPH:
             heading_level = _heading_level(insertion.block())
             _insert_runs(insertion, blocks[0].runs, heading_level=heading_level)
+            refresh_block_visuals(insertion.block())
             return insertion
 
         original_block_format = QTextBlockFormat(insertion.blockFormat())
@@ -557,17 +561,25 @@ def is_semantic_inline_object_format(char_format: QTextCharFormat) -> bool:
 
 
 def refresh_block_visuals(block: QTextBlock) -> None:
-    """Refresh heading/body size without altering inline semantic properties."""
+    """Refresh presentation without altering block or inline semantics."""
 
     if not block.isValid():
         return
-    block_format = block.blockFormat()
+    block_format = QTextBlockFormat(block.blockFormat())
+    kind = block_format.property(BLOCK_KIND_PROPERTY) or PARAGRAPH
     level = (
         int(block_format.property(HEADING_LEVEL_PROPERTY) or 1)
-        if block_format.property(BLOCK_KIND_PROPERTY) == HEADING
+        if kind == HEADING
         else None
     )
     cursor = QTextCursor(block)
+    _set_visual_block_margins(
+        block_format,
+        kind=kind,
+        level=level,
+        image_only=kind == PARAGRAPH and block_is_image_only(block),
+    )
+    cursor.setBlockFormat(block_format)
     cursor.movePosition(
         QTextCursor.MoveOperation.EndOfBlock,
         QTextCursor.MoveMode.KeepAnchor,
@@ -576,6 +588,29 @@ def refresh_block_visuals(block: QTextBlock) -> None:
     visual_format.setFontPointSize(HEADING_POINT_SIZES.get(level, BODY_POINT_SIZE))
     cursor.mergeBlockCharFormat(visual_format)
     cursor.mergeCharFormat(visual_format)
+
+
+def block_is_image_only(block: QTextBlock) -> bool:
+    """Return whether a block contains one Merope image and only whitespace."""
+
+    if not block.isValid():
+        return False
+    image_count = 0
+    iterator = block.begin()
+    while not iterator.atEnd():
+        fragment = iterator.fragment()
+        if fragment.isValid():
+            char_format = fragment.charFormat()
+            if char_format.isImageFormat():
+                if not bool(char_format.property(IMAGE_MARKER_PROPERTY)):
+                    return False
+                image_count += 1
+                if image_count > 1:
+                    return False
+            elif has_footnote_properties(char_format) or fragment.text().strip():
+                return False
+        iterator += 1
+    return image_count == 1
 
 
 def validate_blocks(blocks: Iterable[Block]) -> None:
@@ -828,6 +863,7 @@ def _populate_leaf_block(cursor: QTextCursor, block: Block, first: bool) -> bool
         block.runs,
         heading_level=block.level if block.kind == HEADING else None,
     )
+    refresh_block_visuals(cursor.block())
     return False
 
 
@@ -954,7 +990,30 @@ def _make_block_format(kind: str, alignment: str, level: int | None) -> QTextBlo
         block_format.setHeadingLevel(level)
     elif kind == BLOCKQUOTE:
         block_format.setLeftMargin(BLOCKQUOTE_LEFT_MARGIN)
+    _set_visual_block_margins(
+        block_format,
+        kind=kind,
+        level=level,
+        image_only=False,
+    )
     return block_format
+
+
+def _set_visual_block_margins(
+    block_format: QTextBlockFormat,
+    *,
+    kind: object,
+    level: int | None,
+    image_only: bool,
+) -> None:
+    if kind == HEADING and level in HEADING_MARGINS:
+        top, bottom = HEADING_MARGINS[level]
+    elif kind == PARAGRAPH and image_only:
+        top, bottom = IMAGE_BLOCK_MARGINS
+    else:
+        top, bottom = 0.0, 0.0
+    block_format.setTopMargin(top)
+    block_format.setBottomMargin(bottom)
 
 
 def make_raw_block_format(kind: str, group: str) -> QTextBlockFormat:

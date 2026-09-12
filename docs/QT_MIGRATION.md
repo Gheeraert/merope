@@ -987,6 +987,13 @@ par les actions, sans duplication de logique. Les formats inline synchronisent
 leur état coché avec le curseur. Les icônes utilisent d’abord `QStyle` ou le
 thème Qt, puis de petits glyphes dessinés par Qt, sans dépendance externe.
 
+L’aération du document est elle aussi strictement visuelle : les H1 à H4 ont
+des marges `QTextBlockFormat` hiérarchisées (24/14, 20/12, 16/10 et 12/8 px),
+et un paragraphe contenant une unique image Mérope, sans texte substantiel,
+reçoit 16 px avant et après. `refresh_block_visuals()` recalcule ces marges lors
+des créations et conversions ; aucun paragraphe vide ou saut supplémentaire
+n’entre dans le modèle, le Markdown, le recovery ou l’aperçu publié.
+
 Les raccourcis sont exercés par de vrais événements clavier avec le focus dans
 le corps : `Ctrl+G` et `Ctrl+B` pour le gras, `Ctrl+I` pour l’italique,
 `Ctrl+U` pour le soulignement canonique, `Ctrl+C/X/V` pour les chemins Mérope,
