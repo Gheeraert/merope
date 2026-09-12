@@ -319,6 +319,56 @@ Markdown → rich_text_import → Block / InlineRun
 Les fonctions Qt `toMarkdown`, `setMarkdown`, `toHtml` et `setHtml` ne font
 pas partie de ce chemin.
 
+### Audit presse-papiers Word / Google Docs
+
+La phase 8a ajoute un outil autonome et strictement diagnostique :
+
+```text
+python -m bloggen.ui.qt_editor.clipboard_probe
+```
+
+Il lit `QApplication.clipboard().mimeData()` seulement lorsque l’utilisateur
+clique sur « Inspecter le presse-papiers ». Il inventorie tous les formats Qt,
+leurs tailles et leur SHA-256, les indicateurs texte/HTML/image/URL, les
+dimensions et le format d’une éventuelle `QImage`, ainsi que les balises
+`<img>` du HTML (src classé `data/http/https/file/cid/autre/vide`, alt et
+dimensions déclarées). Sous Windows, une seconde section énumère en lecture
+seule les formats natifs avec `EnumClipboardFormats`, leur nom enregistré et
+leur taille `GlobalSize` lorsqu’elle est disponible. `CloseClipboard()` est
+garanti même en cas d’erreur.
+
+Les aperçus texte et HTML sont limités à 4 000 caractères. Les blobs binaires
+ne sont jamais affichés : seuls taille et hash figurent dans le rapport. Une
+data URI est remplacée par son type déclaré, sa longueur et son SHA-256 ; sa
+base64 n’est pas recopiée. Le rapport rappelle néanmoins qu’il peut contenir
+une partie du texte et des URL et doit être relu avant partage. L’outil ne
+modifie le presse-papiers que sur l’action explicite « Copier le rapport » et
+n’enregistre un fichier qu’à l’emplacement choisi par l’utilisateur.
+
+Procédure de capture manuelle sous Windows :
+
+1. Lancer `python -m bloggen.ui.qt_editor.clipboard_probe`.
+2. Dans l’application source, copier successivement chacun des six cas
+   ci-dessous, revenir au probe et cliquer « Inspecter le presse-papiers ».
+3. Enregistrer chaque rapport sous un nom distinct, hors du dépôt, après avoir
+   vérifié son contenu.
+
+Cas à capturer :
+
+```text
+A. Word — texte simple sans image
+B. Word — petit paragraphe + une image inline + petit paragraphe
+C. Word — image seule
+D. Google Docs dans Chrome — texte simple
+E. Google Docs dans Chrome — petit paragraphe + une image + petit paragraphe
+F. Google Docs dans Chrome — image seule
+```
+
+Ce probe n’importe rien, ne télécharge aucune URL et ne lit aucun fichier
+référencé. Il ne formule pas encore de stratégie d’import. Les refus atomiques
+actuels de `<img>`, VML, bitmap MIME, tables et `<pre>` dans `MeropeTextEdit`
+restent strictement inchangés.
+
 ### Images statiques
 
 Le chemin documentaire des images est désormais :
