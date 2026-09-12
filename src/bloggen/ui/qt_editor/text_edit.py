@@ -360,14 +360,68 @@ class MeropeTextEdit(QTextEdit):
         menu = self.createStandardContextMenu(
             position if position is not None else QPoint()
         )
-        self._replace_context_action(menu, "edit-copy", self.copy)
-        self._replace_context_action(menu, "edit-cut", self.cut)
-        self._replace_context_action(menu, "edit-paste", self.paste)
-        self._replace_context_action(
-            menu,
-            "edit-delete",
-            self._delete_from_context_menu,
+        replacements = (
+            ("edit-copy", self.copy),
+            ("edit-cut", self.cut),
+            ("edit-paste", self.paste),
+            ("edit-delete", self._delete_from_context_menu),
         )
+        if not all(
+            self._replace_context_action(menu, object_name, callback)
+            for object_name, callback in replacements
+        ):
+            menu.deleteLater()
+            return self._create_safe_context_menu()
+        return menu
+
+    def _create_safe_context_menu(self) -> QMenu:
+        """Build a fail-closed menu when Qt's standard menu is unexpected."""
+
+        menu = QMenu(self)
+        cursor = self.textCursor()
+        document = self.document()
+        clipboard_mime = QApplication.clipboard().mimeData()
+        actions = (
+            ("edit-undo", "Annuler", self.undo, document.isUndoAvailable()),
+            ("edit-redo", "Rétablir", self.redo, document.isRedoAvailable()),
+            (None, None, None, None),
+            (
+                "edit-cut",
+                "Couper",
+                self.cut,
+                cursor.hasSelection() and not self.isReadOnly(),
+            ),
+            ("edit-copy", "Copier", self.copy, cursor.hasSelection()),
+            (
+                "edit-paste",
+                "Coller",
+                self.paste,
+                not self.isReadOnly()
+                and clipboard_mime is not None
+                and self.canInsertFromMimeData(clipboard_mime),
+            ),
+            (
+                "edit-delete",
+                "Supprimer",
+                self._delete_from_context_menu,
+                cursor.hasSelection() and not self.isReadOnly(),
+            ),
+            (None, None, None, None),
+            (
+                "select-all",
+                "Tout sélectionner",
+                self.selectAll,
+                not document.isEmpty(),
+            ),
+        )
+        for object_name, label, callback, enabled in actions:
+            if object_name is None:
+                menu.addSeparator()
+                continue
+            action = menu.addAction(label)
+            action.setObjectName(object_name)
+            action.setEnabled(bool(enabled))
+            action.triggered.connect(lambda _checked=False, fn=callback: fn())
         return menu
 
     @staticmethod
@@ -375,7 +429,7 @@ class MeropeTextEdit(QTextEdit):
         menu: QMenu,
         object_name: str,
         callback: Callable[[], None],
-    ) -> None:
+    ) -> bool:
         """Replace a native QTextEdit action without changing the menu layout."""
 
         native = next(
@@ -383,7 +437,7 @@ class MeropeTextEdit(QTextEdit):
             None,
         )
         if native is None:
-            return
+            return False
         replacement = QAction(native.icon(), native.text(), menu)
         replacement.setObjectName(object_name)
         replacement.setEnabled(native.isEnabled())
@@ -393,6 +447,7 @@ class MeropeTextEdit(QTextEdit):
         replacement.triggered.connect(lambda _checked=False: callback())
         menu.insertAction(native, replacement)
         menu.removeAction(native)
+        return True
 
     def _delete_from_context_menu(self) -> None:
         """Route contextual deletion through the protected keyboard path."""

@@ -315,3 +315,52 @@ def test_context_paste_preserves_internal_merope_mime_priority():
             runs=[InlineRun(text="Début "), InlineRun(text="Interne", bold=True)],
         )
     ]
+
+
+def test_missing_native_action_falls_back_to_an_explicit_safe_menu():
+    original = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[
+                InlineRun(text="Avant "),
+                InlineRun(footnote_ref="12"),
+                InlineRun(text=" après"),
+            ],
+        )
+    ]
+    editor = _editor(original)
+    target = _footnote(editor)
+    _select(editor, target.start + 2, target.start + 3)
+    unsafe_menu = QMenu(editor)
+    unsafe_action = unsafe_menu.addAction("Suppression Qt non protégée")
+    unsafe_action.setObjectName("native-delete-without-expected-name")
+    unsafe_action.triggered.connect(editor.textCursor().removeSelectedText)
+    for object_name in ("edit-copy", "edit-cut", "edit-paste"):
+        action = unsafe_menu.addAction(object_name)
+        action.setObjectName(object_name)
+    editor.createStandardContextMenu = lambda _position=None: unsafe_menu
+
+    menu = editor._create_merope_context_menu()
+
+    assert menu is not unsafe_menu
+    assert unsafe_action not in menu.actions()
+    assert {
+        action.objectName() for action in menu.actions() if not action.isSeparator()
+    } == {
+        "edit-undo",
+        "edit-redo",
+        "edit-cut",
+        "edit-copy",
+        "edit-paste",
+        "edit-delete",
+        "select-all",
+    }
+    delete = next(
+        action for action in menu.actions() if action.objectName() == "edit-delete"
+    )
+    delete.trigger()
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Avant  après")])
+    ]
+    editor.undo()
+    assert extract_blocks(editor.document()) == original
