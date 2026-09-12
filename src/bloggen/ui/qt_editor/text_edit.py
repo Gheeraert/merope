@@ -21,6 +21,7 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
+    QAction,
     QColor,
     QContextMenuEvent,
     QFont,
@@ -36,7 +37,7 @@ from PySide6.QtGui import (
     QTextLayout,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QApplication, QTextEdit
+from PySide6.QtWidgets import QApplication, QMenu, QTextEdit
 
 from bloggen.markdown.html_paste_import import (
     UnsupportedHtmlStructureError,
@@ -333,24 +334,75 @@ class MeropeTextEdit(QTextEdit):
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         target = self._image_at_viewport_point(event.pos())
-        if target is None:
-            super().contextMenuEvent(event)
-            return
-        self.setTextCursor(target.cursor(self.document()))
-        self.viewport().update()
-        menu = self.createStandardContextMenu(event.pos())
-        menu.addSeparator()
-        caption_action = menu.addAction("Légende...")
-        if figure_caption_block(self.document().findBlock(target.start)) is not None:
-            # A figure's caption is typed right below it.
-            caption_action.triggered.connect(
-                lambda _checked=False, start=target.start: self.edit_figure_caption(start)
-            )
-        else:
-            caption_action.triggered.connect(self.imageMetadataRequested.emit)
-        self._add_image_size_menu(menu, target)
+        if target is not None:
+            self.setTextCursor(target.cursor(self.document()))
+            self.viewport().update()
+        menu = self._create_merope_context_menu(event.pos())
+        if target is not None:
+            menu.addSeparator()
+            caption_action = menu.addAction("Légende...")
+            if figure_caption_block(self.document().findBlock(target.start)) is not None:
+                # A figure's caption is typed right below it.
+                caption_action.triggered.connect(
+                    lambda _checked=False, start=target.start: (
+                        self.edit_figure_caption(start)
+                    )
+                )
+            else:
+                caption_action.triggered.connect(self.imageMetadataRequested.emit)
+            self._add_image_size_menu(menu, target)
         menu.exec(event.globalPos())
         menu.deleteLater()
+
+    def _create_merope_context_menu(self, position: QPoint | None = None) -> QMenu:
+        """Return the standard menu with every unsafe editor action replaced."""
+
+        menu = self.createStandardContextMenu(
+            position if position is not None else QPoint()
+        )
+        self._replace_context_action(menu, "edit-copy", self.copy)
+        self._replace_context_action(menu, "edit-cut", self.cut)
+        self._replace_context_action(menu, "edit-paste", self.paste)
+        self._replace_context_action(
+            menu,
+            "edit-delete",
+            self._delete_from_context_menu,
+        )
+        return menu
+
+    @staticmethod
+    def _replace_context_action(
+        menu: QMenu,
+        object_name: str,
+        callback: Callable[[], None],
+    ) -> None:
+        """Replace a native QTextEdit action without changing the menu layout."""
+
+        native = next(
+            (action for action in menu.actions() if action.objectName() == object_name),
+            None,
+        )
+        if native is None:
+            return
+        replacement = QAction(native.icon(), native.text(), menu)
+        replacement.setObjectName(object_name)
+        replacement.setEnabled(native.isEnabled())
+        replacement.setIconVisibleInMenu(native.isIconVisibleInMenu())
+        replacement.setStatusTip(native.statusTip())
+        replacement.setToolTip(native.toolTip())
+        replacement.triggered.connect(lambda _checked=False: callback())
+        menu.insertAction(native, replacement)
+        menu.removeAction(native)
+
+    def _delete_from_context_menu(self) -> None:
+        """Route contextual deletion through the protected keyboard path."""
+
+        event = QKeyEvent(
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_Delete,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(self, event)
 
     def _add_image_size_menu(self, menu, target: ImageTarget) -> None:
         size_menu = menu.addMenu("Taille")
