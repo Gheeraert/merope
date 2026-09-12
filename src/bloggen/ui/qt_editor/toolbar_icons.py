@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QStyle, QWidget
 
 
@@ -21,7 +21,6 @@ _THEME_ICONS = {
     "find": "edit-find",
     "replace": "edit-find-replace",
     "metadata": "document-properties",
-    "preview": "document-preview",
     "link": "insert-link",
     "image": "insert-image",
     "table": "insert-table",
@@ -33,7 +32,6 @@ _THEME_ICONS = {
 
 _GLYPHS = {
     "metadata": "⚙",
-    "preview": "◉",
     "replace": "↔",
     "plain_paste": "T",
     "nbsp": "␠",
@@ -66,10 +64,15 @@ _GLYPHS = {
 }
 
 
+_ICON_SIZE = 30
+
+
 def toolbar_icon(owner: QWidget, key: str) -> QIcon:
     standard = _STANDARD_ICONS.get(key)
     if standard is not None:
         return owner.style().standardIcon(standard)
+    if key == "preview":
+        return _eye_icon()
     theme_name = _THEME_ICONS.get(key)
     fallback = _text_icon(key, _GLYPHS.get(key, key[:2].upper()))
     if theme_name:
@@ -80,14 +83,14 @@ def toolbar_icon(owner: QWidget, key: str) -> QIcon:
 
 
 def _text_icon(key: str, glyph: str) -> QIcon:
-    pixmap = QPixmap(24, 24)
+    pixmap = QPixmap(_ICON_SIZE, _ICON_SIZE)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     painter.setPen(QColor("#202124"))
     font = QFont()
-    font.setPixelSize(13 if len(glyph) > 1 else 16)
-    font.setBold(key == "bold")
+    font.setPixelSize(18 if len(glyph) > 1 else 23)
+    font.setBold(True)
     font.setItalic(key == "italic")
     font.setUnderline(key == "underline")
     font.setStrikeOut(key == "strike")
@@ -98,5 +101,40 @@ def _text_icon(key: str, glyph: str) -> QIcon:
     elif key == "right":
         alignment = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
     painter.drawText(pixmap.rect().adjusted(2, 1, -2, -1), alignment, glyph)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _eye_icon() -> QIcon:
+    size = _ICON_SIZE
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    color = QColor("#202124")
+
+    margin = size * 0.08
+    center_y = size * 0.5
+    half_height = size * 0.24
+    left = QPointF(margin, center_y)
+    right = QPointF(size - margin, center_y)
+    outline = QPainterPath()
+    outline.moveTo(left)
+    outline.quadTo(QPointF(size * 0.5, center_y - half_height), right)
+    outline.quadTo(QPointF(size * 0.5, center_y + half_height), left)
+    outline.closeSubpath()
+
+    pen = painter.pen()
+    pen.setColor(color)
+    pen.setWidthF(size * 0.075)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawPath(outline)
+
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    pupil_radius = size * 0.09
+    painter.drawEllipse(QPointF(size * 0.5, center_y), pupil_radius, pupil_radius)
     painter.end()
     return QIcon(pixmap)

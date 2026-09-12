@@ -266,6 +266,18 @@ class QtEditorWindow(QMainWindow):
         self._clear_recovery_draft()
         return True
 
+    def _save_with_confirmation(self) -> bool:
+        response = QMessageBox.question(
+            self,
+            "Enregistrer",
+            "Enregistrer les modifications ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            return False
+        return self.save_document()
+
     def save_document(self) -> bool:
         if self.current_path is None and not self._can_first_save:
             QMessageBox.warning(
@@ -462,7 +474,7 @@ class QtEditorWindow(QMainWindow):
         self.save_action = self._add_action(
             toolbar,
             "Enregistrer",
-            self.save_document,
+            self._save_with_confirmation,
             "Ctrl+S",
             icon_key="save",
         )
