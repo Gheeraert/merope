@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import shutil
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -305,6 +306,7 @@ def test_preview_process_uses_existing_module_and_pointer(tmp_path, monkeypatch)
         (
             [sys.executable, "-m", "bloggen.ui.preview_process", str(pointer.resolve())],
             {
+                "stdin": preview_module.subprocess.DEVNULL,
                 "stdout": preview_module.subprocess.PIPE,
                 "stderr": preview_module.subprocess.PIPE,
                 "text": True,
@@ -313,6 +315,33 @@ def test_preview_process_uses_existing_module_and_pointer(tmp_path, monkeypatch)
             },
         )
     ]
+
+
+def test_preview_process_starts_while_ipc_stdin_reader_is_blocked(tmp_path):
+    """Regression: the grandchild must not inherit the busy IPC stdin pipe.
+
+    On Windows an inherited stdin with a pending read in the Qt child hung the
+    preview interpreter before READY, which surfaced as the 5 s timeout.
+    """
+
+    child_script = Path(__file__).parent / "fixtures" / "busy_stdin_preview_child.py"
+    stderr_path = tmp_path / "child-stderr.txt"
+    with stderr_path.open("w", encoding="utf-8") as stderr_file:
+        child = subprocess.Popen(
+            [sys.executable, str(child_script), str(tmp_path), "10"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_file,
+        )
+        try:
+            # Never write to nor close the child's stdin: its reader thread must
+            # stay blocked for the whole test, exactly like the IPC bridge.
+            child.wait(timeout=30)
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.stdin.close()
+    assert child.returncode == 0, stderr_path.read_text(encoding="utf-8")
 
 
 def test_preview_process_refuses_missing_pywebview(tmp_path, monkeypatch):

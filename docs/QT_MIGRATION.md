@@ -163,8 +163,11 @@ sys.executable -m bloggen.ui.preview_process <pointer_path>
 ```
 
 Sa disponibilité est vérifiée avec `find_spec` sans importer `webview` dans le
-processus Qt. Le subprocessus possède ses propres pipes stdout/stderr et
-n’est considéré comme démarré qu’après l’émission de
+processus Qt. Le subprocessus reçoit `stdin=DEVNULL` : il ne doit jamais
+hériter du pipe IPC venant de Tk, sur lequel un thread du processus Qt est en
+lecture bloquante permanente ; sous Windows, cet héritage fige le démarrage de
+l’interpréteur Python du subprocessus avant READY. Il possède aussi ses propres
+pipes stdout/stderr et n’est considéré comme démarré qu’après l’émission de
 `MEROPE_PREVIEW_READY` depuis le hook `webview.start(func=...)`. Leur lecture et
 l’attente du processus ont lieu dans de petits threads daemon ; le thread GUI
 Qt ne bloque jamais. Un crash avant READY affiche stderr, et une absence de

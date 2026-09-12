@@ -239,6 +239,12 @@ def launch_preview_process(
                 "bloggen.ui.preview_process",
                 str(artifact.pointer_path.resolve()),
             ],
+            # The Qt child's stdin is the IPC pipe from Tk, with a reader
+            # thread permanently blocked on it.  On Windows, a grandchild
+            # inheriting that synchronous pipe hangs in Python's startup
+            # (stdio fstat serialises behind the pending ReadFile) and never
+            # reaches READY.  It must get its own, unrelated stdin.
+            stdin=subprocess.DEVNULL,
             # The Qt child reserves its own stdout for JSONL IPC.  A
             # grandchild GUI backend must never inherit and pollute that pipe;
             # its private pipes carry only the startup handshake/diagnostic.
