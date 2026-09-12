@@ -21,6 +21,7 @@ from PySide6.QtGui import (
     QResizeEvent,
     QTextCharFormat,
     QTextCursor,
+    QTextLayout,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QApplication, QTextEdit
@@ -165,8 +166,9 @@ class MeropeTextEdit(QTextEdit):
         self._image_resize_state: _ImageResizeState | None = None
         self._external_paste_context: ExternalPasteContext | None = None
         self._zoom_percent = 100
+        self._applying_zoom_overlay = False
         self.selectionChanged.connect(self.viewport().update)
-        self.document().contentsChanged.connect(self.viewport().update)
+        self.document().contentsChanged.connect(self._on_contents_changed)
 
     def set_external_paste_context(
         self,
@@ -619,22 +621,76 @@ class MeropeTextEdit(QTextEdit):
         return self._zoom_percent
 
     def adjust_zoom(self, steps: int) -> bool:
-        """Change only QTextEdit's visual zoom, within the 50–300% range."""
+        """Rescale zoom within the 50-300% range, as a pure render overlay.
+
+        ``document_adapter`` stamps an explicit ``fontPointSize`` on every
+        run (body text, headings, footnote markers) so heading level stays
+        block metadata rather than a font-size guess. That means
+        ``QTextEdit.zoomIn``/``zoomOut`` - which only rescale the widget's
+        unused default font - have nothing to act on: the explicit sizes
+        always win. Editing those sizes directly would work visually, but
+        would pollute the undo stack and the modified flag for a change
+        that is supposed to be view-only. Instead, each block's
+        ``QTextLayout`` gets a scaled overlay format applied purely for
+        painting, leaving the document's real character formats untouched.
+        """
 
         target = min(
             ZOOM_MAX_PERCENT,
             max(ZOOM_MIN_PERCENT, self._zoom_percent + steps * ZOOM_STEP_PERCENT),
         )
-        effective_steps = (target - self._zoom_percent) // ZOOM_STEP_PERCENT
-        if effective_steps == 0:
+        if target == self._zoom_percent:
             return False
-        if effective_steps > 0:
-            super().zoomIn(effective_steps)
-        else:
-            super().zoomOut(-effective_steps)
         self._zoom_percent = target
+        self._apply_zoom_overlay()
         self.viewport().update()
         return True
+
+    def _on_contents_changed(self) -> None:
+        # Editing a block clears any QTextLayout overlay formats Qt had
+        # for it, so re-stamp them whenever zoom is active. Guarded against
+        # re-entrancy since re-stamping itself dirties the document.
+        if self._zoom_percent != 100 and not self._applying_zoom_overlay:
+            self._apply_zoom_overlay()
+        self.viewport().update()
+
+    def _apply_zoom_overlay(self) -> None:
+        """Paint every run at ``fontPointSize`` * zoom, without touching it."""
+
+        self._applying_zoom_overlay = True
+        try:
+            self._rebuild_zoom_overlay()
+        finally:
+            self._applying_zoom_overlay = False
+
+    def _rebuild_zoom_overlay(self) -> None:
+        ratio = self._zoom_percent / 100
+        document = self.document()
+        block = document.begin()
+        while block.isValid():
+            ranges: list[QTextLayout.FormatRange] = []
+            if ratio != 1.0:
+                block_position = block.position()
+                it = block.begin()
+                while not it.atEnd():
+                    fragment = it.fragment()
+                    if fragment.isValid():
+                        base_size = fragment.charFormat().fontPointSize()
+                        if base_size > 0:
+                            scaled_format = QTextCharFormat()
+                            scaled_format.setFontPointSize(base_size * ratio)
+                            format_range = QTextLayout.FormatRange()
+                            format_range.start = fragment.position() - block_position
+                            format_range.length = fragment.length()
+                            format_range.format = scaled_format
+                            ranges.append(format_range)
+                    it += 1
+            block.layout().setFormats(ranges)
+            block = block.next()
+        # Overlay formats alone don't invalidate cached line geometry;
+        # force a relayout so wrapping, line height, and the scrollbar
+        # range actually reflect the new size.
+        document.markContentsDirty(0, document.characterCount())
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if self._consume_zoom_wheel(event):
