@@ -399,7 +399,7 @@ def test_full_typographic_example_roundtrips_to_semantic_markdown():
     )
     assert any(run.text == "e" and run.superscript for run in blocks[0].runs)
     assert blocks_to_markdown(blocks) == (
-        f"«{NBSP}Bossuet{NBSP}», p.{NBSP}12{NBSP}: "
+        f"{{{{align=justify}}}}«{NBSP}Bossuet{NBSP}», p.{NBSP}12{NBSP}: "
         f"l'œuvre du XVII^e^ siècle{NBSP}!\n"
     )
 

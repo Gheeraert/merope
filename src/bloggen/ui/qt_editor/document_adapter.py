@@ -102,7 +102,18 @@ def populate_document(document: QTextDocument, blocks: list[Block]) -> None:
     cursor = QTextCursor(document)
     first_block = True
 
-    first_block = _write_blocks(cursor, blocks, first=first_block)
+    if blocks:
+        first_block = _write_blocks(cursor, blocks, first=first_block)
+    else:
+        # ``clear()`` leaves one implicit, untyped empty block that
+        # ``extract_blocks`` treats as "no content" (no BLOCK_KIND_PROPERTY).
+        # Only its Qt paint alignment is nudged to justify, matching the
+        # editor's default paragraph style, without stamping it as an
+        # actual paragraph block - typing into it still goes through the
+        # normal first-paragraph path once real content exists.
+        block_format = cursor.blockFormat()
+        block_format.setAlignment(Qt.AlignmentFlag.AlignJustify)
+        cursor.setBlockFormat(block_format)
 
     cursor.movePosition(QTextCursor.MoveOperation.Start)
     document.clearUndoRedoStacks()

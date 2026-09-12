@@ -278,6 +278,16 @@ def _set_leaf_block_kind(editor: QTextEdit, kind: str, level: int | None = None)
         else:
             _clear_heading_state(block_format)
         block_format.setLeftMargin(24.0 if kind == BLOCKQUOTE else 0.0)
+        # Switching block kind resets to that kind's own default alignment
+        # (normal paragraphs justified, headings/quotes left) rather than
+        # carrying over whatever the previous kind happened to have.
+        default_alignment = "justify" if kind == PARAGRAPH else "left"
+        block_format.setAlignment(
+            Qt.AlignmentFlag.AlignJustify
+            if default_alignment == "justify"
+            else Qt.AlignmentFlag.AlignLeft
+        )
+        block_format.setProperty(ALIGNMENT_PROPERTY, default_alignment)
         block_cursor.setBlockFormat(block_format)
         refresh_block_visuals(block)
     cursor.endEditBlock()

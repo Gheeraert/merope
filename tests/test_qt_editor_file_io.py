@@ -482,6 +482,7 @@ def test_insert_image_dialog_collects_file_and_caption(tmp_path, monkeypatch):
                     image_alt="Ma légende",
                 )
             ],
+            alignment="justify",
         )
     ]
 

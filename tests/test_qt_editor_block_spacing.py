@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 import pytest
 
@@ -143,13 +144,19 @@ def test_image_insertion_margins_share_the_single_document_undo():
     insert_blocks(QTextCursor(document), image_blocks)
 
     assert _margins(document.begin()) == IMAGE_BLOCK_MARGINS
-    assert extract_blocks(document) == image_blocks
+    # Inserting a lone paragraph reuses the destination block's own
+    # formatting (like an ordinary paste), which is the empty document's
+    # default justified paragraph here - not ``image_blocks``' own
+    # (unused) "left" default.
+    assert extract_blocks(document) == [
+        replace(image_blocks[0], alignment="justify")
+    ]
     document.undo()
     assert _margins(document.begin()) == (0.0, 0.0)
     assert document.isUndoAvailable() is False
     document.redo()
     assert _margins(document.begin()) == IMAGE_BLOCK_MARGINS
-    assert extract_blocks(document) == image_blocks
+    assert extract_blocks(document) == [replace(image_blocks[0], alignment="justify")]
 
 
 def test_replacing_standalone_image_preserves_block_spacing():

@@ -126,7 +126,7 @@ def test_paragraph_heading_paragraph_clears_heading_state():
     set_paragraph(editor)
 
     assert extract_blocks(editor.document()) == [
-        Block(kind=PARAGRAPH, runs=[InlineRun(text="Texte")])
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Texte")], alignment="justify")
     ]
     _assert_no_heading_residue(editor)
 
@@ -183,7 +183,9 @@ def test_list_item_to_leaf_block_removes_list_semantics(target: str):
 
     if target == PARAGRAPH:
         set_paragraph(editor)
-        expected = Block(kind=PARAGRAPH, runs=[InlineRun(text="Element")])
+        expected = Block(
+            kind=PARAGRAPH, runs=[InlineRun(text="Element")], alignment="justify"
+        )
     else:
         set_heading(editor, 3)
         expected = Block(kind=HEADING, level=3, runs=[InlineRun(text="Element")])

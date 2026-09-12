@@ -191,7 +191,7 @@ def test_internal_merope_clipboard_preserves_rich_literal_shortcut():
     destination.paste()
 
     assert extract_blocks(destination.document()) == [
-        Block(kind=PARAGRAPH, runs=runs)
+        Block(kind=PARAGRAPH, runs=runs, alignment="justify")
     ]
     assert all(
         run.footnote_ref is None
@@ -237,7 +237,9 @@ def test_literal_shortcut_copied_from_modal_note_stays_literal_in_body():
     note.copy()
     body.paste()
 
-    assert extract_blocks(body.document()) == [Block(kind=PARAGRAPH, runs=runs)]
+    assert extract_blocks(body.document()) == [
+        Block(kind=PARAGRAPH, runs=runs, alignment="justify")
+    ]
 
 
 def test_html_paste_keeps_double_parentheses_as_normal_rich_text():

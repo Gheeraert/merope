@@ -390,7 +390,11 @@ def test_mixed_local_urls_fall_back_to_plain_text_without_partial_assets(tmp_pat
     editor.insertFromMimeData(mime)
 
     assert extract_blocks(editor.document()) == [
-        Block(kind=PARAGRAPH, runs=[InlineRun(text="Deux fichiers")])
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="Deux fichiers")],
+            alignment="justify",
+        )
     ]
     assert _asset_files(images_dir) == []
     assert _staging_dirs(images_dir) == []
@@ -489,7 +493,11 @@ def test_internal_merope_mime_remains_first_priority_over_html_and_qimage(tmp_pa
     editor.insertFromMimeData(mime)
 
     assert extract_blocks(editor.document()) == [
-        Block(kind=PARAGRAPH, runs=[InlineRun(text="Interne", bold=True)])
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="Interne", bold=True)],
+            alignment="justify",
+        )
     ]
     assert _asset_files(images_dir) == []
 

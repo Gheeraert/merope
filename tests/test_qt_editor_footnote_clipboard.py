@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 import pytest
 
@@ -264,7 +265,12 @@ def test_text_and_formatted_runs_around_reference_survive_internal_clipboard():
     source.copy()
     destination.paste()
 
-    assert extract_blocks(destination.document()) == blocks
+    # A lone paragraph paste reuses the destination block's own formatting
+    # (like ordinary rich-text paste), here the empty document's default
+    # justified paragraph rather than ``blocks``' own "left" default.
+    assert extract_blocks(destination.document()) == [
+        replace(blocks[0], alignment="justify")
+    ]
 
 
 @pytest.mark.parametrize(
@@ -287,7 +293,9 @@ def test_multiple_and_adjacent_references_preserve_ids_and_count(runs):
     source.copy()
     destination.paste()
 
-    assert extract_blocks(destination.document()) == blocks
+    assert extract_blocks(destination.document()) == [
+        replace(blocks[0], alignment="justify")
+    ]
     assert len(_footnote_targets(destination)) == 2
 
 

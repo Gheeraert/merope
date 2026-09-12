@@ -93,7 +93,11 @@ def test_qt_paste_prefers_html_over_plain_text_and_uses_merope_importer(monkeypa
     assert len(calls) == 1
     assert calls[0][0] == "<p><b>Riche</b></p>"
     assert extract_blocks(editor.document()) == [
-        Block(kind=PARAGRAPH, runs=[InlineRun(text="Riche", bold=True)])
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="Riche", bold=True)],
+            alignment="justify",
+        )
     ]
 
 
@@ -119,7 +123,7 @@ def test_qt_paste_accepts_plain_text_without_html():
     _paste_from_qt_clipboard(editor, mime)
 
     assert extract_blocks(editor.document()) == [
-        Block(kind=PARAGRAPH, runs=[InlineRun(text="Texte brut")])
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Texte brut")], alignment="justify")
     ]
 
 
@@ -221,7 +225,7 @@ def test_inline_formats_and_combinations_roundtrip_to_markdown():
     _paste_html(editor, html)
 
     assert blocks_to_markdown(extract_blocks(editor.document())) == (
-        "**gras** *italique* ***mixte*** ~~barré~~ ^2^ "
+        "{{align=justify}}**gras** *italique* ***mixte*** ~~barré~~ ^2^ "
         "[**lien gras**](https://example.org) "
         "[*lien italique*](https://example.net)\n"
     )
@@ -309,7 +313,8 @@ def test_pasted_typography_and_century_superscript_are_preserved_exactly():
         f"«{NBSP}Bossuet{NBSP}», p.{NBSP}12{NBSP}: le XVIIe siecle{NBSP}!"
     )
     assert blocks_to_markdown(blocks) == (
-        f"«{NBSP}Bossuet{NBSP}», p.{NBSP}12{NBSP}: le XVII^e^ siecle{NBSP}!\n"
+        f"{{{{align=justify}}}}«{NBSP}Bossuet{NBSP}», p.{NBSP}12{NBSP}: "
+        f"le XVII^e^ siecle{NBSP}!\n"
     )
 
 
@@ -408,7 +413,7 @@ def test_plain_text_fallback_matches_tk_policy_without_typographic_normalization
     _paste_text(editor, plain)
 
     assert extract_blocks(editor.document()) == [
-        Block(kind=PARAGRAPH, runs=[InlineRun(text=plain)])
+        Block(kind=PARAGRAPH, runs=[InlineRun(text=plain)], alignment="justify")
     ]
 
 

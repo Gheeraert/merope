@@ -463,7 +463,9 @@ def test_real_clipboard_note_to_body_preserves_rich_runs():
     populate_document(body.document(), [])
     body.paste()
 
-    assert extract_blocks(body.document()) == [Block(kind=PARAGRAPH, runs=rich)]
+    assert extract_blocks(body.document()) == [
+        Block(kind=PARAGRAPH, runs=rich, alignment="justify")
+    ]
 
 
 def test_real_clipboard_body_to_note_accepts_one_rich_paragraph():
