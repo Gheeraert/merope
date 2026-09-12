@@ -30,7 +30,7 @@ import threading
 import time
 from pathlib import Path
 
-import webview
+from bloggen.ui.preview_protocol import PREVIEW_READY_MARKER
 
 _POLL_INTERVAL_SECONDS = 0.4
 
@@ -57,6 +57,8 @@ def _watch_and_reload(window, pointer_path: Path, initial_target: str) -> None:
 
 
 def main() -> None:
+    import webview
+
     if len(sys.argv) != 2:
         raise SystemExit("usage: python -m bloggen.ui.preview_process <pointer_file_path>")
     pointer_path = Path(sys.argv[1]).resolve()
@@ -69,6 +71,7 @@ def main() -> None:
     )
 
     def start_watcher() -> None:
+        print(PREVIEW_READY_MARKER, flush=True)
         threading.Thread(
             target=_watch_and_reload, args=(window, pointer_path, initial_target), daemon=True
         ).start()

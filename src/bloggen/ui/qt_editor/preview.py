@@ -240,8 +240,13 @@ def launch_preview_process(
                 str(artifact.pointer_path.resolve()),
             ],
             # The Qt child reserves its own stdout for JSONL IPC.  A
-            # grandchild GUI backend must never inherit and pollute that pipe.
-            stdout=subprocess.DEVNULL,
+            # grandchild GUI backend must never inherit and pollute that pipe;
+            # its private pipes carry only the startup handshake/diagnostic.
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except OSError as exc:
         raise PreviewBuildError(

@@ -132,6 +132,7 @@ from bloggen.ui.qt_editor.preview import (
     pywebview_available,
     remove_preview_artifact,
 )
+from bloggen.ui.qt_editor.preview_startup import PreviewStartupMonitor
 from bloggen.ui.qt_editor.recovery import (
     AUTOSAVE_INTERVAL_MS,
     build_recovery_draft,
@@ -196,6 +197,10 @@ class QtEditorWindow(QMainWindow):
         self._pending_preview_snapshots: dict[int, PreviewSnapshot] = {}
         self._preview_artifact: PreviewArtifact | None = None
         self._preview_process: subprocess.Popen | None = None
+        self._preview_monitor: PreviewStartupMonitor | None = None
+        self._preview_candidate_artifact: PreviewArtifact | None = None
+        self._preview_candidate_process: subprocess.Popen | None = None
+        self._preview_candidate_monitor: PreviewStartupMonitor | None = None
         self._find_replace_dialog: FindReplaceDialog | None = None
         self.ipc_bridge = QtEditorIpcBridge(enabled=ipc, parent=self)
         self.ipc_bridge.configReady.connect(self._on_preview_config_ready)
@@ -1772,10 +1777,11 @@ class QtEditorWindow(QMainWindow):
             return
         self._pending_preview_request_id = None
         self._pending_preview_snapshots.clear()
-        self.preview_action.setEnabled(True)
+        if self._preview_candidate_monitor is None:
+            self.preview_action.setEnabled(True)
 
     def _activate_preview_artifact(self, artifact: PreviewArtifact) -> None:
-        """Swap preview process/scratch only after the new build succeeded."""
+        """Launch a candidate and swap the active preview only after READY."""
 
         if not pywebview_available():
             remove_preview_artifact(artifact)
@@ -1788,10 +1794,79 @@ class QtEditorWindow(QMainWindow):
             remove_preview_artifact(artifact)
             raise
 
+        monitor = PreviewStartupMonitor(new_process, parent=self)
+        monitor.ready.connect(
+            lambda process, current=monitor: self._on_preview_process_ready(
+                current, process
+            )
+        )
+        monitor.failed.connect(
+            lambda process, returncode, diagnostic, current=monitor: (
+                self._on_preview_process_failed(
+                    current,
+                    process,
+                    returncode,
+                    diagnostic,
+                )
+            )
+        )
+        monitor.timedOut.connect(
+            lambda process, current=monitor: self._on_preview_process_timeout(
+                current, process
+            )
+        )
+        monitor.closed.connect(
+            lambda process, returncode, current=monitor: (
+                self._on_preview_process_closed(current, process, returncode)
+            )
+        )
+        self._preview_candidate_process = new_process
+        self._preview_candidate_artifact = artifact
+        self._preview_candidate_monitor = monitor
+        try:
+            monitor.start()
+        except Exception as exc:  # pragma: no cover - defensive thread startup
+            monitor.cancel()
+            self._preview_candidate_process = None
+            self._preview_candidate_artifact = None
+            self._preview_candidate_monitor = None
+            try:
+                if new_process.poll() is None:
+                    new_process.terminate()
+            except OSError:
+                pass
+            remove_preview_artifact(artifact)
+            raise PreviewBuildError(
+                f"Impossible de surveiller le démarrage de l’aperçu : {exc}"
+            ) from exc
+
+    def _on_preview_process_ready(
+        self,
+        monitor: PreviewStartupMonitor,
+        process: subprocess.Popen,
+    ) -> None:
+        if (
+            monitor is not self._preview_candidate_monitor
+            or process is not self._preview_candidate_process
+        ):
+            return
+        artifact = self._preview_candidate_artifact
+        if artifact is None:
+            return
+
         old_process = self._preview_process
         old_artifact = self._preview_artifact
-        self._preview_process = new_process
+        old_monitor = self._preview_monitor
+        self._preview_candidate_process = None
+        self._preview_candidate_artifact = None
+        self._preview_candidate_monitor = None
+        self._preview_process = process
         self._preview_artifact = artifact
+        self._preview_monitor = monitor
+        self.preview_action.setEnabled(True)
+
+        if old_monitor is not None:
+            old_monitor.cancel()
         if old_process is not None and old_process.poll() is None:
             try:
                 old_process.terminate()
@@ -1799,7 +1874,87 @@ class QtEditorWindow(QMainWindow):
                 pass
         remove_preview_artifact(old_artifact)
 
+    def _on_preview_process_failed(
+        self,
+        monitor: PreviewStartupMonitor,
+        process: subprocess.Popen,
+        returncode: int,
+        diagnostic: str,
+    ) -> None:
+        if (
+            monitor is not self._preview_candidate_monitor
+            or process is not self._preview_candidate_process
+        ):
+            return
+        artifact = self._preview_candidate_artifact
+        monitor.cancel()
+        self._preview_candidate_process = None
+        self._preview_candidate_artifact = None
+        self._preview_candidate_monitor = None
+        remove_preview_artifact(artifact)
+        self.preview_action.setEnabled(True)
+        message = "Impossible d’ouvrir la fenêtre d’aperçu."
+        if diagnostic:
+            message += f"\n\nDiagnostic :\n{diagnostic}"
+        else:
+            message += f"\n\nLe processus s’est arrêté avec le code {returncode}."
+        self._show_preview_error(message)
+
+    def _on_preview_process_timeout(
+        self,
+        monitor: PreviewStartupMonitor,
+        process: subprocess.Popen,
+    ) -> None:
+        if (
+            monitor is not self._preview_candidate_monitor
+            or process is not self._preview_candidate_process
+        ):
+            return
+        artifact = self._preview_candidate_artifact
+        monitor.cancel()
+        self._preview_candidate_process = None
+        self._preview_candidate_artifact = None
+        self._preview_candidate_monitor = None
+        remove_preview_artifact(artifact)
+        self.preview_action.setEnabled(True)
+        self._show_preview_error(
+            "Impossible d’ouvrir la fenêtre d’aperçu : elle n’a pas démarré "
+            "dans le délai attendu de 5 secondes."
+        )
+
+    def _on_preview_process_closed(
+        self,
+        monitor: PreviewStartupMonitor,
+        process: subprocess.Popen,
+        _returncode: int,
+    ) -> None:
+        if monitor is not self._preview_monitor or process is not self._preview_process:
+            return
+        artifact = self._preview_artifact
+        monitor.cancel()
+        self._preview_process = None
+        self._preview_artifact = None
+        self._preview_monitor = None
+        remove_preview_artifact(artifact)
+
     def _close_html_preview(self) -> None:
+        candidate_monitor = self._preview_candidate_monitor
+        candidate_process = self._preview_candidate_process
+        candidate_artifact = self._preview_candidate_artifact
+        if candidate_monitor is not None:
+            candidate_monitor.cancel()
+        if candidate_process is not None and candidate_process.poll() is None:
+            try:
+                candidate_process.terminate()
+            except OSError:
+                pass
+        self._preview_candidate_monitor = None
+        self._preview_candidate_process = None
+        self._preview_candidate_artifact = None
+        remove_preview_artifact(candidate_artifact)
+
+        if self._preview_monitor is not None:
+            self._preview_monitor.cancel()
         process = self._preview_process
         if process is not None and process.poll() is None:
             try:
@@ -1807,6 +1962,7 @@ class QtEditorWindow(QMainWindow):
             except OSError:
                 pass
         self._preview_process = None
+        self._preview_monitor = None
         remove_preview_artifact(self._preview_artifact)
         self._preview_artifact = None
 

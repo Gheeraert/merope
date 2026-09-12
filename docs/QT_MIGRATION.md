@@ -163,10 +163,19 @@ sys.executable -m bloggen.ui.preview_process <pointer_path>
 ```
 
 Sa disponibilité est vérifiée avec `find_spec` sans importer `webview` dans le
-processus Qt. Un nouveau build doit réussir entièrement avant que l’ancien
-processus et son scratch soient remplacés. Un échec conserve l’ancien aperçu ;
-la fermeture Qt termine le processus courant et supprime son scratch, sans
-attente bloquante.
+processus Qt. Le subprocessus possède ses propres pipes stdout/stderr et
+n’est considéré comme démarré qu’après l’émission de
+`MEROPE_PREVIEW_READY` depuis le hook `webview.start(func=...)`. Leur lecture et
+l’attente du processus ont lieu dans de petits threads daemon ; le thread GUI
+Qt ne bloque jamais. Un crash avant READY affiche stderr, et une absence de
+READY pendant cinq secondes termine le candidat et affiche une erreur.
+
+Un nouveau build doit réussir entièrement, puis son processus doit atteindre
+READY, avant que l’ancien processus et son scratch soient remplacés. Un échec
+de build, de lancement, de backend ou un timeout conserve donc l’ancien aperçu.
+Une fermeture du subprocessus après READY est une fermeture normale et ne
+produit aucun faux message d’échec. La fermeture Qt termine processus actif et
+candidat éventuel, puis supprime leurs scratchs, sans attente bloquante.
 
 Cet aperçu est strictement une lecture : **preview ≠ save**, **preview ≠
 renumber**, **preview ≠ nettoyage du dirty state**, et **preview ≠ lecture de

@@ -10,7 +10,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QMimeData, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QAction, QWheelEvent, QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from bloggen.content.writer import write_content_file
 from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
@@ -268,7 +268,9 @@ def test_undo_history_retains_twenty_five_distinct_actions_and_redo_alias():
     window.close()
 
 
-def test_ordinary_save_preserves_undo_history_without_note_renumbering(tmp_path):
+def test_ordinary_save_preserves_undo_history_without_note_renumbering(
+    tmp_path, monkeypatch
+):
     path = write_content_file(
         tmp_path,
         "article.md",
@@ -282,6 +284,11 @@ def test_ordinary_save_preserves_undo_history_without_note_renumbering(tmp_path)
     window.editor.setTextCursor(cursor)
     assert window.editor.document().isUndoAvailable()
     _show_with_editor_focus(window)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
 
     QTest.keyClick(
         window.editor, Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier

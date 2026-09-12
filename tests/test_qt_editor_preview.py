@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import sys
+import threading
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtGui import QTextCursor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from bloggen.config.io import load_config
@@ -17,6 +20,7 @@ from bloggen.content.writer import write_content_file
 from bloggen.markdown.rich_text_model import InlineRun
 from bloggen.tei.pandoc_converter import MarkdownToTeiResult, PandocUnavailableError
 from bloggen.tei.validator import TeiValidationResult
+from bloggen.ui.preview_protocol import PREVIEW_READY_MARKER
 from bloggen.ui.qt_editor import preview as preview_module
 from bloggen.ui.qt_editor import window as window_module
 from bloggen.ui.qt_editor.document_adapter import extract_blocks
@@ -29,6 +33,7 @@ from bloggen.ui.qt_editor.preview import (
     launch_preview_process,
     remove_preview_artifact,
 )
+from bloggen.ui.qt_editor.preview_startup import PreviewStartupMonitor
 from bloggen.ui.qt_editor.window import QtEditorWindow
 from bloggen.ui.editor_recovery import recovery_file_path
 
@@ -299,7 +304,13 @@ def test_preview_process_uses_existing_module_and_pointer(tmp_path, monkeypatch)
     assert calls == [
         (
             [sys.executable, "-m", "bloggen.ui.preview_process", str(pointer.resolve())],
-            {"stdout": preview_module.subprocess.DEVNULL},
+            {
+                "stdout": preview_module.subprocess.PIPE,
+                "stderr": preview_module.subprocess.PIPE,
+                "text": True,
+                "encoding": "utf-8",
+                "errors": "replace",
+            },
         )
     ]
 
@@ -315,6 +326,119 @@ def test_preview_process_refuses_missing_pywebview(tmp_path, monkeypatch):
                 "Popen ne doit pas être appelé"
             ),
         )
+
+
+def _wait_for(predicate, *, timeout_ms: int = 1_000) -> None:
+    elapsed = 0
+    while not predicate() and elapsed < timeout_ms:
+        QTest.qWait(10)
+        elapsed += 10
+    assert predicate()
+
+
+def test_process_exit_before_ready_reports_captured_stderr(tmp_path, monkeypatch):
+    artifact = PreviewArtifact(tmp_path, tmp_path / "index.html", tmp_path / "pointer")
+
+    class ImmediateFailureProcess:
+        stdout = io.StringIO("")
+        stderr = io.StringIO("backend pywebview indisponible\n")
+
+        @staticmethod
+        def wait():
+            return 1
+
+        @staticmethod
+        def poll():
+            return 1
+
+    process = ImmediateFailureProcess()
+    monkeypatch.setattr(preview_module, "pywebview_available", lambda: True)
+    launched = launch_preview_process(
+        artifact,
+        popen_factory=lambda _command, **_kwargs: process,
+    )
+    failures = []
+    monitor = PreviewStartupMonitor(launched, timeout_ms=500)
+    monitor.failed.connect(
+        lambda failed_process, returncode, diagnostic: failures.append(
+            (failed_process, returncode, diagnostic)
+        )
+    )
+
+    monitor.start()
+    _wait_for(lambda: bool(failures))
+
+    assert failures == [(process, 1, "backend pywebview indisponible")]
+
+
+def test_startup_monitor_accepts_ready_while_process_keeps_running():
+    released = threading.Event()
+
+    class ReadyProcess:
+        stdout = io.StringIO(f"{PREVIEW_READY_MARKER}\n")
+        stderr = io.StringIO("")
+
+        def __init__(self):
+            self.terminated = False
+
+        def wait(self):
+            released.wait(timeout=1.0)
+            return 0
+
+        def poll(self):
+            return 0 if self.terminated else None
+
+        def terminate(self):
+            self.terminated = True
+            released.set()
+
+    process = ReadyProcess()
+    ready = []
+    failures = []
+    monitor = PreviewStartupMonitor(process, timeout_ms=500)
+    monitor.ready.connect(ready.append)
+    monitor.failed.connect(lambda *args: failures.append(args))
+
+    monitor.start()
+    _wait_for(lambda: bool(ready))
+
+    assert ready == [process]
+    assert failures == []
+    monitor.cancel()
+    process.terminate()
+
+
+def test_startup_monitor_times_out_and_terminates_process():
+    released = threading.Event()
+
+    class HangingProcess:
+        stdout = io.StringIO("")
+        stderr = io.StringIO("")
+
+        def __init__(self):
+            self.terminated = False
+
+        def wait(self):
+            released.wait(timeout=1.0)
+            return -15
+
+        def poll(self):
+            return -15 if self.terminated else None
+
+        def terminate(self):
+            self.terminated = True
+            released.set()
+
+    process = HangingProcess()
+    timeouts = []
+    monitor = PreviewStartupMonitor(process, timeout_ms=20)
+    monitor.timedOut.connect(timeouts.append)
+
+    monitor.start()
+    _wait_for(lambda: bool(timeouts))
+
+    assert timeouts == [process]
+    assert process.terminated
 
 
 def _dispose(window: QtEditorWindow) -> None:
@@ -496,6 +620,27 @@ def test_window_refuses_preview_without_current_path(monkeypatch):
     _dispose(window)
 
 
+def test_preview_action_triggers_snapshot_and_live_config_request(project, monkeypatch):
+    root, _ = project
+    source = _source(root, slug="action-trigger")
+    window = QtEditorWindow(markdown_path=source, project_root=root)
+    requests = []
+
+    def request_config():
+        requests.append(True)
+        return 44
+
+    monkeypatch.setattr(window, "request_live_config", request_config)
+
+    window.preview_action.trigger()
+
+    assert requests == [True]
+    assert window._pending_preview_request_id == 44
+    assert 44 in window._pending_preview_snapshots
+    assert not window.preview_action.isEnabled()
+    _dispose(window)
+
+
 def test_standalone_preview_failure_is_async_and_reenables_action(
     project, monkeypatch, qapplication
 ):
@@ -516,6 +661,41 @@ def test_standalone_preview_failure_is_async_and_reenables_action(
     ]
     assert window.preview_action.isEnabled()
     _dispose(window)
+
+
+class _ManualSignal:
+    def __init__(self):
+        self._callbacks = []
+
+    def connect(self, callback):
+        self._callbacks.append(callback)
+
+    def emit(self, *args):
+        for callback in list(self._callbacks):
+            callback(*args)
+
+
+class _ManualPreviewStartupMonitor:
+    def __init__(self, process, *, parent=None):
+        self.process = process
+        self.parent = parent
+        self.ready = _ManualSignal()
+        self.failed = _ManualSignal()
+        self.timedOut = _ManualSignal()
+        self.closed = _ManualSignal()
+        self.started = False
+        self.cancelled = False
+
+    def start(self):
+        self.started = True
+
+    def cancel(self):
+        self.cancelled = True
+
+    def emit_timeout(self):
+        if self.process.poll() is None:
+            self.process.terminate()
+        self.timedOut.emit(self.process)
 
 
 def test_preview_process_and_scratch_are_replaced_then_closed(
@@ -545,15 +725,208 @@ def test_preview_process_and_scratch_are_replaced_then_closed(
     window._preview_artifact = old_artifact
     monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
     monkeypatch.setattr(window_module, "launch_preview_process", lambda artifact: new_process)
+    monkeypatch.setattr(
+        window_module,
+        "PreviewStartupMonitor",
+        _ManualPreviewStartupMonitor,
+    )
+    window.preview_action.setEnabled(False)
 
     window._activate_preview_artifact(new_artifact)
+
+    monitor = window._preview_candidate_monitor
+    assert monitor is not None and monitor.started
+    assert window._preview_process is old_process
+    assert not old_process.terminated
+    assert old_scratch.exists()
+    assert not window.preview_action.isEnabled()
+
+    monitor.ready.emit(new_process)
 
     assert old_process.terminated
     assert not old_scratch.exists()
     assert window._preview_process is new_process
+    assert window.preview_action.isEnabled()
     window._close_html_preview()
     assert new_process.terminated
     assert not new_scratch.exists()
+    _dispose(window)
+
+
+def test_crash_before_ready_is_visible_and_cleans_candidate(monkeypatch, tmp_path):
+    window = QtEditorWindow()
+
+    class FailedProcess:
+        def poll(self):
+            return 1
+
+    process = FailedProcess()
+    scratch = tmp_path / "failed-preview"
+    scratch.mkdir()
+    artifact = PreviewArtifact(scratch, scratch / "index.html", scratch / "pointer")
+    errors = []
+    monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
+    monkeypatch.setattr(window_module, "launch_preview_process", lambda _artifact: process)
+    monkeypatch.setattr(
+        window_module,
+        "PreviewStartupMonitor",
+        _ManualPreviewStartupMonitor,
+    )
+    monkeypatch.setattr(window, "_show_preview_error", errors.append)
+    window.preview_action.setEnabled(False)
+
+    window._activate_preview_artifact(artifact)
+    monitor = window._preview_candidate_monitor
+    assert monitor is not None
+    monitor.failed.emit(process, 1, "backend failure")
+
+    assert errors == [
+        "Impossible d’ouvrir la fenêtre d’aperçu.\n\n"
+        "Diagnostic :\nbackend failure"
+    ]
+    assert window._preview_candidate_process is None
+    assert window._preview_candidate_artifact is None
+    assert not scratch.exists()
+    assert window.preview_action.isEnabled()
+    _dispose(window)
+
+
+def test_crash_before_ready_keeps_existing_preview(monkeypatch, tmp_path):
+    window = QtEditorWindow()
+
+    class Process:
+        def __init__(self, returncode=None):
+            self.returncode = returncode
+            self.terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+    old_process = Process()
+    candidate_process = Process(1)
+    old_scratch = tmp_path / "old-active-preview"
+    candidate_scratch = tmp_path / "failed-candidate-preview"
+    old_scratch.mkdir()
+    candidate_scratch.mkdir()
+    old_artifact = PreviewArtifact(
+        old_scratch, old_scratch / "index.html", old_scratch / "pointer"
+    )
+    candidate_artifact = PreviewArtifact(
+        candidate_scratch,
+        candidate_scratch / "index.html",
+        candidate_scratch / "pointer",
+    )
+    window._preview_process = old_process
+    window._preview_artifact = old_artifact
+    monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
+    monkeypatch.setattr(
+        window_module,
+        "launch_preview_process",
+        lambda _artifact: candidate_process,
+    )
+    monkeypatch.setattr(
+        window_module,
+        "PreviewStartupMonitor",
+        _ManualPreviewStartupMonitor,
+    )
+    monkeypatch.setattr(window, "_show_preview_error", lambda _message: None)
+
+    window._activate_preview_artifact(candidate_artifact)
+    monitor = window._preview_candidate_monitor
+    assert monitor is not None
+    monitor.failed.emit(candidate_process, 1, "backend failure")
+
+    assert window._preview_process is old_process
+    assert window._preview_artifact is old_artifact
+    assert not old_process.terminated
+    assert old_scratch.exists()
+    assert not candidate_scratch.exists()
+    _dispose(window)
+
+
+def test_preview_startup_timeout_cleans_candidate_and_reenables_action(
+    monkeypatch, tmp_path
+):
+    window = QtEditorWindow()
+
+    class HangingProcess:
+        def __init__(self):
+            self.terminated = False
+
+        def poll(self):
+            return None if not self.terminated else -15
+
+        def terminate(self):
+            self.terminated = True
+
+    process = HangingProcess()
+    scratch = tmp_path / "timed-out-preview"
+    scratch.mkdir()
+    artifact = PreviewArtifact(scratch, scratch / "index.html", scratch / "pointer")
+    errors = []
+    monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
+    monkeypatch.setattr(window_module, "launch_preview_process", lambda _artifact: process)
+    monkeypatch.setattr(
+        window_module,
+        "PreviewStartupMonitor",
+        _ManualPreviewStartupMonitor,
+    )
+    monkeypatch.setattr(window, "_show_preview_error", errors.append)
+    window.preview_action.setEnabled(False)
+
+    window._activate_preview_artifact(artifact)
+    monitor = window._preview_candidate_monitor
+    assert monitor is not None
+    monitor.emit_timeout()
+
+    assert process.terminated
+    assert not scratch.exists()
+    assert window.preview_action.isEnabled()
+    assert errors and "délai attendu de 5 secondes" in errors[0]
+    _dispose(window)
+
+
+def test_exit_after_ready_is_normal_and_cleans_active_preview(monkeypatch, tmp_path):
+    window = QtEditorWindow()
+
+    class Process:
+        def __init__(self):
+            self.terminated = False
+
+        def poll(self):
+            return 0
+
+        def terminate(self):
+            self.terminated = True
+
+    process = Process()
+    scratch = tmp_path / "ready-then-closed"
+    scratch.mkdir()
+    artifact = PreviewArtifact(scratch, scratch / "index.html", scratch / "pointer")
+    errors = []
+    monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
+    monkeypatch.setattr(window_module, "launch_preview_process", lambda _artifact: process)
+    monkeypatch.setattr(
+        window_module,
+        "PreviewStartupMonitor",
+        _ManualPreviewStartupMonitor,
+    )
+    monkeypatch.setattr(window, "_show_preview_error", errors.append)
+
+    window._activate_preview_artifact(artifact)
+    monitor = window._preview_candidate_monitor
+    assert monitor is not None
+    monitor.ready.emit(process)
+    monitor.closed.emit(process, 0)
+
+    assert errors == []
+    assert window._preview_process is None
+    assert window._preview_artifact is None
+    assert not scratch.exists()
     _dispose(window)
 
 
