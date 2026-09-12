@@ -598,3 +598,51 @@ def test_failed_new_build_keeps_existing_preview(project, monkeypatch, tmp_path)
     assert not old_process.terminated
     assert old_scratch.exists()
     _dispose(window)
+
+
+def test_failed_new_preview_launch_keeps_existing_preview(monkeypatch, tmp_path):
+    window = QtEditorWindow()
+
+    class FakeProcess:
+        def __init__(self):
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    old_process = FakeProcess()
+    old_scratch = tmp_path / "old-preview"
+    new_scratch = tmp_path / "new-preview"
+    old_scratch.mkdir()
+    new_scratch.mkdir()
+    old_artifact = PreviewArtifact(
+        old_scratch,
+        old_scratch / "index.html",
+        old_scratch / "pointer",
+    )
+    new_artifact = PreviewArtifact(
+        new_scratch,
+        new_scratch / "index.html",
+        new_scratch / "pointer",
+    )
+    window._preview_process = old_process
+    window._preview_artifact = old_artifact
+    monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
+
+    def fail_to_launch(_artifact):
+        raise PreviewBuildError("échec du lancement")
+
+    monkeypatch.setattr(window_module, "launch_preview_process", fail_to_launch)
+
+    with pytest.raises(PreviewBuildError, match="échec du lancement"):
+        window._activate_preview_artifact(new_artifact)
+
+    assert window._preview_process is old_process
+    assert window._preview_artifact is old_artifact
+    assert not old_process.terminated
+    assert old_scratch.exists()
+    assert not new_scratch.exists()
+    _dispose(window)

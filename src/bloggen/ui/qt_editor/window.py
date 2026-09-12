@@ -1008,23 +1008,22 @@ class QtEditorWindow(QMainWindow):
             raise PreviewBuildError(
                 "Aperçu HTML indisponible : pywebview n’est pas installé."
             )
+        try:
+            new_process = launch_preview_process(artifact)
+        except PreviewBuildError:
+            remove_preview_artifact(artifact)
+            raise
+
         old_process = self._preview_process
         old_artifact = self._preview_artifact
+        self._preview_process = new_process
+        self._preview_artifact = artifact
         if old_process is not None and old_process.poll() is None:
             try:
                 old_process.terminate()
             except OSError:
                 pass
-        self._preview_process = None
-        self._preview_artifact = None
         remove_preview_artifact(old_artifact)
-        try:
-            process = launch_preview_process(artifact)
-        except PreviewBuildError:
-            remove_preview_artifact(artifact)
-            raise
-        self._preview_process = process
-        self._preview_artifact = artifact
 
     def _close_html_preview(self) -> None:
         process = self._preview_process
