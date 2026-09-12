@@ -138,12 +138,16 @@ def _chunk_to_block(lines: list[str]) -> Block:
 
     if len(lines) == 1:
         heading_match = _HEADING_RE.match(lines[0])
-        if heading_match:
+        if heading_match and _inline_is_losslessly_representable(
+            heading_match.group(2)
+        ):
             level = len(heading_match.group(1))
             return Block(kind=HEADING, level=level, runs=_parse_inline(heading_match.group(2)))
 
         footnote_match = _FOOTNOTE_DEF_RE.match(lines[0])
-        if footnote_match:
+        if footnote_match and _inline_is_losslessly_representable(
+            footnote_match.group(2)
+        ):
             return Block(
                 kind=FOOTNOTE_DEFINITION,
                 footnote_id=footnote_match.group(1),
@@ -202,7 +206,7 @@ def _is_safe_paragraph_chunk(lines: list[str]) -> bool:
             or _DEFINITION_CONTINUATION_RE.match(line)
             or _LINK_DEFINITION_RE.match(line)
             or _STRUCTURAL_LINE_RE.match(line)
-            or _contains_unsupported_inline_structure(line)
+            or not _inline_is_losslessly_representable(line)
         ):
             return False
     return True
@@ -217,7 +221,7 @@ def _has_markdown_backslash_break(line: str) -> bool:
     return trailing % 2 == 1
 
 
-def _contains_unsupported_inline_structure(text: str) -> bool:
+def _inline_is_losslessly_representable(text: str) -> bool:
     position = 0
     while position < len(text):
         if text[position] == "\\" and position + 1 < len(text):
@@ -236,16 +240,20 @@ def _contains_unsupported_inline_structure(text: str) -> bool:
             continue
         _content, end = bracketed
         if end < len(text) and text[end] == "[":
-            return True
+            return False
         if text.startswith("{", end) and not text.startswith("{.underline}", end):
-            return True
+            return False
         position = end
-    return False
+    return True
 
 
 def _try_list(lines: list[str], item_re: re.Pattern[str], kind: str) -> Block | None:
     matches = [item_re.match(line) for line in lines]
     if not all(matches):
+        return None
+    if not all(
+        _inline_is_losslessly_representable(match.group(1)) for match in matches
+    ):
         return None
     items = [Block(kind=LIST_ITEM, runs=_parse_inline(match.group(1))) for match in matches]
     return Block(kind=kind, children=items)
@@ -257,6 +265,10 @@ def _try_ordered_list(lines: list[str]) -> Block | None:
         return None
     numbers = [int(match.group(1)) for match in matches]
     if numbers != list(range(1, len(matches) + 1)):
+        return None
+    if not all(
+        _inline_is_losslessly_representable(match.group(2)) for match in matches
+    ):
         return None
     items = [
         Block(kind=LIST_ITEM, runs=_parse_inline(match.group(2)))
@@ -281,6 +293,8 @@ def parse_table_lines(lines: list[str]) -> Block | None:
     row_blocks = []
     for row_line in rows:
         cells = _split_table_row(row_line)
+        if not all(_inline_is_losslessly_representable(cell) for cell in cells):
+            return None
         cell_blocks = [Block(kind=TABLE_CELL, runs=_parse_inline(cell)) for cell in cells]
         row_blocks.append(Block(kind=TABLE_ROW, children=cell_blocks))
     return Block(kind=TABLE, children=row_blocks)

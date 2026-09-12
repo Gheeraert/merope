@@ -144,6 +144,69 @@ def test_valid_but_unsupported_markdown_is_not_guessed_or_flattened(source):
 
 
 @pytest.mark.parametrize(
+    "inline",
+    ["[élément][ref]", "[élément]{.classe}"],
+)
+@pytest.mark.parametrize(
+    "container",
+    [
+        lambda value: value,
+        lambda value: f"# {value}",
+        lambda value: f"> {value}",
+        lambda value: f"- {value}",
+        lambda value: f"1. {value}",
+        lambda value: f"[^1]: {value}",
+        lambda value: f"| {value} |\n| ------------------------------ |",
+    ],
+    ids=[
+        "paragraph",
+        "heading",
+        "blockquote",
+        "bullet-list",
+        "ordered-list",
+        "footnote-definition",
+        "table-cell",
+    ],
+)
+def test_unsupported_inline_syntax_makes_the_whole_container_verbatim(
+    inline,
+    container,
+):
+    source = container(inline) + "\n"
+    if inline == "[élément][ref]":
+        source += "\n[ref]: https://example.org\n"
+
+    blocks = markdown_to_blocks(source)
+
+    assert all(block.kind == VERBATIM for block in blocks)
+    assert blocks_to_markdown(blocks) == source
+
+
+def test_reference_link_in_heading_and_definition_are_both_preserved():
+    source = "# [Titre][ref]\n\n[ref]: https://example.org\n"
+
+    assert markdown_to_blocks(source) == [
+        Block(kind=VERBATIM, raw_text="# [Titre][ref]"),
+        Block(kind=VERBATIM, raw_text="[ref]: https://example.org"),
+    ]
+    assert blocks_to_markdown(markdown_to_blocks(source)) == source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "# [Titre]{#identifiant}\n",
+        "- [élément]{.classe}\n",
+    ],
+)
+def test_pandoc_attributes_in_supported_containers_are_preserved(source):
+    assert markdown_to_blocks(source) == [
+        Block(kind=VERBATIM, raw_text=source.removesuffix("\n"))
+    ]
+    assert blocks_to_markdown(markdown_to_blocks(source)) == source
+
+
+@pytest.mark.parametrize(
     ("run", "expected_markdown"),
     [
         (
