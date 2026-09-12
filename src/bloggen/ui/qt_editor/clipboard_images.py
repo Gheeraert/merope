@@ -16,7 +16,7 @@ from PIL import Image, UnidentifiedImageError
 from PySide6.QtCore import QMimeData, QUrl
 from PySide6.QtGui import QImage, QPixmap
 
-from bloggen.content.image_service import copy_into_images_dir
+from bloggen.content.image_service import copy_into_images_dir, relative_image_src
 from bloggen.markdown.html_paste_import import html_to_blocks, resolve_image_src
 from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
 from bloggen.ui.qt_editor.document_adapter import validate_blocks
@@ -179,6 +179,55 @@ class PreparedExternalPaste:
             if self.remove_images_dir_if_empty:
                 _remove_empty_directory(self.context.images_dir)
             self.staging_dir = None
+
+
+def prepare_local_image_insert(
+    source: Path,
+    context: ExternalPasteContext,
+    *,
+    image_alt: str = "",
+) -> PreparedExternalPaste:
+    """Stage one validated local image for a transactional document insert."""
+
+    source = Path(source)
+    _validate_local_raster(source)
+    destination = context.images_dir / source.name
+    if source.resolve() == destination.resolve():
+        blocks = [
+            Block(
+                kind=PARAGRAPH,
+                runs=[
+                    InlineRun(
+                        image_src=relative_image_src(source, context.doc_dir),
+                        image_alt=image_alt,
+                    )
+                ],
+            )
+        ]
+        validate_blocks(blocks)
+        return PreparedExternalPaste(blocks)
+
+    staging, remove_images_dir_if_empty = _create_staging(context.images_dir)
+    try:
+        staged_src = copy_into_images_dir(source, staging, context.doc_dir)
+        blocks = [
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(image_src=staged_src, image_alt=image_alt)],
+            )
+        ]
+        validate_blocks(blocks)
+        return PreparedExternalPaste(
+            blocks=blocks,
+            context=context,
+            staging_dir=staging,
+            remove_images_dir_if_empty=remove_images_dir_if_empty,
+        )
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        if remove_images_dir_if_empty:
+            _remove_empty_directory(context.images_dir)
+        raise
 
 
 def prepare_external_paste(

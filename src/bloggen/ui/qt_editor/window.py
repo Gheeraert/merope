@@ -80,6 +80,11 @@ from bloggen.ui.qt_editor.document_adapter import (
     insert_blocks,
     populate_document,
     renumber_footnote_references,
+    validate_block_insertion,
+)
+from bloggen.ui.qt_editor.clipboard_images import (
+    ExternalPasteContext,
+    prepare_local_image_insert,
 )
 from bloggen.ui.qt_editor.content_browser import ContentBrowser
 from bloggen.ui.qt_editor.file_io import (
@@ -1440,17 +1445,36 @@ class QtEditorWindow(QMainWindow):
             raise ValueError("Ouvrez d’abord un fichier Mérope.")
         if self.images_dir is None:
             raise ValueError("Le répertoire d’images du projet n’est pas configuré.")
-        src = copy_into_images_dir(
-            Path(source),
-            self.images_dir,
-            self.current_path.parent,
+        source = Path(source)
+        try:
+            source_is_file = source.is_file()
+        except OSError as exc:
+            raise ValueError("Le fichier choisi n’est pas lisible.") from exc
+        if not source_is_file:
+            raise ValueError("Le fichier choisi n’existe pas ou n’est pas un fichier.")
+        if not QImageReader(str(source)).canRead():
+            raise ValueError("Le fichier choisi n’est pas une image lisible par Qt.")
+
+        provisional = Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(image_src=source.name, image_alt=image_alt)],
         )
-        run = InlineRun(image_src=src, image_alt=image_alt)
-        cursor = insert_blocks(
-            self.editor.textCursor(),
-            [Block(kind=PARAGRAPH, runs=[run])],
+        validate_block_insertion(self.editor.textCursor(), [provisional])
+
+        prepared = prepare_local_image_insert(
+            source,
+            ExternalPasteContext(self.images_dir, self.current_path.parent),
+            image_alt=image_alt,
         )
+        try:
+            blocks = prepared.commit_assets()
+            cursor = insert_blocks(self.editor.textCursor(), blocks)
+        except Exception:
+            prepared.rollback()
+            raise
+        prepared.accept()
         self.editor.setTextCursor(cursor)
+        run = blocks[0].runs[0]
         return run
 
     def _insert_image_from_dialog(self) -> None:
