@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from bloggen.markdown.front_matter import parse_front_matter
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks
@@ -11,7 +13,11 @@ from bloggen.markdown.rich_text_model import (
     ORDERED_LIST,
     PARAGRAPH,
     TABLE,
+    TABLE_CELL,
+    TABLE_ROW,
     VERBATIM,
+    Block,
+    InlineRun,
 )
 
 EXAMPLES_ROOT = Path(__file__).resolve().parent.parent / "examples" / "minimal_project" / "content"
@@ -47,6 +53,79 @@ def test_underline_and_underlined_link_roundtrip():
     assert blocks[0].runs[3].italic
     assert blocks[0].runs[3].link_href == "https://example.org"
     assert _roundtrip(body).strip() == body.strip()
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["[sic]", "a]b", "[a]", r"a\b", "a*b", "a_b", "a^b"],
+)
+def test_underlined_escaped_text_roundtrips_as_model(text):
+    expected = [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text=text, underline=True)])
+    ]
+
+    markdown = blocks_to_markdown(expected)
+
+    assert markdown_to_blocks(markdown) == expected
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        InlineRun(
+            text="[sic]",
+            underline=True,
+            link_href="https://example.org",
+        ),
+        InlineRun(
+            text="a]b",
+            bold=True,
+            italic=True,
+            underline=True,
+            link_href="https://example.org",
+        ),
+    ],
+)
+def test_underlined_link_with_escaped_bracket_roundtrips_as_model(run):
+    expected = [Block(kind=PARAGRAPH, runs=[run])]
+
+    assert markdown_to_blocks(blocks_to_markdown(expected)) == expected
+
+
+def test_underlined_escaped_brackets_roundtrip_in_table_and_footnote():
+    expected = [
+        Block(
+            kind=TABLE,
+            children=[
+                Block(
+                    kind=TABLE_ROW,
+                    children=[
+                        Block(
+                            kind=TABLE_CELL,
+                            runs=[InlineRun(text="[sic]", underline=True)],
+                        )
+                    ],
+                ),
+                Block(
+                    kind=TABLE_ROW,
+                    children=[
+                        Block(kind=TABLE_CELL, runs=[InlineRun(text="Valeur")])
+                    ],
+                ),
+            ],
+        ),
+        Block(
+            kind=FOOTNOTE_DEFINITION,
+            footnote_id="1",
+            runs=[InlineRun(text="[sic]", underline=True)],
+        ),
+    ]
+
+    markdown = blocks_to_markdown(expected)
+    imported = markdown_to_blocks(markdown)
+
+    assert imported == expected
+    assert blocks_to_markdown(imported) == markdown
 
 
 def test_footnote_reference_and_definition_roundtrip():

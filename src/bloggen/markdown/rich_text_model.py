@@ -32,7 +32,6 @@ class InlineRun:
     text: str = ""
     bold: bool = False
     italic: bool = False
-    underline: bool = False
     strikethrough: bool = False
     superscript: bool = False
     link_href: str | None = None
@@ -42,6 +41,7 @@ class InlineRun:
     image_height: str | None = None
     image_align: str | None = None  # "left" | "center" | "right"
     footnote_ref: str | None = None
+    underline: bool = False
 
 
 @dataclass(slots=True)

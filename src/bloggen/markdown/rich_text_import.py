@@ -47,8 +47,8 @@ _STRUCTURAL_LINE_RE = re.compile(r"^(#{1,6}\s|>\s?|[-*]\s|\d+\.\s|\||<)")
 _ATOM_RE = re.compile(
     r"!\[(?P<image_alt>[^\]]*)\]\((?P<image_src>[^)]+)\)(\{(?P<image_attrs>[^}]*)\})?"
     r"|\[\^(?P<footnote_ref>[^\]]+)\]"
-    r"|\[\[(?P<underline_link_text>[^\]]*)\]\((?P<underline_link_href>[^)]+)\)\]\{\.underline\}"
-    r"|\[(?P<underline_text>[^\]]*)\]\{\.underline\}"
+    r"|\[\[(?P<underline_link_text>(?:\\.|[^\]])*)\]\((?P<underline_link_href>[^)]+)\)\]\{\.underline\}"
+    r"|\[(?P<underline_text>(?:\\.|[^\]])*)\]\{\.underline\}"
     r"|\[(?P<link_text>[^\]]*)\]\((?P<link_href>[^)]+)\)"
     r"|(?P<emphasis>\*\*\*.+?\*\*\*|\*\*.+?\*\*|~~.+?~~|\^[^\^]+?\^|\*[^*]+?\*)"
 )
