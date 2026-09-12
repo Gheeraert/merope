@@ -23,7 +23,18 @@ from bloggen.markdown.rich_text_model import (
 )
 from bloggen.markdown.typography import NBSP, apply_french_typography
 from bloggen.ui.content_editor.typography import TypographyMixin
-from bloggen.ui.qt_editor.document_adapter import extract_blocks, populate_document
+from bloggen.ui.qt_editor.constants import (
+    BOLD_PROPERTY,
+    ITALIC_PROPERTY,
+    STRIKETHROUGH_PROPERTY,
+    SUPERSCRIPT_PROPERTY,
+    UNDERLINE_PROPERTY,
+)
+from bloggen.ui.qt_editor.document_adapter import (
+    extract_blocks,
+    inline_format_enabled,
+    populate_document,
+)
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 
 
@@ -63,6 +74,33 @@ def _leaf_text(block: Block) -> str:
 def _document_text(editor: MeropeTextEdit) -> str:
     blocks = extract_blocks(editor.document())
     return "\n".join(_leaf_text(block) for block in blocks)
+
+
+def _select_document(editor: MeropeTextEdit) -> None:
+    cursor = editor.textCursor()
+    cursor.select(QTextCursor.SelectionType.Document)
+    editor.setTextCursor(cursor)
+
+
+def _char_format(editor: MeropeTextEdit, start: int):
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(start)
+    cursor.setPosition(start + 1, QTextCursor.MoveMode.KeepAnchor)
+    return cursor.charFormat()
+
+
+def _assert_neutral_wrapper_format(editor: MeropeTextEdit, position: int) -> None:
+    char_format = _char_format(editor, position)
+    assert not char_format.fontUnderline()
+    assert not char_format.isAnchor()
+    for property_id in (
+        BOLD_PROPERTY,
+        ITALIC_PROPERTY,
+        STRIKETHROUGH_PROPERTY,
+        SUPERSCRIPT_PROPERTY,
+        UNDERLINE_PROPERTY,
+    ):
+        assert not inline_format_enabled(char_format, property_id)
 
 
 def test_straight_quote_opens_then_closes_with_internal_nbsp():
@@ -361,6 +399,93 @@ def test_quote_key_wraps_a_mixed_format_selection_without_flattening_it():
         InlineRun(text="mot "),
         InlineRun(text="fort", bold=True),
     ]
+
+
+def test_quote_wrappers_are_visually_and_canonically_not_underlined():
+    original = [InlineRun(text="mot", underline=True)]
+    editor = _editor([Block(kind=PARAGRAPH, runs=original)])
+    _select_document(editor)
+
+    _type(editor, '"')
+
+    expected = [
+        InlineRun(text=f"«{NBSP}"),
+        InlineRun(text="mot", underline=True),
+        InlineRun(text=f"{NBSP}»"),
+    ]
+    assert extract_blocks(editor.document())[0].runs == expected
+    _assert_neutral_wrapper_format(editor, 0)
+    _assert_neutral_wrapper_format(editor, len(f"«{NBSP}mot"))
+    editor.undo()
+    assert extract_blocks(editor.document())[0].runs == original
+    editor.redo()
+    assert extract_blocks(editor.document())[0].runs == expected
+
+
+def test_quote_wrappers_are_neutral_around_bold_italic_underlined_text():
+    editor = _editor(
+        [
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(text="mot", bold=True, italic=True, underline=True)],
+            )
+        ]
+    )
+    _select_document(editor)
+
+    _type(editor, '"')
+
+    assert extract_blocks(editor.document())[0].runs == [
+        InlineRun(text=f"«{NBSP}"),
+        InlineRun(text="mot", bold=True, italic=True, underline=True),
+        InlineRun(text=f"{NBSP}»"),
+    ]
+    _assert_neutral_wrapper_format(editor, 0)
+    _assert_neutral_wrapper_format(editor, len(f"«{NBSP}mot"))
+
+
+def test_quote_wrappers_do_not_inherit_underlined_link_semantics():
+    href = "https://example.org"
+    editor = _editor(
+        [
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(text="mot", underline=True, link_href=href)],
+            )
+        ]
+    )
+    _select_document(editor)
+
+    _type(editor, '"')
+
+    assert extract_blocks(editor.document())[0].runs == [
+        InlineRun(text=f"«{NBSP}"),
+        InlineRun(text="mot", underline=True, link_href=href),
+        InlineRun(text=f"{NBSP}»"),
+    ]
+    _assert_neutral_wrapper_format(editor, 0)
+    _assert_neutral_wrapper_format(editor, len(f"«{NBSP}mot"))
+
+
+def test_quote_on_partial_footnote_selection_uses_atomic_replacement_guard():
+    original = [
+        InlineRun(text="A"),
+        InlineRun(footnote_ref="12"),
+        InlineRun(text="B"),
+    ]
+    editor = _editor([Block(kind=PARAGRAPH, runs=original)])
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(2)
+    cursor.setPosition(3, QTextCursor.MoveMode.KeepAnchor)
+    editor.setTextCursor(cursor)
+
+    _type(editor, '"')
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text=f"A«{NBSP}B")])
+    ]
+    editor.undo()
+    assert extract_blocks(editor.document())[0].runs == original
 
 
 def test_apply_typography_to_selection_crosses_fragments_and_is_one_undo_step():

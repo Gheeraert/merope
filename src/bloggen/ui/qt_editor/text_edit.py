@@ -87,6 +87,7 @@ from bloggen.ui.qt_editor.constants import (
     ITALIC_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
+    UNDERLINE_PROPERTY,
 )
 from bloggen.markdown.caption import flatten_caption_text
 from bloggen.ui.qt_editor.document_adapter import (
@@ -1442,10 +1443,14 @@ class MeropeTextEdit(QTextEdit):
         """Insert one literal U+00A0 while preserving semantic boundaries."""
 
         cursor = self.textCursor()
-        if selection_crosses_raw_boundary(cursor) or self._selection_contains_image(
-            cursor
+        if (
+            selection_crosses_raw_boundary(cursor)
+            or selection_crosses_caption_boundary(cursor)
+            or self._selection_contains_image(cursor)
         ):
             return False
+        if caption_block_for_selection(cursor) is not None:
+            return self._insert_plain_text_in_caption(NBSP)
         identities = selection_block_identities(cursor)
         raw_identities = {identity for identity in identities if identity is not None}
         if raw_identities:
@@ -1852,11 +1857,16 @@ class MeropeTextEdit(QTextEdit):
 
     @staticmethod
     def _plain_wrapper_format(source: QTextCharFormat) -> QTextCharFormat:
-        char_format = QTextCharFormat(source)
+        char_format = (
+            QTextCharFormat()
+            if is_semantic_inline_object_format(source)
+            else QTextCharFormat(source)
+        )
         char_format.setProperty(BOLD_PROPERTY, False)
         char_format.setProperty(ITALIC_PROPERTY, False)
         char_format.setProperty(STRIKETHROUGH_PROPERTY, False)
         char_format.setProperty(SUPERSCRIPT_PROPERTY, False)
+        char_format.setProperty(UNDERLINE_PROPERTY, False)
         char_format.setFontWeight(QFont.Weight.Normal.value)
         char_format.setFontItalic(False)
         char_format.setFontStrikeOut(False)
