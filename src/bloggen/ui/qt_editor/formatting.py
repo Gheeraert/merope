@@ -135,6 +135,28 @@ def set_paragraph(editor: QTextEdit) -> None:
     _set_leaf_block_kind(editor, PARAGRAPH)
 
 
+def clear_formatting(editor: QTextEdit) -> None:
+    """Strip inline styling from the selection and reset it to a plain paragraph."""
+
+    cursor = editor.textCursor()
+    if not cursor.hasSelection() or selection_touches_raw_block(cursor):
+        return
+    ranges = _selected_text_ranges(cursor)
+    outer = QTextCursor(cursor.document())
+    outer.beginEditBlock()
+    try:
+        blank_format = QTextCharFormat()
+        for start, end, _existing_format in ranges:
+            target = QTextCursor(cursor.document())
+            target.setPosition(start)
+            target.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            target.setCharFormat(blank_format)
+        _set_leaf_block_kind(editor, PARAGRAPH)
+    finally:
+        outer.endEditBlock()
+    editor.setTextCursor(cursor)
+
+
 def set_heading(editor: QTextEdit, level: int) -> None:
     if level not in {1, 2, 3, 4}:
         raise ValueError(f"Niveau de titre non pris en charge : H{level}")

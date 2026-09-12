@@ -73,6 +73,8 @@ def toolbar_icon(owner: QWidget, key: str) -> QIcon:
         return owner.style().standardIcon(standard)
     if key == "preview":
         return _eye_icon()
+    if key == "clear_format":
+        return _clear_format_icon()
     theme_name = _THEME_ICONS.get(key)
     fallback = _text_icon(key, _GLYPHS.get(key, key[:2].upper()))
     if theme_name:
@@ -101,6 +103,41 @@ def _text_icon(key: str, glyph: str) -> QIcon:
     elif key == "right":
         alignment = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
     painter.drawText(pixmap.rect().adjusted(2, 1, -2, -1), alignment, glyph)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _clear_format_icon() -> QIcon:
+    """A big "T" with a small subscript "x", mirroring the common
+    "clear formatting" pictogram (as seen in Google Docs / Word)."""
+
+    size = _ICON_SIZE
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    color = QColor("#202124")
+    painter.setPen(color)
+
+    big_font = QFont()
+    big_font.setPixelSize(int(size * 0.62))
+    big_font.setBold(True)
+    painter.setFont(big_font)
+    painter.drawText(
+        QRectF(0, 0, size * 0.66, size),
+        Qt.AlignmentFlag.AlignCenter,
+        "T",
+    )
+
+    small_font = QFont()
+    small_font.setPixelSize(int(size * 0.4))
+    small_font.setBold(True)
+    painter.setFont(small_font)
+    painter.drawText(
+        QRectF(size * 0.48, size * 0.42, size * 0.5, size * 0.56),
+        Qt.AlignmentFlag.AlignCenter,
+        "x",
+    )
     painter.end()
     return QIcon(pixmap)
 

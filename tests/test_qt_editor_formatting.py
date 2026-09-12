@@ -26,6 +26,7 @@ from bloggen.ui.qt_editor.constants import (
 )
 from bloggen.ui.qt_editor.document_adapter import extract_blocks, populate_document
 from bloggen.ui.qt_editor.formatting import (
+    clear_formatting,
     set_alignment,
     set_blockquote,
     set_heading,
@@ -461,4 +462,46 @@ def test_text_format_on_image_only_is_clean_noop(command):
 
     assert extract_blocks(editor.document()) == original
     assert editor.document().isModified() is False
+    assert editor.document().isUndoAvailable() is False
+
+
+def test_clear_formatting_strips_inline_and_block_styling():
+    editor = _editor(
+        [
+            Block(
+                kind=HEADING,
+                level=2,
+                runs=[
+                    InlineRun(text="Gras", bold=True),
+                    InlineRun(text=" et lien", link_href="https://example.org"),
+                ],
+            )
+        ]
+    )
+    _select_document(editor)
+
+    clear_formatting(editor)
+
+    assert extract_blocks(editor.document()) == [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="Gras et lien")],
+            alignment="justify",
+        )
+    ]
+    _assert_no_heading_residue(editor)
+
+
+def test_clear_formatting_without_selection_is_a_noop():
+    editor = _editor(
+        [Block(kind=HEADING, level=1, runs=[InlineRun(text="Titre", bold=True)])]
+    )
+    original = extract_blocks(editor.document())
+    cursor = editor.textCursor()
+    cursor.clearSelection()
+    editor.setTextCursor(cursor)
+
+    clear_formatting(editor)
+
+    assert extract_blocks(editor.document()) == original
     assert editor.document().isUndoAvailable() is False

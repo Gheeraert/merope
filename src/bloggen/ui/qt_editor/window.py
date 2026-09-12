@@ -82,6 +82,7 @@ from bloggen.ui.qt_editor.file_io import (
     save_content_document,
 )
 from bloggen.ui.qt_editor.formatting import (
+    clear_formatting,
     set_alignment,
     set_blockquote,
     set_heading,
@@ -535,6 +536,14 @@ class QtEditorWindow(QMainWindow):
             "Ctrl+Shift+V",
             icon_key="plain_paste",
             tooltip="Coller en texte brut — Ctrl+Maj+V",
+        )
+        self._add_action(
+            toolbar,
+            "Effacer la mise en forme",
+            lambda: clear_formatting(self.editor),
+            "Ctrl+Shift+Space",
+            icon_key="clear_format",
+            tooltip="Effacer la mise en forme — Ctrl+Maj+Espace",
         )
         toolbar.add_separator()
         nbsp_action = self._add_action(
