@@ -159,6 +159,34 @@ def set_alignment(editor: QTextEdit, alignment: str) -> None:
     cursor.endEditBlock()
 
 
+def toggle_justify(editor: QTextEdit) -> None:
+    """Toggle only the caret's paragraph between left and justified."""
+
+    selection = editor.textCursor()
+    block = selection.block()
+    if not block.isValid() or is_raw_block(block) or block.textList() is not None:
+        return
+    block_format = block.blockFormat()
+    stored = block_format.property(ALIGNMENT_PROPERTY)
+    justified = stored == "justify" or bool(
+        block_format.alignment() & Qt.AlignmentFlag.AlignJustify
+    )
+    block_format.setAlignment(
+        Qt.AlignmentFlag.AlignLeft if justified else Qt.AlignmentFlag.AlignJustify
+    )
+    block_format.setProperty(
+        ALIGNMENT_PROPERTY,
+        "left" if justified else "justify",
+    )
+    edit_cursor = QTextCursor(block)
+    edit_cursor.beginEditBlock()
+    try:
+        edit_cursor.setBlockFormat(block_format)
+    finally:
+        edit_cursor.endEditBlock()
+    editor.setTextCursor(selection)
+
+
 def _toggle_inline(
     editor: QTextEdit,
     property_id: int,

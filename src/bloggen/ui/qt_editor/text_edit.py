@@ -21,6 +21,7 @@ from PySide6.QtGui import (
     QResizeEvent,
     QTextCharFormat,
     QTextCursor,
+    QWheelEvent,
 )
 from PySide6.QtWidgets import QApplication, QTextEdit
 
@@ -105,6 +106,9 @@ _OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
 _REJECTED_RICH_PASTE_TAGS = frozenset(
     {"img", "pre", "table", "v:imagedata", "v:shape"}
 )
+ZOOM_MIN_PERCENT = 50
+ZOOM_MAX_PERCENT = 300
+ZOOM_STEP_PERCENT = 10
 
 
 def blocks_from_rich_mime_data(source: QMimeData) -> list[Block] | None:
@@ -156,6 +160,7 @@ class MeropeTextEdit(QTextEdit):
         self.viewport().setMouseTracking(True)
         self._image_resize_state: _ImageResizeState | None = None
         self._external_paste_context: ExternalPasteContext | None = None
+        self._zoom_percent = 100
         self.selectionChanged.connect(self.viewport().update)
         self.document().contentsChanged.connect(self.viewport().update)
 
@@ -605,6 +610,38 @@ class MeropeTextEdit(QTextEdit):
         super().resizeEvent(event)
         self.viewport().update()
 
+    @property
+    def zoom_percent(self) -> int:
+        return self._zoom_percent
+
+    def adjust_zoom(self, steps: int) -> bool:
+        """Change only QTextEdit's visual zoom, within the 50–300% range."""
+
+        target = min(
+            ZOOM_MAX_PERCENT,
+            max(ZOOM_MIN_PERCENT, self._zoom_percent + steps * ZOOM_STEP_PERCENT),
+        )
+        effective_steps = (target - self._zoom_percent) // ZOOM_STEP_PERCENT
+        if effective_steps == 0:
+            return False
+        if effective_steps > 0:
+            super().zoomIn(effective_steps)
+        else:
+            super().zoomOut(-effective_steps)
+        self._zoom_percent = target
+        self.viewport().update()
+        return True
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if (
+            event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            and event.angleDelta().y()
+        ):
+            self.adjust_zoom(1 if event.angleDelta().y() > 0 else -1)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         """Accept only MIME content that Merope can inspect safely itself."""
 
@@ -712,30 +749,112 @@ class MeropeTextEdit(QTextEdit):
             self.pasteRefused.emit(f"Le collage externe n’a pas pu être analysé : {exc}")
             return
 
-        cursor, contains_note = expand_selection_to_footnotes(self.textCursor())
-        if contains_note:
-            self.setTextCursor(cursor)
-
         if source.hasText():
-            cursor = self.textCursor()
-            atomic_paste = contains_note or self._cursor_touches_footnote(cursor)
-            cursor.beginEditBlock()
-            try:
-                if atomic_paste:
-                    cursor.insertText(
-                        source.text(),
-                        self._plain_footnote_replacement_format(cursor),
-                    )
-                else:
-                    cursor.insertText(source.text())
-            finally:
-                cursor.endEditBlock()
-            self.setTextCursor(cursor)
+            self._insert_plain_text(source.text())
             return
 
         self.pasteRefused.emit(
             "Ce format de presse-papiers n’est pas encore pris en charge par l’éditeur Qt"
         )
+
+    def paste_plain_text(self, text: str | None = None) -> bool:
+        """Paste only clipboard text, ignoring every rich MIME representation."""
+
+        plain = QApplication.clipboard().text() if text is None else text
+        if not plain:
+            return False
+        return self._insert_plain_text(plain)
+
+    def _insert_plain_text(self, text: str) -> bool:
+        cursor = self.textCursor()
+        if selection_crosses_raw_boundary(cursor):
+            self.pasteRefused.emit(
+                "Le collage ne peut pas remplacer une frontière de bloc brut"
+            )
+            return False
+        identities = selection_block_identities(cursor)
+        raw_identities = {identity for identity in identities if identity is not None}
+        if raw_identities:
+            if len(identities) != 1 or len(raw_identities) != 1:
+                self.pasteRefused.emit(
+                    "Le collage ne peut pas traverser la frontière d’un bloc brut"
+                )
+                return False
+            self._insert_plain_text_in_raw_block(text, next(iter(raw_identities)))
+            return True
+
+        cursor, contains_note = expand_selection_to_footnotes(cursor)
+        if contains_note:
+            self.setTextCursor(cursor)
+        cursor = self.textCursor()
+        atomic_paste = contains_note or self._cursor_touches_footnote(cursor)
+        cursor.beginEditBlock()
+        try:
+            if atomic_paste:
+                cursor.insertText(
+                    text,
+                    self._plain_footnote_replacement_format(cursor),
+                )
+            else:
+                cursor.insertText(text)
+        finally:
+            cursor.endEditBlock()
+        self.setTextCursor(cursor)
+        return True
+
+    def insert_nbsp(self) -> bool:
+        """Insert one literal U+00A0 while preserving semantic boundaries."""
+
+        cursor = self.textCursor()
+        if selection_crosses_raw_boundary(cursor) or self._selection_contains_image(
+            cursor
+        ):
+            return False
+        identities = selection_block_identities(cursor)
+        raw_identities = {identity for identity in identities if identity is not None}
+        if raw_identities:
+            if len(identities) != 1 or len(raw_identities) != 1:
+                return False
+            self._insert_plain_text_in_raw_block(NBSP, next(iter(raw_identities)))
+            return True
+
+        cursor, contains_note = expand_selection_to_footnotes(cursor)
+        replacement_format = (
+            self._plain_footnote_replacement_format(cursor)
+            if contains_note or self._cursor_touches_footnote(cursor)
+            else None
+        )
+        cursor.beginEditBlock()
+        try:
+            if replacement_format is None:
+                cursor.insertText(NBSP)
+            else:
+                cursor.insertText(NBSP, replacement_format)
+        finally:
+            cursor.endEditBlock()
+        self.setTextCursor(cursor)
+        return True
+
+    def _selection_contains_image(self, cursor: QTextCursor) -> bool:
+        if not cursor.hasSelection():
+            return False
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        block = self.document().findBlock(start)
+        while block.isValid() and block.position() < end:
+            iterator = block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                if (
+                    fragment.isValid()
+                    and fragment.charFormat().isImageFormat()
+                    and fragment.position() < end
+                    and fragment.position() + fragment.length() > start
+                ):
+                    return True
+                iterator += 1
+            block = block.next()
+        return False
 
     def _insert_plain_text_in_raw_block(
         self,

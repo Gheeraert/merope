@@ -942,6 +942,42 @@ est laissé après le tableau pour poursuivre la saisie. Les blocs bruts suivent
 sans voie spéciale les chemins de fichier, recovery, autosave, aperçu ponctuel
 et MIME interne `application/x-merope-markdown-fragment`.
 
+### Outils quotidiens d’édition
+
+Le dialogue non modal « Rechercher et remplacer » travaille uniquement sur le
+`QTextDocument` du corps. La recherche Unicode est littérale, sensible ou non à
+la casse, reste dans chaque `QTextBlock` et boucle de la fin vers le début. Les
+occurrences qui recouvrent une image, un marqueur de note structuré ou plusieurs
+formats sémantiques sont ignorées pour le remplacement. Dans un fragment de
+format homogène, le texte substitué conserve gras, italique, barré, exposant et
+lien. Les blocs TABLE et VERBATIM sont recherchables et remplaçables comme source
+littérale sans perdre leur identité raw. « Tout remplacer » forme une seule
+opération undo ; une recherche seule et un remplacement identique ne modifient
+ni le dirty ni l’historique.
+
+« Coller en texte brut » (`Ctrl+Shift+V`) lit exclusivement le `text/plain` du
+presse-papiers, même si HTML, image ou MIME Mérope sont aussi présents. Il
+réutilise les protections atomiques des notes et des frontières raw ; dans un
+bloc brut, les lignes collées restent dans le même groupe. « Espace insécable »
+(`Ctrl+Space` ou `Alt+Space`) insère exactement U+00A0 avec les mêmes protections,
+y compris comme caractère littéral dans TABLE/VERBATIM.
+
+`Ctrl` + molette règle seulement le zoom de rendu de 50 % à 300 %, par pas de
+10 %. Ce niveau reste propre à la session : aucun `Block`, `InlineRun`, attribut
+d’image, fichier Markdown, recovery, dirty ou historique undo ne le mémorise.
+Les raccourcis quotidiens incluent aussi `Ctrl+F`, `Ctrl+H`, `Ctrl+Shift+S` pour
+le barré, `Ctrl+Shift+=` pour l’exposant et `Alt+J` pour basculer le paragraphe
+courant entre gauche et justifié ; les raccourcis existants ouvrir, enregistrer,
+gras, italique, lien, undo et redo sont conservés.
+
+## Parité fonctionnelle automatisée : prête pour recette humaine
+
+Le gros œuvre et les outils quotidiens Qt disposent désormais d’une couverture
+automatisée de parité. Le prochain travail est une recette humaine suivie d’un
+inventaire des défauts et écarts réellement observés. Cela ne signifie pas que
+l’éditeur Qt est prêt à remplacer Tk : aucune bascule de l’éditeur principal
+n’est planifiée.
+
 ## Explicitement refusé
 
 - les titres hors H1–H4 et les listes complexes ;

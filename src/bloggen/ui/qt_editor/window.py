@@ -10,7 +10,14 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QTimer, Qt, QUrl
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QImageReader, QTextCursor
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QCloseEvent,
+    QImageReader,
+    QKeySequence,
+    QTextCursor,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -83,9 +90,11 @@ from bloggen.ui.qt_editor.formatting import (
     set_paragraph,
     toggle_bold,
     toggle_italic,
+    toggle_justify,
     toggle_strikethrough,
     toggle_superscript,
 )
+from bloggen.ui.qt_editor.find_replace_dialog import FindReplaceDialog
 from bloggen.ui.editor_recovery import (
     RecoveryDraft,
     clear_draft,
@@ -176,6 +185,7 @@ class QtEditorWindow(QMainWindow):
         self._pending_preview_snapshots: dict[int, PreviewSnapshot] = {}
         self._preview_artifact: PreviewArtifact | None = None
         self._preview_process: subprocess.Popen | None = None
+        self._find_replace_dialog: FindReplaceDialog | None = None
         self.ipc_bridge = QtEditorIpcBridge(enabled=ipc, parent=self)
         self.ipc_bridge.configReady.connect(self._on_preview_config_ready)
         self.ipc_bridge.configFailed.connect(self._on_preview_config_failed)
@@ -447,10 +457,42 @@ class QtEditorWindow(QMainWindow):
             self._request_html_preview,
         )
         toolbar.addSeparator()
+        self._add_action(toolbar, "Rechercher", self._show_find_dialog, "Ctrl+F")
+        self._add_action(
+            toolbar,
+            "Remplacer",
+            self._show_replace_dialog,
+            "Ctrl+H",
+        )
+        self._add_action(
+            toolbar,
+            "Coller en texte brut",
+            lambda: self.editor.paste_plain_text(),
+            "Ctrl+Shift+V",
+        )
+        nbsp_action = self._add_action(
+            toolbar,
+            "Espace insécable",
+            self.editor.insert_nbsp,
+        )
+        nbsp_action.setShortcuts(
+            [QKeySequence("Ctrl+Space"), QKeySequence("Alt+Space")]
+        )
+        toolbar.addSeparator()
         self._add_action(toolbar, "Gras", lambda: toggle_bold(self.editor), "Ctrl+B")
         self._add_action(toolbar, "Italique", lambda: toggle_italic(self.editor), "Ctrl+I")
-        self._add_action(toolbar, "Barre", lambda: toggle_strikethrough(self.editor))
-        self._add_action(toolbar, "Exposant", lambda: toggle_superscript(self.editor))
+        self._add_action(
+            toolbar,
+            "Barre",
+            lambda: toggle_strikethrough(self.editor),
+            "Ctrl+Shift+S",
+        )
+        self._add_action(
+            toolbar,
+            "Exposant",
+            lambda: toggle_superscript(self.editor),
+            "Ctrl+Shift+=",
+        )
         self._add_action(toolbar, "Lien", self._prompt_for_link, "Ctrl+K")
         self._add_action(toolbar, "Insérer une note...", self._insert_footnote_from_dialog)
         self._add_action(toolbar, "Renuméroter les notes", self.save_document)
@@ -504,6 +546,12 @@ class QtEditorWindow(QMainWindow):
                 label,
                 lambda checked=False, value=alignment: set_alignment(self.editor, value),
             )
+        self._add_action(
+            toolbar,
+            "Justifier gauche/plein",
+            lambda: toggle_justify(self.editor),
+            "Alt+J",
+        )
         toolbar.addSeparator()
         self._add_action(toolbar, "Annuler", self.editor.undo, "Ctrl+Z")
         self._add_action(toolbar, "Retablir", self.editor.redo, "Ctrl+Shift+Z")
@@ -513,6 +561,32 @@ class QtEditorWindow(QMainWindow):
             self.editor.apply_typography_to_selection,
         )
         self._add_action(toolbar, "Voir Markdown", self.show_reconstructed_markdown)
+
+    def _show_find_dialog(self) -> None:
+        self._open_find_replace_dialog(show_replace=False)
+
+    def _show_replace_dialog(self) -> None:
+        self._open_find_replace_dialog(show_replace=True)
+
+    def _open_find_replace_dialog(self, *, show_replace: bool) -> None:
+        dialog = self._find_replace_dialog
+        if dialog is None:
+            dialog = FindReplaceDialog(
+                self.editor,
+                self,
+                show_replace=show_replace,
+            )
+            dialog.destroyed.connect(self._clear_find_replace_dialog)
+            self._find_replace_dialog = dialog
+        else:
+            dialog.set_replace_visible(show_replace)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        dialog.focus_search()
+
+    def _clear_find_replace_dialog(self, *_args) -> None:
+        self._find_replace_dialog = None
 
     def _create_content_browser(self) -> None:
         self.content_dock = QDockWidget("Contenus", self)
