@@ -11,6 +11,7 @@ from typing import Callable
 from PySide6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
+    QContextMenuEvent,
     QFont,
     QKeyEvent,
     QKeySequence,
@@ -154,6 +155,7 @@ class MeropeTextEdit(QTextEdit):
     pasteRefused = Signal(str)
     clipboardRefused = Signal(str)
     footnoteActivated = Signal(str)
+    imageMetadataRequested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -250,6 +252,20 @@ class MeropeTextEdit(QTextEdit):
                 event.accept()
                 return
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        target = self._image_at_viewport_point(event.pos())
+        if target is None:
+            super().contextMenuEvent(event)
+            return
+        self.setTextCursor(target.cursor(self.document()))
+        self.viewport().update()
+        menu = self.createStandardContextMenu(event.pos())
+        menu.addSeparator()
+        caption_action = menu.addAction("Légende...")
+        caption_action.triggered.connect(self.imageMetadataRequested.emit)
+        menu.exec(event.globalPos())
+        menu.deleteLater()
 
     def _footnote_at_viewport_point(self, point: QPoint):
         hit_cursor = self.cursorForPosition(point)

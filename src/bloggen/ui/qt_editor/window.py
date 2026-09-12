@@ -206,6 +206,7 @@ class QtEditorWindow(QMainWindow):
         self._update_external_paste_context()
         self.editor.pasteRefused.connect(self._show_paste_refused)
         self.editor.clipboardRefused.connect(self._show_clipboard_refused)
+        self.editor.imageMetadataRequested.connect(self._edit_targeted_image)
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
         self._create_toolbar()
