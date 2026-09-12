@@ -450,10 +450,10 @@ def test_adapter_validation_failure_cannot_partially_replace_selection(monkeypat
     monkeypatch.setattr(
         text_edit_module,
         "html_to_blocks",
-        lambda *args, **kwargs: [Block(kind=VERBATIM, raw_text="brut")],
+        lambda *args, **kwargs: [Block(kind="structure_inconnue")],
     )
 
     _paste_html(editor, "<p>contenu</p>")
 
     assert extract_blocks(editor.document()) == original
-    assert refused and "verbatim" in refused[0]
+    assert refused and "structure_inconnue" in refused[0]

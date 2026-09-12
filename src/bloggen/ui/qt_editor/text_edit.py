@@ -76,6 +76,10 @@ from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
     insert_blocks,
     is_semantic_inline_object_format,
+    make_raw_block_format,
+    make_raw_char_format,
+    raw_block_identity,
+    selection_touches_raw_block,
 )
 from bloggen.ui.qt_editor.footnote_selection import (
     expand_selection_to_footnotes,
@@ -183,6 +187,9 @@ class MeropeTextEdit(QTextEdit):
             return
         if event.matches(QKeySequence.StandardKey.Paste):
             self.paste()
+            event.accept()
+            return
+        if self._handle_raw_block_key(event):
             event.accept()
             return
         if self._handle_atomic_footnote_key(event):
@@ -337,6 +344,101 @@ class MeropeTextEdit(QTextEdit):
             return
         super().cut()
 
+    def _handle_raw_block_key(self, event: QKeyEvent) -> bool:
+        cursor = self.textCursor()
+        key = event.key()
+        identities = self._selection_block_identities(cursor)
+        raw_identities = {identity for identity in identities if identity is not None}
+        if not raw_identities:
+            if not cursor.hasSelection() and key in {
+                Qt.Key.Key_Delete,
+                Qt.Key.Key_Backspace,
+            }:
+                block = cursor.block()
+                at_start = cursor.position() == block.position()
+                at_end = cursor.position() == block.position() + block.length() - 1
+                adjacent = (
+                    block.previous()
+                    if key == Qt.Key.Key_Backspace and at_start
+                    else block.next()
+                    if key == Qt.Key.Key_Delete and at_end
+                    else None
+                )
+                if adjacent is not None and adjacent.isValid() and raw_block_identity(
+                    adjacent
+                ) is not None:
+                    return True
+            return False
+
+        editing_key = key in {
+            Qt.Key.Key_Delete,
+            Qt.Key.Key_Backspace,
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+        } or bool(event.text())
+        if not editing_key:
+            return False
+        if len(identities) != 1 or len(raw_identities) != 1:
+            return True
+
+        identity = next(iter(raw_identities))
+        if key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+            cursor.beginEditBlock()
+            try:
+                if cursor.hasSelection():
+                    cursor.removeSelectedText()
+                cursor.insertBlock(
+                    make_raw_block_format(*identity),
+                    make_raw_char_format(),
+                )
+            finally:
+                cursor.endEditBlock()
+            self.setTextCursor(cursor)
+            return True
+
+        if key in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
+            if cursor.hasSelection():
+                super().keyPressEvent(event)
+                return True
+            at_start = cursor.position() == cursor.block().position()
+            at_end = cursor.position() == cursor.block().position() + cursor.block().length() - 1
+            if (key == Qt.Key.Key_Backspace and at_start) or (
+                key == Qt.Key.Key_Delete and at_end
+            ):
+                adjacent = cursor.block().previous() if at_start else cursor.block().next()
+                if not adjacent.isValid() or raw_block_identity(adjacent) != identity:
+                    return True
+            super().keyPressEvent(event)
+            return True
+
+        if event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        ):
+            return False
+        cursor.beginEditBlock()
+        try:
+            if cursor.hasSelection():
+                cursor.removeSelectedText()
+            cursor.insertText(event.text(), make_raw_char_format())
+        finally:
+            cursor.endEditBlock()
+        self.setTextCursor(cursor)
+        return True
+
+    def _selection_block_identities(
+        self, cursor: QTextCursor
+    ) -> set[tuple[str, str] | None]:
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        block = self.document().findBlock(start)
+        identities: set[tuple[str, str] | None] = set()
+        while block.isValid() and (start == end or block.position() < end):
+            identities.add(raw_block_identity(block))
+            block = block.next()
+        return identities
+
     def _copy_merope_selection(self, *, cut: bool) -> bool:
         try:
             cursor, contains_note = expand_selection_to_footnotes(
@@ -349,6 +451,11 @@ class MeropeTextEdit(QTextEdit):
             return True
         if not cursor.hasSelection():
             return False
+        if cut and len(self._selection_block_identities(cursor)) > 1 and selection_touches_raw_block(cursor):
+            self.clipboardRefused.emit(
+                "La coupe ne peut pas traverser la frontière d’un bloc brut"
+            )
+            return True
         if contains_note:
             self.setTextCursor(cursor)
         try:
@@ -530,6 +637,21 @@ class MeropeTextEdit(QTextEdit):
         document is touched.
         """
 
+        raw_identities = self._selection_block_identities(self.textCursor())
+        if any(identity is not None for identity in raw_identities):
+            if len(raw_identities) != 1 or None in raw_identities:
+                self.pasteRefused.emit(
+                    "Le collage ne peut pas traverser la frontière d’un bloc brut"
+                )
+                return
+            if not source.hasText() or not source.text():
+                self.pasteRefused.emit(
+                    "Ce presse-papiers ne contient aucun texte utilisable dans ce bloc brut"
+                )
+                return
+            self._insert_plain_text_in_raw_block(source.text(), next(iter(raw_identities)))
+            return
+
         has_internal_fragment = source.hasFormat(MEROPE_FRAGMENT_MIME)
         if has_internal_fragment:
             try:
@@ -617,6 +739,29 @@ class MeropeTextEdit(QTextEdit):
             "Ce format de presse-papiers n’est pas encore pris en charge par l’éditeur Qt"
         )
 
+    def _insert_plain_text_in_raw_block(
+        self,
+        text: str,
+        identity: tuple[str, str],
+    ) -> None:
+        cursor = self.textCursor()
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        lines = normalized.split("\n")
+        cursor.beginEditBlock()
+        try:
+            if cursor.hasSelection():
+                cursor.removeSelectedText()
+            cursor.insertText(lines[0], make_raw_char_format())
+            for line in lines[1:]:
+                cursor.insertBlock(
+                    make_raw_block_format(*identity),
+                    make_raw_char_format(),
+                )
+                cursor.insertText(line, make_raw_char_format())
+        finally:
+            cursor.endEditBlock()
+        self.setTextCursor(cursor)
+
     def apply_typography_to_selection(self) -> bool:
         """Apply shared pure typography rules while retaining Qt formats.
 
@@ -627,6 +772,8 @@ class MeropeTextEdit(QTextEdit):
 
         selection = self.textCursor()
         if not selection.hasSelection():
+            return False
+        if selection_touches_raw_block(selection):
             return False
         start = selection.selectionStart()
         source = selection.selectedText()

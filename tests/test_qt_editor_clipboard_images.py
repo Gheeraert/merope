@@ -531,7 +531,7 @@ def test_window_load_sets_and_failed_load_keeps_external_paste_context(tmp_path)
     first.write_text("---\ntitle: Premier\nslug: premier\n---\n\nTexte\n", encoding="utf-8")
     incompatible = content / "bad.md"
     incompatible.write_text(
-        "---\ntitle: Mauvais\nslug: mauvais\n---\n\n| A |\n|---|\n| B |\n",
+        "---\ntitle: Mauvais\nslug: mauvais\n---\n\n##### Titre non pris en charge\n",
         encoding="utf-8",
     )
     window = QtEditorWindow(markdown_path=first, images_dir=images_dir)

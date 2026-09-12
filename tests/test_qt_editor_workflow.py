@@ -322,8 +322,8 @@ def test_import_preserves_footnotes_and_image_semantics_then_first_save(project,
 def test_invalid_import_leaves_previous_session_intact(project, tmp_path):
     _root, pages, _posts, _images = project
     current = _page(pages)
-    invalid = tmp_path / "table.md"
-    invalid.write_text("| A |\n|---|\n| B |\n", encoding="utf-8")
+    invalid = tmp_path / "heading.md"
+    invalid.write_text("##### Titre non pris en charge\n", encoding="utf-8")
     window = _window(project, current)
     before = extract_blocks(window.editor.document())
 

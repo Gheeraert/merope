@@ -462,8 +462,8 @@ def test_unsupported_recovery_draft_leaves_current_document_and_draft_intact(
     draft = RecoveryDraft(
         None,
         None,
-        {"title": "Tableau refusé"},
-        "| A |\n|---|\n| B |\n",
+        {"title": "Titre refusé"},
+        "##### Titre non pris en charge\n",
     )
     save_draft(tmp_path, draft)
     warnings = []

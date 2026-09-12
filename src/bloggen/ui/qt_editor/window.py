@@ -53,6 +53,9 @@ from bloggen.markdown.rich_text_model import (
     BULLET_LIST,
     ORDERED_LIST,
     PARAGRAPH,
+    TABLE,
+    TABLE_CELL,
+    TABLE_ROW,
     Block,
     InlineRun,
 )
@@ -488,6 +491,7 @@ class QtEditorWindow(QMainWindow):
         toolbar.addSeparator()
         self._add_action(toolbar, "Liste a puces", lambda: set_list(self.editor, BULLET_LIST))
         self._add_action(toolbar, "Liste numerotee", lambda: set_list(self.editor, ORDERED_LIST))
+        self._add_action(toolbar, "Tableau...", self._insert_table_from_dialog)
         toolbar.addSeparator()
         for label, alignment in [
             ("Gauche", "left"),
@@ -937,6 +941,63 @@ class QtEditorWindow(QMainWindow):
         self.editor.setTextCursor(cursor)
         self.footnote_panel.select_note(note_id)
         return note_id
+
+    def insert_table(self, rows: int, columns: int) -> Block:
+        """Insert a canonical table followed by an ordinary editing paragraph."""
+
+        if rows < 2 or columns < 1:
+            raise ValueError("Un tableau exige au moins 2 lignes et 1 colonne.")
+        table_rows = []
+        for row_index in range(rows):
+            cells = [
+                Block(
+                    kind=TABLE_CELL,
+                    runs=[
+                        InlineRun(
+                            text=f"Colonne {column_index + 1}"
+                            if row_index == 0
+                            else ""
+                        )
+                    ],
+                )
+                for column_index in range(columns)
+            ]
+            table_rows.append(Block(kind=TABLE_ROW, children=cells))
+        table = Block(kind=TABLE, children=table_rows)
+        cursor = insert_blocks(
+            self.editor.textCursor(),
+            [table, Block(kind=PARAGRAPH, runs=[InlineRun(text="")])],
+        )
+        self.editor.setTextCursor(cursor)
+        return table
+
+    def _insert_table_from_dialog(self) -> bool:
+        rows, accepted = QInputDialog.getInt(
+            self,
+            "Tableau",
+            "Nombre de lignes (en-tête inclus) :",
+            2,
+            2,
+            1000,
+        )
+        if not accepted:
+            return False
+        columns, accepted = QInputDialog.getInt(
+            self,
+            "Tableau",
+            "Nombre de colonnes :",
+            2,
+            1,
+            100,
+        )
+        if not accepted:
+            return False
+        try:
+            self.insert_table(rows, columns)
+        except (ValueError, UnsupportedDocumentError) as exc:
+            QMessageBox.warning(self, "Insertion impossible", str(exc))
+            return False
+        return True
 
     def _insert_footnote_from_dialog(self) -> bool:
         if self.editor.textCursor().hasSelection():

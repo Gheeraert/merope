@@ -795,10 +795,10 @@ valeur provenant d’un ancien brouillon Tk est conservée pendant la restaurati
 Au démarrage, un brouillon retrouvé est proposé à l’utilisateur. Un refus le
 supprime sans toucher au document normalement ouvert. Une acceptation commence
 par parser le Markdown, séparer corps et définitions, puis valider intégralement
-le sous-ensemble Qt ; la fenêtre n’est mutée qu’après ces contrôles. Tables,
-`verbatim` et autres structures encore refusées le restent donc aussi en
-récupération. Un brouillon incompatible laisse à la fois le document et le JSON
-intacts.
+le sous-ensemble Qt ; la fenêtre n’est mutée qu’après ces contrôles. Les blocs
+`TABLE` et `VERBATIM` sont restaurés dans leur représentation source brute ; les
+autres structures encore refusées le restent aussi en récupération. Un brouillon
+incompatible laisse à la fois le document et le JSON intacts.
 
 Une restauration réussie replace les définitions dans `FootnoteStore`, jamais
 dans le `QTextDocument`, restaure métadonnées, images et `((notes différées))`,
@@ -891,13 +891,64 @@ effacer `.versions`. Supprimer le document courant passe aussi par la garde des
 changements puis installe une session vierge du même kind, sans conserver un
 chemin vers un fichier disparu.
 
+### Blocs bruts TABLE et VERBATIM
+
+Qt reprend le contrat historique de Tk : ces structures ne sont pas rendues en
+WYSIWYG. Elles restent des lignes de source Markdown monospacées dans l’unique
+`QTextDocument` du corps :
+
+```text
+TABLE canonique
+  → blocks_to_markdown([table])
+  → lignes Qt RAW_BLOCK_KIND_PROPERTY=table + groupe transitoire
+  → parse_table_lines(lines)
+  → TABLE canonique, ou VERBATIM si la syntaxe a été cassée
+
+VERBATIM canonique
+  → raw_text littéral
+  → lignes Qt RAW_BLOCK_KIND_PROPERTY=verbatim + groupe transitoire
+  → raw_text littéral
+```
+
+`RAW_BLOCK_GROUP_PROPERTY` distingue deux blocs bruts consécutifs du même type.
+Cette identité n’est ni exportée ni persistée. Les lignes utilisent une police
+monospace et un fond discret ; aucun `QTextTable`, `QTextFrame`, widget superposé
+ou parseur Markdown Qt n’est introduit.
+
+La frappe, Entrée et le collage dans un bloc brut restent littéraux. Entrée crée
+une nouvelle ligne portant le même groupe. Même si le presse-papiers contient du
+HTML, une image ou le MIME Mérope, seule sa représentation `text/plain` est
+insérée ; sans texte, le collage est refusé. La typographie explicite refuse une
+sélection touchant un bloc brut. Les formats inline ignorent les portions brutes,
+et les commandes de bloc refusent atomiquement une sélection qui en contient.
+Delete, Backspace et Cut ne peuvent pas fusionner une frontière raw/normal ou
+deux groupes raw distincts.
+
+Une table est validée comme `TABLE → TABLE_ROW → TABLE_CELL → InlineRun`. Sa
+source affichée provient toujours du sérialiseur canonique. Lors de l’extraction,
+`parse_table_lines()` reconstitue les cellules riches (gras, italique, liens et
+appels de note). Une table devenue invalide devient un `VERBATIM` contenant
+toutes les lignes, afin que l’enregistrement ne perde aucun caractère. La
+renumérotation de sauvegarde réécrit les appels contenus dans une TABLE après
+parsing du modèle, puis régénère son groupe source ; elle ne touche jamais les
+chaînes `[^n]` d’un VERBATIM.
+
+L’action « Tableau... » construit directement un modèle canonique avec au moins
+deux lignes (en-tête inclus) et une colonne, utilise « Colonne 1 », « Colonne 2 »,
+etc. pour l’en-tête, puis passe par `insert_blocks()`. Un paragraphe normal vide
+est laissé après le tableau pour poursuivre la saisie. Les blocs bruts suivent
+sans voie spéciale les chemins de fichier, recovery, autosave, aperçu ponctuel
+et MIME interne `application/x-merope-markdown-fragment`.
+
 ## Explicitement refusé
 
-- l’ouverture éditable et l’enregistrement de fichiers contenant tableaux,
-  blocs `verbatim`, titres hors H1–H4 ou listes complexes ;
+- les titres hors H1–H4 et les listes complexes ;
 - les listes vides ou imbriquées et les éléments de liste contenant des blocs ;
 - l’alignement d’une sélection mêlant paragraphes et éléments de liste ;
-- tout objet, cadre ou tableau Qt que l’adaptateur ne sait pas retranscrire.
+- tout objet, cadre ou `QTextTable` étranger que l’adaptateur ne sait pas
+  retranscrire ;
+- le collage HTML `<table>` et `<pre>`, qui ne doit pas être confondu avec le
+  support d’un bloc TABLE/VERBATIM canonique déjà présent dans le document.
 
 Ces cas lèvent une erreur avant le remplacement du document courant. Un fichier
 refusé n’est ni réécrit ni archivé.
@@ -924,7 +975,8 @@ refusé n’est ni réécrit ni archivé.
 - édition riche des légendes et suppression physique des assets lors d’un undo ;
 - éventuelle commande explicite de conversion des `((note))` en notes
   structurées ;
-- tableaux WYSIWYG et blocs `verbatim` ;
+- tableaux WYSIWYG et tableaux Markdown complexes hors du sous-ensemble
+  canonique ;
 - aperçu live automatique et « Enregistrer sous... » général ;
 - toute commande IPC supplémentaire au-delà des réponses de configuration
   `config_snapshot` / `config_error`.

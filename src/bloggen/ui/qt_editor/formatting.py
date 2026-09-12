@@ -28,6 +28,7 @@ from bloggen.ui.qt_editor.constants import (
 )
 from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
+    is_raw_block,
     is_semantic_inline_object_format,
     refresh_block_visuals,
 )
@@ -96,6 +97,8 @@ def set_list(editor: QTextEdit, kind: str) -> None:
         raise ValueError(f"Type de liste non pris en charge : {kind}")
     cursor = editor.textCursor()
     blocks = _selected_blocks(editor.document(), cursor)
+    if any(is_raw_block(block) for block in blocks):
+        return
     cursor.beginEditBlock()
     for block in blocks:
         text_list = block.textList()
@@ -141,6 +144,8 @@ def set_alignment(editor: QTextEdit, alignment: str) -> None:
         raise ValueError(f"Alignement non pris en charge : {alignment}")
     cursor = editor.textCursor()
     blocks = _selected_blocks(editor.document(), cursor)
+    if any(is_raw_block(block) for block in blocks):
+        return
     if any(block.textList() is not None for block in blocks):
         raise ValueError("L'alignement des elements de liste n'est pas pris en charge")
     cursor.beginEditBlock()
@@ -175,6 +180,8 @@ def _toggle_inline(
 def _set_leaf_block_kind(editor: QTextEdit, kind: str, level: int | None = None) -> None:
     cursor = editor.textCursor()
     blocks = _selected_blocks(editor.document(), cursor)
+    if any(is_raw_block(block) for block in blocks):
+        return
     cursor.beginEditBlock()
     for block in blocks:
         text_list = block.textList()
@@ -225,6 +232,9 @@ def _selected_text_ranges(
     ranges: list[tuple[int, int, QTextCharFormat]] = []
     block = cursor.document().findBlock(selection_start)
     while block.isValid() and block.position() < selection_end:
+        if is_raw_block(block):
+            block = block.next()
+            continue
         iterator = block.begin()
         while not iterator.atEnd():
             fragment = iterator.fragment()
@@ -256,7 +266,9 @@ def _merge_text_char_format(
 ) -> bool:
     selection = editor.textCursor()
     if not selection.hasSelection():
-        if is_semantic_inline_object_format(selection.charFormat()):
+        if is_raw_block(selection.block()) or is_semantic_inline_object_format(
+            selection.charFormat()
+        ):
             return False
         selection.beginEditBlock()
         selection.mergeCharFormat(char_format)

@@ -8,6 +8,8 @@ la seule apparence du document.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
+from uuid import uuid4
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
@@ -30,9 +32,15 @@ from bloggen.markdown.rich_text_model import (
     LIST_ITEM,
     ORDERED_LIST,
     PARAGRAPH,
+    TABLE,
+    TABLE_CELL,
+    TABLE_ROW,
+    VERBATIM,
     Block,
     InlineRun,
 )
+from bloggen.markdown.rich_text_export import blocks_to_markdown
+from bloggen.markdown.rich_text_import import parse_table_lines
 from bloggen.ui.qt_editor.constants import (
     ALIGNMENT_PROPERTY,
     BLOCK_KIND_PROPERTY,
@@ -52,6 +60,8 @@ from bloggen.ui.qt_editor.constants import (
     IMAGE_WIDTH_PROPERTY,
     ITALIC_PROPERTY,
     LIST_KIND_PROPERTY,
+    RAW_BLOCK_GROUP_PROPERTY,
+    RAW_BLOCK_KIND_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
 )
@@ -59,6 +69,7 @@ from bloggen.ui.qt_editor.constants import (
 
 SUPPORTED_LEAF_KINDS = {PARAGRAPH, HEADING, BLOCKQUOTE}
 SUPPORTED_LIST_KINDS = {BULLET_LIST, ORDERED_LIST}
+SUPPORTED_RAW_KINDS = {TABLE, VERBATIM}
 SUPPORTED_ALIGNMENTS = {"left", "center", "right", "justify"}
 SUPPORTED_IMAGE_ALIGNMENTS = {None, "left", "center", "right"}
 _OPTIONAL_IMAGE_STRING_PREFIX = "merope-string:"
@@ -106,6 +117,10 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
     insertion = QTextCursor(cursor)
     if not blocks:
         return insertion
+    if selection_touches_raw_block(insertion):
+        raise UnsupportedBlockError(
+            "Les objets structurés ne peuvent pas être insérés dans un bloc brut"
+        )
 
     insertion.beginEditBlock()
     try:
@@ -145,6 +160,10 @@ def insert_footnote_reference(cursor: QTextCursor, note_id: str) -> QTextCursor:
 
     run = InlineRun(footnote_ref=note_id)
     _validate_footnote_run(run)
+    if raw_block_identity(cursor.block()) is not None:
+        raise UnsupportedInlineError(
+            "Un appel de note ne peut pas être inséré dans un bloc brut"
+        )
     if cursor.hasSelection():
         raise UnsupportedInlineError(
             "Désélectionnez le texte avant d’insérer un appel de note"
@@ -172,8 +191,36 @@ def renumber_footnote_references(
     """Rewrite all mapped references right-to-left in one native edit block."""
 
     replacements: list[tuple[int, int, str, int | None]] = []
+    raw_line_replacements: list[tuple[int, int, str]] = []
     block = document.begin()
     while block.isValid():
+        raw_identity = raw_block_identity(block)
+        if raw_identity is not None:
+            kind, group = raw_identity
+            group_blocks: list[QTextBlock] = []
+            while block.isValid() and raw_block_identity(block) == (kind, group):
+                group_blocks.append(block)
+                block = block.next()
+            if kind == TABLE:
+                parsed = parse_table_lines([item.text() for item in group_blocks])
+                if parsed is not None:
+                    rewritten = _renumber_block_references(parsed, mapping)
+                    if rewritten != parsed:
+                        lines = blocks_to_markdown([rewritten]).rstrip("\n").split("\n")
+                        if len(lines) != len(group_blocks):
+                            raise UnsupportedBlockError(
+                                "La renumérotation a modifié la structure source du tableau"
+                            )
+                        raw_line_replacements.extend(
+                            (
+                                item.position(),
+                                item.position() + item.length() - 1,
+                                line,
+                            )
+                            for item, line in zip(group_blocks, lines, strict=True)
+                            if item.text() != line
+                        )
+            continue
         heading_level = _heading_level(block)
         iterator = block.begin()
         while not iterator.atEnd():
@@ -193,24 +240,36 @@ def renumber_footnote_references(
                     )
             iterator += 1
         block = block.next()
-    if not replacements:
+    if not replacements and not raw_line_replacements:
         return False
 
     edit_cursor = QTextCursor(document)
     edit_cursor.beginEditBlock()
     try:
-        for start, end, new_id, heading_level in reversed(replacements):
+        operations = [
+            (start, end, text, None, False)
+            for start, end, text in raw_line_replacements
+        ] + [
+            (start, end, new_id, heading_level, True)
+            for start, end, new_id, heading_level in replacements
+        ]
+        for start, end, value, heading_level, is_footnote in sorted(
+            operations, key=lambda item: item[0], reverse=True
+        ):
             target = QTextCursor(document)
             target.setPosition(start)
             target.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-            target.insertText(
-                footnote_marker_text(new_id),
-                make_footnote_format(
-                    InlineRun(footnote_ref=new_id),
-                    heading_level=heading_level,
-                    instance_key=start,
-                ),
-            )
+            if is_footnote:
+                target.insertText(
+                    footnote_marker_text(value),
+                    make_footnote_format(
+                        InlineRun(footnote_ref=value),
+                        heading_level=heading_level,
+                        instance_key=start,
+                    ),
+                )
+            else:
+                target.insertText(value, make_raw_char_format())
     finally:
         edit_cursor.endEditBlock()
     return True
@@ -240,8 +299,32 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
         return []
 
     result: list[Block] = []
+    seen_raw_groups: set[str] = set()
     block = document.begin()
     while block.isValid():
+        raw_identity = raw_block_identity(block)
+        if raw_identity is not None:
+            kind, group = raw_identity
+            if group in seen_raw_groups:
+                raise UnsupportedBlockError(
+                    "Un groupe de bloc brut Qt n’est pas contigu"
+                )
+            seen_raw_groups.add(group)
+            lines: list[str] = []
+            while block.isValid() and raw_block_identity(block) == (kind, group):
+                _validate_raw_qt_block(block)
+                lines.append(block.text())
+                block = block.next()
+            raw_text = "\n".join(lines)
+            if kind == TABLE:
+                result.append(
+                    parse_table_lines(lines)
+                    or Block(kind=VERBATIM, raw_text=raw_text)
+                )
+            else:
+                result.append(Block(kind=VERBATIM, raw_text=raw_text))
+            continue
+
         text_list = block.textList()
         if text_list is not None:
             list_kind = _list_kind(block)
@@ -524,6 +607,19 @@ def validate_blocks(blocks: Iterable[Block]) -> None:
                 _validate_runs(item.runs)
             continue
 
+        if block.kind == TABLE:
+            _validate_table_block(block)
+            continue
+
+        if block.kind == VERBATIM:
+            if block.runs or block.children:
+                raise UnsupportedBlockError(
+                    "Un bloc verbatim ne peut contenir ni runs ni enfants"
+                )
+            if block.raw_text is not None and not isinstance(block.raw_text, str):
+                raise UnsupportedBlockError("Le texte verbatim doit être une chaîne")
+            continue
+
         raise UnsupportedBlockError(f"Type de bloc Qt non pris en charge : {block.kind}")
 
 
@@ -553,6 +649,71 @@ def validate_footnote_definitions(definitions: FootnoteDefinitions) -> None:
                 raise UnsupportedInlineError(
                     f"Les appels imbriqués dans la définition de note {note_id} ne sont pas pris en charge"
                 )
+
+
+def _validate_table_block(block: Block) -> None:
+    if block.runs or block.raw_text is not None:
+        raise UnsupportedBlockError(
+            "Un tableau ne peut contenir ni runs directs ni texte brut"
+        )
+    if not block.children:
+        raise UnsupportedBlockError("Un tableau vide n’est pas représentable")
+    for row in block.children:
+        if row.kind != TABLE_ROW or row.runs or row.raw_text is not None:
+            raise UnsupportedBlockError(
+                "Un tableau doit contenir uniquement des lignes TABLE_ROW"
+            )
+        if not row.children:
+            raise UnsupportedBlockError("Une ligne de tableau vide n’est pas représentable")
+        for cell in row.children:
+            if cell.kind != TABLE_CELL or cell.children or cell.raw_text is not None:
+                raise UnsupportedBlockError(
+                    "Une ligne de tableau doit contenir uniquement des cellules TABLE_CELL"
+                )
+            _validate_runs(cell.runs)
+
+
+def _validate_raw_qt_block(block: QTextBlock) -> None:
+    if block.textList() is not None:
+        raise UnsupportedBlockError("Un bloc brut Qt ne peut appartenir à une liste")
+    iterator = block.begin()
+    while not iterator.atEnd():
+        fragment = iterator.fragment()
+        if fragment.isValid():
+            char_format = fragment.charFormat()
+            if is_semantic_inline_object_format(char_format):
+                raise UnsupportedBlockError(
+                    "Un bloc brut Qt contient un objet inline sémantique"
+                )
+            if any(
+                char_format.hasProperty(property_id)
+                and bool(char_format.property(property_id))
+                for property_id in (
+                    BOLD_PROPERTY,
+                    ITALIC_PROPERTY,
+                    STRIKETHROUGH_PROPERTY,
+                    SUPERSCRIPT_PROPERTY,
+                )
+            ) or char_format.isAnchor():
+                raise UnsupportedBlockError(
+                    "Un bloc brut Qt contient une mise en forme sémantique"
+                )
+        iterator += 1
+
+
+def _renumber_block_references(block: Block, mapping: dict[str, str]) -> Block:
+    return replace(
+        block,
+        runs=[
+            replace(run, footnote_ref=mapping.get(run.footnote_ref, run.footnote_ref))
+            if run.footnote_ref is not None
+            else run
+            for run in block.runs
+        ],
+        children=[
+            _renumber_block_references(child, mapping) for child in block.children
+        ],
+    )
 
 
 def _validate_runs(runs: Iterable[InlineRun]) -> None:
@@ -684,12 +845,30 @@ def _populate_list(cursor: QTextCursor, block: Block, first: bool) -> bool:
     return False
 
 
+def _populate_raw_block(cursor: QTextCursor, block: Block, first: bool) -> bool:
+    source = (
+        blocks_to_markdown([block]).rstrip("\n")
+        if block.kind == TABLE
+        else block.raw_text or ""
+    )
+    group = uuid4().hex
+    lines = source.split("\n")
+    block_format = make_raw_block_format(block.kind, group)
+    char_format = make_raw_char_format()
+    for index, line in enumerate(lines):
+        _begin_block(cursor, block_format, char_format, first and index == 0)
+        cursor.insertText(line, char_format)
+    return False
+
+
 def _write_blocks(cursor: QTextCursor, blocks: list[Block], *, first: bool) -> bool:
     for block in blocks:
         if block.kind in SUPPORTED_LEAF_KINDS:
             first = _populate_leaf_block(cursor, block, first)
         elif block.kind in SUPPORTED_LIST_KINDS:
             first = _populate_list(cursor, block, first)
+        elif block.kind in SUPPORTED_RAW_KINDS:
+            first = _populate_raw_block(cursor, block, first)
         else:  # Kept as a defensive guard if validation evolves separately.
             raise UnsupportedBlockError(f"Type de bloc Qt non pris en charge : {block.kind}")
     return first
@@ -766,6 +945,69 @@ def _make_block_format(kind: str, alignment: str, level: int | None) -> QTextBlo
     elif kind == BLOCKQUOTE:
         block_format.setLeftMargin(BLOCKQUOTE_LEFT_MARGIN)
     return block_format
+
+
+def make_raw_block_format(kind: str, group: str) -> QTextBlockFormat:
+    """Create the visual/documentary format shared by one raw block group."""
+
+    if kind not in SUPPORTED_RAW_KINDS or not isinstance(group, str) or not group:
+        raise UnsupportedBlockError("Identité de bloc brut invalide")
+    block_format = QTextBlockFormat()
+    block_format.setProperty(BLOCK_KIND_PROPERTY, kind)
+    block_format.setProperty(RAW_BLOCK_KIND_PROPERTY, kind)
+    block_format.setProperty(RAW_BLOCK_GROUP_PROPERTY, group)
+    block_format.setBackground(
+        QColor("#f3f0e8") if kind == TABLE else QColor("#eef2f5")
+    )
+    return block_format
+
+
+def make_raw_char_format() -> QTextCharFormat:
+    """Return a presentation-only monospaced format for raw source text."""
+
+    char_format = QTextCharFormat()
+    char_format.setFontFamilies(["monospace"])
+    char_format.setFontFixedPitch(True)
+    char_format.setFontStyleHint(QFont.StyleHint.Monospace)
+    char_format.setFontPointSize(BODY_POINT_SIZE)
+    return char_format
+
+
+def raw_block_identity(block: QTextBlock) -> tuple[str, str] | None:
+    """Return ``(kind, transient group)`` or reject partial raw metadata."""
+
+    block_format = block.blockFormat()
+    stored_kind = block_format.property(BLOCK_KIND_PROPERTY)
+    raw_kind = block_format.property(RAW_BLOCK_KIND_PROPERTY)
+    has_kind = block_format.hasProperty(RAW_BLOCK_KIND_PROPERTY)
+    has_group = block_format.hasProperty(RAW_BLOCK_GROUP_PROPERTY)
+    if not has_kind and not has_group and stored_kind not in SUPPORTED_RAW_KINDS:
+        return None
+    if not has_kind or not has_group:
+        raise UnsupportedBlockError("Métadonnées de bloc brut Qt incomplètes")
+    group = block_format.property(RAW_BLOCK_GROUP_PROPERTY)
+    if raw_kind not in SUPPORTED_RAW_KINDS or stored_kind != raw_kind:
+        raise UnsupportedBlockError("Type de bloc brut Qt incohérent")
+    if not isinstance(group, str) or not group:
+        raise UnsupportedBlockError("Groupe de bloc brut Qt invalide")
+    return raw_kind, group
+
+
+def is_raw_block(block: QTextBlock) -> bool:
+    return raw_block_identity(block) is not None
+
+
+def selection_touches_raw_block(cursor: QTextCursor) -> bool:
+    """Report whether a caret/selection addresses at least one raw block."""
+
+    start = cursor.selectionStart()
+    end = cursor.selectionEnd()
+    block = cursor.document().findBlock(start)
+    while block.isValid() and (start == end or block.position() < end):
+        if is_raw_block(block):
+            return True
+        block = block.next()
+    return False
 
 
 def _extract_runs(block: QTextBlock) -> list[InlineRun]:

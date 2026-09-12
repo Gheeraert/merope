@@ -381,17 +381,14 @@ def test_markdown_block_qt_block_markdown_roundtrip():
 
 @pytest.mark.parametrize(
     "unsupported",
-    [
-        Block(kind=TABLE),
-        Block(kind=VERBATIM, raw_text="<section>brut</section>"),
-    ],
+    [Block(kind=TABLE), Block(kind="structure_inconnue")],
 )
-def test_unsupported_block_is_never_silently_lost(unsupported: Block):
+def test_invalid_or_unknown_block_is_never_silently_lost(unsupported: Block):
     document = QTextDocument()
     original = [Block(kind=PARAGRAPH, runs=[InlineRun(text="Document intact")])]
     populate_document(document, original)
 
-    with pytest.raises(UnsupportedBlockError, match="non pris en charge"):
+    with pytest.raises(UnsupportedBlockError):
         populate_document(document, [unsupported])
 
     assert extract_blocks(document) == original

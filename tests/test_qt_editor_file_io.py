@@ -194,9 +194,9 @@ def test_rejected_file_does_not_change_existing_document_base_url(tmp_path):
     safe = write_content_file(safe_dir, "safe.md", _metadata(), "Texte.\n")
     refused = write_content_file(
         refused_dir,
-        "table.md",
+        "heading.md",
         _metadata(),
-        "| A |\n|---|\n| B |\n",
+        "##### Titre non pris en charge\n",
     )
     document = QTextDocument()
     load_content_document(safe, document)
@@ -210,15 +210,8 @@ def test_rejected_file_does_not_change_existing_document_base_url(tmp_path):
     assert extract_blocks(document) == previous_blocks
 
 
-@pytest.mark.parametrize(
-    "unsupported_body",
-    [
-        "| Colonne |\n| --- |\n| Valeur |\n",
-        "<section>Bloc brut</section>\n",
-    ],
-)
 def test_unsupported_file_cannot_replace_or_retarget_editable_document(
-    tmp_path, monkeypatch, unsupported_body: str
+    tmp_path, monkeypatch
 ):
     safe_path = write_content_file(
         tmp_path,
@@ -230,7 +223,7 @@ def test_unsupported_file_cannot_replace_or_retarget_editable_document(
         tmp_path,
         "unsupported.md",
         {**_metadata(), "slug": "unsupported"},
-        unsupported_body,
+        "##### Titre non pris en charge\n",
     )
     unsupported_bytes = unsupported_path.read_bytes()
     window = QtEditorWindow(safe_path)
