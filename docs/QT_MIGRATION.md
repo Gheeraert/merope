@@ -749,22 +749,30 @@ au contrat historique de Mérope.
 
 ### Autosauvegarde de sécurité et récupération
 
-Le `project_root` déjà transmis par le launcher suit maintenant explicitement
-le chemin :
+Le contexte structurel déjà transmis par le launcher suit maintenant
+explicitement le chemin :
 
 ```text
-__main__ → run(project_root=...) → QtEditorWindow(project_root=...)
+launcher
+→ __main__
+→ run(project_root, pages_dir, posts_dir, images_dir, slugify_mode)
+→ QtEditorWindow
 ```
 
-Il n’est jamais déduit du répertoire courant, du fichier ouvert ou du dossier
-d’images. Sans cette valeur, le timer et la récupération restent désactivés et
-aucun dossier `.merope-recovery` n’est créé arbitrairement.
+Ces valeurs ne sont jamais déduites du répertoire courant. Sans `project_root`,
+le timer et la récupération restent désactivés et aucun dossier
+`.merope-recovery` n’est créé arbitrairement. Sans dossiers pages/billets, les
+actions de projet sont désactivées, mais l’ouverture et la sauvegarde d’un
+fichier existant restent disponibles en mode autonome.
 
 La fenêtre possède un `QTimer` de 30 secondes. Chaque tick ne fait quelque
 chose que si le dirty global est vrai :
 
 ```text
-QTextDocument.isModified() OR FootnoteStore.modified
+QTextDocument.isModified()
+OR FootnoteStore.modified
+OR metadata != clean_metadata
+OR session importée non enregistrée
   → extract_blocks(QTextDocument)
   + footnote_definition_blocks(FootnoteStore.definitions)
   → blocks_to_markdown
@@ -805,6 +813,84 @@ contenu appelle `clear_draft`. Un save échoué ou un dialogue annulé conserve 
 brouillon. À la fermeture acceptée, le `QTimer` est arrêté ; annulée, la fenêtre,
 le timer et le recovery restent actifs.
 
+### Workflow documentaire Qt
+
+Le dock « Contenus » scanne récursivement les dossiers explicites pages et
+billets avec la primitive GUI-independent `scan_content_catalog`. Il ignore
+`.versions`, affiche le titre du front matter et conserve les fichiers
+illisibles ou invalides sous une entrée `(invalide) fichier.md` afin qu’ils ne
+disparaissent pas de la vue. « Actualiser » rescane seulement le disque et ne
+recharge jamais le document courant. Le double-clic et « Ouvrir » repassent par
+le chargement transactionnel existant : parsing, séparation des notes et
+validation ont lieu avant toute mutation du `QTextDocument`.
+
+Le kind d’un fichier est déterminé par son emplacement sous `pages_dir` ou
+`posts_dir` et par `metadata.type`. Une contradiction refuse l’ouverture. En
+mode autonome, un type explicite `page`/`post` suffit ; un ancien fichier déjà
+ouvert sans type peut encore être enregistré à son emplacement, mais les
+opérations dépendant du projet restent indisponibles.
+
+« Nouvelle page » et « Nouveau billet » passent par la confirmation globale
+Save/Discard/Cancel puis installent une session vide et clean : corps canonique
+`[]`, store de notes vide, métadonnées vides, historique Qt remis à zéro,
+`current_path=None` et contexte de collage image désactivé. Le Save reste actif
+car le kind et les dossiers cibles sont connus.
+
+Le dialogue « Métadonnées... » édite les champs historiques `title`, `slug`,
+`type`, `date`, `updated`, `author`, `orcid`, `keywords`, `description`,
+`layout` et `draft`. Le type est read-only. Le slug est suggéré par les services
+partagés tant que l’utilisateur ne l’a pas modifié, avec vérification des
+collisions dans les pages et billets. Dates, slug et ORCID utilisent les
+validateurs métier existants. Le résultat part toujours d’une copie du front
+matter initial : toute clé inconnue, telle que `bibliography` ou
+`custom-field`, est conservée exactement.
+
+Le dirty global est désormais :
+
+```text
+body QTextDocument
+OR FootnoteStore
+OR métadonnées différentes de leur baseline clean
+OR session importée sans fichier projet
+```
+
+Ce même contrat pilote l’astérisque, les confirmations et le recovery. Une
+modification de métadonnées seule produit donc bien un brouillon de récupération.
+Chargement et save fixent une nouvelle baseline clean ; ouvrir puis valider le
+dialogue sans changement reste un no-op.
+
+Au premier Save, les métadonnées sont validées (le dialogue est proposé si
+elles sont incomplètes), puis `default_filename` produit `<slug>.md` pour une
+page ou `YYYY-MM-DD-<slug>.md` pour un billet. Une cible existante est refusée
+avant écriture. Le chemin canonique corps + définitions est ensuite écrit dans
+le dossier projet. Comme aucun fichier précédent n’existe, aucune archive
+`.versions` n’est créée. Après succès, `current_path`, `baseUrl` et le contexte
+de collage image sont activés, les trois états persistants deviennent clean,
+le recovery est supprimé, le navigateur est rescanné et l’événement `saved`
+existant est émis. Les saves suivants conservent le nom du fichier ouvert et
+réutilisent le versionnement existant, même si slug ou date changent dans le
+front matter.
+
+« Importer... » lit et valide entièrement un Markdown extérieur avant de
+remplacer la session. Le corps, les images sémantiques, les définitions de notes
+et toutes les métadonnées sont conservés, mais `current_path` reste `None` et la
+session est explicitement dirty, même si le corps est vide. Aucun fichier projet
+n’est créé avant le premier Save et le collage d’image externe reste désactivé
+jusqu’à cet ancrage.
+
+La conversion page ↔ billet délègue l’écriture et le déplacement à
+`convert_content_file`. Page → billet exige une date ISO ; billet → page retire
+la date. Une collision de cible est refusée avant le service. Pour le document
+courant dirty, Save enregistre d’abord, Discard recharge la version disque et
+Cancel ne change rien. Après conversion du document courant, le nouveau fichier
+est rechargé afin de synchroniser corps, notes, métadonnées, base URL et contexte
+image. Convertir un autre fichier ne touche pas la session active.
+
+« Supprimer » exige une confirmation et appelle `unlink(missing_ok=True)` sans
+effacer `.versions`. Supprimer le document courant passe aussi par la garde des
+changements puis installe une session vierge du même kind, sans conserver un
+chemin vers un fichier disparu.
+
 ## Explicitement refusé
 
 - l’ouverture éditable et l’enregistrement de fichiers contenant tableaux,
@@ -816,11 +902,11 @@ le timer et le recovery restent actifs.
 Ces cas lèvent une erreur avant le remplacement du document courant. Un fichier
 refusé n’est ni réécrit ni archivé.
 
-## À faire dans le prochain lot
+## Après le gros œuvre de la phase 9
 
-- effectuer la recette Word/Google Docs réelle à l’aide du probe 8a et traiter
-  séparément les représentations producteur qui ne rentreraient pas dans les
-  chemins génériques 8b ;
+- inventorier précisément la parité Tk/Qt désormais atteinte ;
+- effectuer une recette humaine ciblée, notamment Word/Google Docs à l’aide du
+  probe 8a, puis traiter les défauts observés dans des lots bornés ;
 - décider, dans un lot fonctionnel distinct, si une commande utilisateur
   explicite « Convertir les `((...))` » présente un intérêt ; aucune conversion
   interactive automatique n’est prévue ;
@@ -830,8 +916,8 @@ refusé n’est ni réécrit ni archivé.
   utilisés sous Windows ;
 - éprouver le lancement et le timeout sur les plateformes distribuées ainsi
   que le conditionnement de l’extra PySide6 ;
-- conserver Tkinter comme éditeur principal et fallback tant que la couverture
-  éditoriale Qt n’est pas équivalente.
+- conserver Tkinter comme éditeur principal et fallback. Aucune bascule de
+  l’éditeur principal n’est planifiée à ce stade.
 
 ## Volontairement différé
 
@@ -839,8 +925,7 @@ refusé n’est ni réécrit ni archivé.
 - éventuelle commande explicite de conversion des `((note))` en notes
   structurées ;
 - tableaux WYSIWYG et blocs `verbatim` ;
-- aperçu live automatique, gestion complète des fichiers et métadonnées
-  éditables ;
+- aperçu live automatique et « Enregistrer sous... » général ;
 - toute commande IPC supplémentaire au-delà des réponses de configuration
   `config_snapshot` / `config_error`.
 

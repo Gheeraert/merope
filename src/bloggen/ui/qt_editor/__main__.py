@@ -46,7 +46,10 @@ def main() -> int:
             args.markdown,
             project_root=args.project_root,
             initial_directory=args.pages_dir,
+            pages_dir=args.pages_dir,
+            posts_dir=args.posts_dir,
             images_dir=args.images_dir,
+            slugify_mode=args.slugify_mode,
             ipc=args.ipc,
         )
     except Exception as exc:

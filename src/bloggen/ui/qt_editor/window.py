@@ -5,10 +5,11 @@ from __future__ import annotations
 import subprocess
 import sys
 from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QImageReader, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -27,6 +28,12 @@ from PySide6.QtWidgets import (
 )
 
 from bloggen.config.models import ProjectConfig
+from bloggen.content.catalog import (
+    ContentCatalogEntry,
+    determine_content_kind,
+    scan_content_catalog,
+    validate_editor_metadata,
+)
 from bloggen.content.footnotes import (
     FootnoteDefinitions,
     footnote_definition_blocks,
@@ -35,7 +42,12 @@ from bloggen.content.footnotes import (
     plan_footnote_renumbering,
 )
 from bloggen.content.image_service import copy_into_images_dir, write_cropped_copy
-from bloggen.content.versioning import purge_versions, versions_to_purge
+from bloggen.content.versioning import (
+    convert_content_file,
+    purge_versions,
+    versions_to_purge,
+)
+from bloggen.content.writer import default_filename, scan_existing_slugs
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_model import (
     BULLET_LIST,
@@ -52,9 +64,11 @@ from bloggen.ui.qt_editor.document_adapter import (
     populate_document,
     renumber_footnote_references,
 )
+from bloggen.ui.qt_editor.content_browser import ContentBrowser
 from bloggen.ui.qt_editor.file_io import (
+    apply_prepared_content,
     directory_base_url,
-    load_content_document,
+    prepare_content_document,
     save_content_document,
 )
 from bloggen.ui.qt_editor.formatting import (
@@ -94,6 +108,7 @@ from bloggen.ui.qt_editor.image_selection import (
     targeted_merope_image,
 )
 from bloggen.ui.qt_editor.ipc import QtEditorIpcBridge
+from bloggen.ui.qt_editor.metadata_dialog import ContentMetadataDialog
 from bloggen.ui.qt_editor.preview import (
     PreviewArtifact,
     PreviewBuildError,
@@ -130,17 +145,29 @@ class QtEditorWindow(QMainWindow):
         *,
         project_root: Path | None = None,
         initial_directory: Path | None = None,
+        pages_dir: Path | None = None,
+        posts_dir: Path | None = None,
         images_dir: Path | None = None,
+        slugify_mode: str = "ascii",
         ipc: bool = False,
     ) -> None:
         super().__init__()
         self.current_path: Path | None = None
         self.current_kind: str | None = None
         self.metadata: dict[str, str] = {}
+        self._clean_metadata: dict[str, str] = {}
+        self._session_unsaved = False
         self.footnote_store = FootnoteStore(self)
         self.project_root = Path(project_root) if project_root is not None else None
-        self.initial_directory = Path(initial_directory) if initial_directory else Path.cwd()
+        self.pages_dir = Path(pages_dir) if pages_dir is not None else None
+        self.posts_dir = Path(posts_dir) if posts_dir is not None else None
+        self.initial_directory = (
+            Path(initial_directory)
+            if initial_directory
+            else self.pages_dir if self.pages_dir is not None else Path.cwd()
+        )
         self.images_dir = Path(images_dir) if images_dir is not None else None
+        self.slugify_mode = slugify_mode
         self.ipc = ipc
         self._pending_preview_request_id: int | None = None
         self._pending_preview_snapshots: dict[int, PreviewSnapshot] = {}
@@ -159,6 +186,7 @@ class QtEditorWindow(QMainWindow):
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
         self._create_toolbar()
+        self._create_content_browser()
         self._create_footnote_panel()
         self.footnote_store.changed.connect(self._refresh_footnote_panel)
         self.footnote_store.modifiedChanged.connect(self._update_window_title)
@@ -176,18 +204,29 @@ class QtEditorWindow(QMainWindow):
             self.autosave_timer.start()
         self._update_window_title()
         self._update_image_action()
+        self._update_project_actions()
 
     def load_markdown(self, path: Path) -> None:
-        loaded = load_content_document(path, self.editor.document())
-        self.current_path = loaded.path
+        prepared = prepare_content_document(path)
+        kind = determine_content_kind(
+            prepared.path,
+            prepared.metadata,
+            pages_dir=self.pages_dir,
+            posts_dir=self.posts_dir,
+        )
+        apply_prepared_content(prepared, self.editor.document())
+        self.current_path = prepared.path
         self._update_external_paste_context()
-        self.current_kind = None
-        self.metadata = loaded.metadata
-        self.footnote_store.load(loaded.footnote_definitions)
-        self.save_action.setEnabled(True)
+        self.current_kind = kind
+        self.metadata = dict(prepared.metadata)
+        self._clean_metadata = dict(prepared.metadata)
+        self._session_unsaved = False
+        self.footnote_store.load(prepared.footnote_definitions)
+        self._update_project_actions()
+        self.content_browser.select_path(prepared.path)
         self._update_window_title()
         self._update_image_action()
-        self._emit("opened", path=loaded.path)
+        self._emit("opened", path=prepared.path)
 
     def open_document(self, path: Path) -> bool:
         if not self._confirm_unsaved_changes():
@@ -206,14 +245,37 @@ class QtEditorWindow(QMainWindow):
         return True
 
     def save_document(self) -> bool:
-        if self.current_path is None:
-            QMessageBox.warning(self, "Enregistrer", "Ouvrez d’abord un fichier Mérope.")
+        if self.current_path is None and not self._can_first_save:
+            QMessageBox.warning(
+                self,
+                "Enregistrer",
+                "Ce document n’est pas rattaché à un projet Mérope complet.",
+            )
             return False
+        if not self._ensure_valid_metadata_for_save():
+            return False
+        target_path = self.current_path
+        if target_path is None:
+            assert self.current_kind is not None
+            directory = self.pages_dir if self.current_kind == "page" else self.posts_dir
+            assert directory is not None
+            target_path = directory / default_filename(
+                self.current_kind,
+                self.metadata["slug"],
+                date=self.metadata.get("date"),
+            )
+            if target_path.exists():
+                QMessageBox.critical(
+                    self,
+                    "Enregistrement impossible",
+                    f"Le fichier cible existe déjà :\n{target_path}",
+                )
+                return False
         renumber_snapshot: _RenumberSaveSnapshot | None = None
         try:
             renumber_snapshot = self._renumber_footnotes_for_save()
             result = save_content_document(
-                self.current_path,
+                target_path,
                 self.metadata,
                 self.editor.document(),
                 self.footnote_store.definitions,
@@ -226,11 +288,18 @@ class QtEditorWindow(QMainWindow):
             return False
 
         self.current_path = result.path
+        self.editor.document().setBaseUrl(directory_base_url(result.path.parent))
+        self._update_external_paste_context()
         if renumber_snapshot is not None:
             self.editor.document().clearUndoRedoStacks()
             self.editor.document().setModified(False)
         self.footnote_store.mark_clean()
+        self._clean_metadata = dict(self.metadata)
+        self._session_unsaved = False
         self._clear_recovery_draft()
+        self.refresh_content_browser()
+        self.content_browser.select_path(result.path)
+        self._update_project_actions()
         self._update_window_title()
         self._emit("saved", path=result.path)
         self._offer_version_purge(result.archive)
@@ -292,15 +361,34 @@ class QtEditorWindow(QMainWindow):
         if self.project_root is None:
             raise ValueError("La récupération nécessite la racine explicite du projet.")
         prepared = prepare_recovery_draft(self.project_root, draft)
+        restored_kind = prepared.current_kind
+        if restored_kind is not None and restored_kind not in {"page", "post"}:
+            raise ValueError("Le brouillon contient un type de document invalide.")
+        if prepared.current_path is not None:
+            detected = determine_content_kind(
+                prepared.current_path,
+                prepared.metadata,
+                pages_dir=self.pages_dir,
+                posts_dir=self.posts_dir,
+            )
+            if (
+                restored_kind is not None
+                and detected is not None
+                and restored_kind != detected
+            ):
+                raise ValueError("Le type du brouillon contredit son fichier d’origine.")
+            restored_kind = detected or restored_kind
         document = self.editor.document()
         document.setBaseUrl(directory_base_url(prepared.resource_directory))
         populate_document(document, prepared.body_blocks)
         self.footnote_store.load(prepared.footnote_definitions)
         self.metadata = prepared.metadata
+        self._clean_metadata = dict(prepared.metadata)
+        self._session_unsaved = True
         self.current_path = prepared.current_path
         self._update_external_paste_context()
-        self.current_kind = prepared.current_kind
-        self.save_action.setEnabled(self.current_path is not None)
+        self.current_kind = restored_kind
+        self._update_project_actions()
         document.setModified(True)
         self._update_window_title()
         self._update_image_action()
@@ -345,6 +433,11 @@ class QtEditorWindow(QMainWindow):
             toolbar, "Enregistrer", self.save_document, "Ctrl+S"
         )
         self.save_action.setEnabled(False)
+        self.metadata_action = self._add_action(
+            toolbar,
+            "Métadonnées...",
+            self._edit_metadata_from_dialog,
+        )
         self.preview_action = self._add_action(
             toolbar,
             "Aperçu HTML",
@@ -417,6 +510,21 @@ class QtEditorWindow(QMainWindow):
         )
         self._add_action(toolbar, "Voir Markdown", self.show_reconstructed_markdown)
 
+    def _create_content_browser(self) -> None:
+        self.content_dock = QDockWidget("Contenus", self)
+        self.content_dock.setObjectName("meropeContentDock")
+        self.content_browser = ContentBrowser(self.content_dock)
+        self.content_browser.newPageRequested.connect(lambda: self.new_document("page"))
+        self.content_browser.newPostRequested.connect(lambda: self.new_document("post"))
+        self.content_browser.openRequested.connect(self._open_selected_content)
+        self.content_browser.importRequested.connect(self._import_from_dialog)
+        self.content_browser.convertRequested.connect(self._convert_selected_content)
+        self.content_browser.deleteRequested.connect(self._delete_selected_content)
+        self.content_browser.refreshRequested.connect(self.refresh_content_browser)
+        self.content_dock.setWidget(self.content_browser)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.content_dock)
+        self.refresh_content_browser()
+
     def _create_footnote_panel(self) -> None:
         self.footnote_dock = QDockWidget("Notes", self)
         self.footnote_dock.setObjectName("meropeFootnoteDock")
@@ -450,7 +558,353 @@ class QtEditorWindow(QMainWindow):
 
     @property
     def document_has_unsaved_changes(self) -> bool:
-        return self.editor.document().isModified() or self.footnote_store.modified
+        return (
+            self.editor.document().isModified()
+            or self.footnote_store.modified
+            or self.metadata_modified
+            or self._session_unsaved
+        )
+
+    @property
+    def metadata_modified(self) -> bool:
+        return self.metadata != self._clean_metadata
+
+    @property
+    def project_workflow_available(self) -> bool:
+        return self.pages_dir is not None and self.posts_dir is not None
+
+    @property
+    def _can_first_save(self) -> bool:
+        return self.project_workflow_available and self.current_kind in {"page", "post"}
+
+    def _update_project_actions(self) -> None:
+        available = self.project_workflow_available
+        self.content_browser.set_project_enabled(available)
+        self.save_action.setEnabled(self.current_path is not None or self._can_first_save)
+        self.metadata_action.setEnabled(self.current_kind in {"page", "post"})
+
+    def refresh_content_browser(self) -> list[ContentCatalogEntry]:
+        """Rescan project files without ever reloading the current document."""
+
+        if not self.project_workflow_available:
+            if hasattr(self, "content_browser"):
+                self.content_browser.set_entries([])
+            return []
+        assert self.pages_dir is not None and self.posts_dir is not None
+        entries = scan_content_catalog(self.pages_dir, self.posts_dir)
+        if hasattr(self, "content_browser"):
+            self.content_browser.set_entries(entries)
+            self.content_browser.select_path(self.current_path)
+        return entries
+
+    def new_document(self, kind: str) -> bool:
+        if kind not in {"page", "post"}:
+            raise ValueError("Type de contenu inconnu.")
+        if not self.project_workflow_available:
+            QMessageBox.warning(
+                self,
+                "Nouveau contenu",
+                "Les dossiers pages et billets ne sont pas configurés.",
+            )
+            return False
+        if not self._confirm_unsaved_changes():
+            return False
+        self._reset_session(kind)
+        self._clear_recovery_draft()
+        return True
+
+    def _reset_session(self, kind: str) -> None:
+        populate_document(self.editor.document(), [])
+        self.editor.document().setBaseUrl(QUrl())
+        self.editor.document().clearUndoRedoStacks()
+        self.editor.document().setModified(False)
+        self.footnote_store.load({})
+        self.metadata = {}
+        self._clean_metadata = {}
+        self._session_unsaved = False
+        self.current_kind = kind
+        self.current_path = None
+        self._update_external_paste_context()
+        self._update_project_actions()
+        self.content_browser.select_path(None)
+        self._refresh_footnote_panel()
+        self._update_window_title()
+        self._update_image_action()
+
+    def _existing_slugs(self) -> set[str]:
+        if not self.project_workflow_available:
+            return set()
+        assert self.pages_dir is not None and self.posts_dir is not None
+        return scan_existing_slugs(self.pages_dir, self.posts_dir)
+
+    def _edit_metadata_from_dialog(self) -> bool:
+        if self.current_kind not in {"page", "post"}:
+            QMessageBox.warning(
+                self,
+                "Métadonnées",
+                "Impossible de déterminer le type de ce contenu.",
+            )
+            return False
+        dialog = ContentMetadataDialog(
+            kind=self.current_kind,
+            initial=self.metadata,
+            existing_slugs=self._existing_slugs(),
+            slugify_mode=self.slugify_mode,
+            own_slug=(
+                self._clean_metadata.get("slug")
+                if self.current_path is not None
+                else None
+            ),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        result = dialog.result_metadata()
+        if result is None or result == self.metadata:
+            return False
+        self.metadata = result
+        self._update_window_title()
+        return True
+
+    def _validated_metadata(self) -> dict[str, str]:
+        if self.current_kind not in {"page", "post"}:
+            raise ValueError("Impossible de déterminer le type de ce contenu.")
+        own_slug = self._clean_metadata.get("slug") if self.current_path is not None else None
+        return validate_editor_metadata(
+            self.metadata,
+            self.current_kind,
+            existing_slugs=self._existing_slugs(),
+            own_slug=own_slug,
+        )
+
+    def _ensure_valid_metadata_for_save(self) -> bool:
+        # A manually opened standalone legacy file may have no type and no
+        # project folders from which to infer one. Keep the established
+        # ability to save that already-open file; project workflows are
+        # always validated strictly below.
+        if self.current_path is not None and self.current_kind is None:
+            return True
+        try:
+            validated = self._validated_metadata()
+        except ValueError:
+            if not self._edit_metadata_from_dialog():
+                return False
+            try:
+                validated = self._validated_metadata()
+            except ValueError as exc:
+                QMessageBox.warning(self, "Métadonnées", str(exc))
+                return False
+        if validated != self.metadata:
+            self.metadata = validated
+            self._update_window_title()
+        return True
+
+    def import_markdown(self, path: Path) -> bool:
+        """Validate an external file fully, then install it as an unsaved session."""
+
+        if not self.project_workflow_available:
+            raise ValueError("Le contexte projet est indisponible pour importer un contenu.")
+        prepared = prepare_content_document(path)
+        declared = prepared.metadata.get("type", "").strip().lower()
+        kind = declared if declared in {"page", "post"} else "page"
+        if not self._confirm_unsaved_changes():
+            return False
+        document = self.editor.document()
+        document.setBaseUrl(directory_base_url(Path(path).parent))
+        populate_document(document, prepared.body_blocks)
+        document.clearUndoRedoStacks()
+        document.setModified(False)
+        self.footnote_store.load(prepared.footnote_definitions)
+        self.metadata = dict(prepared.metadata)
+        self.metadata.setdefault("type", kind)
+        self._clean_metadata = dict(self.metadata)
+        self._session_unsaved = True
+        self.current_kind = kind
+        self.current_path = None
+        self._update_external_paste_context()
+        self._update_project_actions()
+        self.content_browser.select_path(None)
+        self._refresh_footnote_panel()
+        self._update_window_title()
+        self._update_image_action()
+        self._clear_recovery_draft()
+        return True
+
+    def _import_from_dialog(self) -> None:
+        if not self.project_workflow_available:
+            QMessageBox.warning(self, "Importer", "Le contexte projet est indisponible.")
+            return
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Importer un fichier Markdown",
+            str(self.initial_directory),
+            "Markdown (*.md *.markdown);;Tous les fichiers (*)",
+        )
+        if not path:
+            return
+        try:
+            self.import_markdown(Path(path))
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Import impossible", str(exc))
+
+    def _open_selected_content(self) -> None:
+        entry = self.content_browser.selected_entry()
+        if entry is not None:
+            self.open_document(entry.path)
+
+    def _conversion_guard_for_current(self, path: Path) -> bool:
+        if self.current_path is None or self.current_path.resolve() != Path(path).resolve():
+            return True
+        if not self.document_has_unsaved_changes:
+            return True
+        answer = QMessageBox.warning(
+            self,
+            "Modifications non enregistrées",
+            "Enregistrer les modifications avant de convertir ce contenu ?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if answer == QMessageBox.StandardButton.Cancel:
+            return False
+        if answer == QMessageBox.StandardButton.Save:
+            return self.save_document()
+        try:
+            self.load_markdown(path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Conversion impossible", str(exc))
+            return False
+        self._clear_recovery_draft()
+        return True
+
+    def convert_content_entry(
+        self,
+        entry: ContentCatalogEntry,
+        *,
+        date_value: str | None = None,
+    ) -> Path:
+        if not self.project_workflow_available:
+            raise ValueError("Le contexte projet est indisponible.")
+        if not self._conversion_guard_for_current(entry.path):
+            raise RuntimeError("Conversion annulée.")
+        prepared = prepare_content_document(entry.path)
+        source_kind = determine_content_kind(
+            prepared.path,
+            prepared.metadata,
+            pages_dir=self.pages_dir,
+            posts_dir=self.posts_dir,
+        )
+        if source_kind != entry.kind:
+            raise ValueError("Le type du fichier ne correspond pas à l’entrée sélectionnée.")
+        new_kind = "post" if entry.kind == "page" else "page"
+        converted_metadata = dict(prepared.metadata)
+        converted_metadata["type"] = new_kind
+        if new_kind == "post":
+            converted_metadata["date"] = (date_value or "").strip()
+        else:
+            converted_metadata.pop("date", None)
+        converted_metadata = validate_editor_metadata(
+            converted_metadata,
+            new_kind,
+            existing_slugs=self._existing_slugs(),
+            own_slug=prepared.metadata.get("slug"),
+        )
+        target_dir = self.posts_dir if new_kind == "post" else self.pages_dir
+        assert target_dir is not None
+        target = target_dir / default_filename(
+            new_kind,
+            converted_metadata["slug"],
+            date=converted_metadata.get("date"),
+        )
+        if target.resolve() != entry.path.resolve() and target.exists():
+            raise FileExistsError(f"Le fichier cible existe déjà : {target}")
+        conversion = convert_content_file(
+            entry.path,
+            new_kind=new_kind,
+            target_dir=target_dir,
+            date_value=converted_metadata.get("date"),
+            metadata=converted_metadata,
+            body=prepared.markdown_body,
+        )
+        if self.current_path is not None and self.current_path.resolve() == entry.path.resolve():
+            self.load_markdown(conversion.path)
+            self._clear_recovery_draft()
+        self.refresh_content_browser()
+        self.content_browser.select_path(conversion.path)
+        return conversion.path
+
+    def _convert_selected_content(self) -> None:
+        entry = self.content_browser.selected_entry()
+        if entry is None:
+            QMessageBox.information(self, "Convertir", "Sélectionnez un contenu.")
+            return
+        date_value: str | None = None
+        if entry.kind == "page":
+            initial = date.today().isoformat()
+            try:
+                initial = prepare_content_document(entry.path).metadata.get("date", "") or initial
+            except (OSError, ValueError):
+                pass
+            value, accepted = QInputDialog.getText(
+                self,
+                "Convertir en billet",
+                "Date de publication (AAAA-MM-JJ) :",
+                text=initial,
+            )
+            if not accepted:
+                return
+            date_value = value.strip()
+        new_label = "billet" if entry.kind == "page" else "page"
+        if QMessageBox.question(
+            self,
+            "Convertir",
+            f"Transformer ce contenu en {new_label} ?\n\n"
+            "Le fichier sera déplacé et son URL pourra changer. Les liens existants "
+            "ne seront pas réécrits.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.convert_content_entry(entry, date_value=date_value)
+        except RuntimeError as exc:
+            if str(exc) != "Conversion annulée.":
+                QMessageBox.critical(self, "Conversion impossible", str(exc))
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Conversion impossible", str(exc))
+
+    def delete_content_entry(self, entry: ContentCatalogEntry) -> bool:
+        is_current = (
+            self.current_path is not None
+            and self.current_path.resolve() == entry.path.resolve()
+        )
+        if is_current and not self._confirm_unsaved_changes():
+            return False
+        entry.path.unlink(missing_ok=True)
+        if is_current:
+            self._reset_session(entry.kind)
+            self._clear_recovery_draft()
+        self.refresh_content_browser()
+        return True
+
+    def _delete_selected_content(self) -> None:
+        entry = self.content_browser.selected_entry()
+        if entry is None:
+            QMessageBox.information(self, "Supprimer", "Sélectionnez un contenu.")
+            return
+        if QMessageBox.question(
+            self,
+            "Supprimer",
+            f"Supprimer définitivement {entry.path.name} ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.delete_content_entry(entry)
+        except OSError as exc:
+            QMessageBox.critical(self, "Suppression impossible", str(exc))
 
     def _refresh_footnote_panel(self) -> None:
         self.footnote_panel.set_definitions(self.footnote_store.definitions)
@@ -1081,7 +1535,10 @@ def run(
     *,
     project_root: Path | None = None,
     initial_directory: Path | None = None,
+    pages_dir: Path | None = None,
+    posts_dir: Path | None = None,
     images_dir: Path | None = None,
+    slugify_mode: str = "ascii",
     ipc: bool = False,
 ) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
@@ -1090,7 +1547,10 @@ def run(
             markdown_path=markdown_path,
             project_root=project_root,
             initial_directory=initial_directory,
+            pages_dir=pages_dir,
+            posts_dir=posts_dir,
             images_dir=images_dir,
+            slugify_mode=slugify_mode,
             ipc=ipc,
         )
     except (OSError, ValueError) as exc:

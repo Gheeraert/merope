@@ -166,6 +166,12 @@ class MeropeTextEdit(QTextEdit):
             return
         self._external_paste_context = ExternalPasteContext(images_dir, doc_dir)
 
+    @property
+    def external_paste_context(self) -> ExternalPasteContext | None:
+        """Read-only view used by the window workflow and its contracts."""
+
+        return self._external_paste_context
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.matches(QKeySequence.StandardKey.Copy):
             self.copy()
