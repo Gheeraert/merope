@@ -42,7 +42,7 @@ from bloggen.markdown.html_paste_import import (
     UnsupportedHtmlStructureError,
     html_to_blocks,
 )
-from bloggen.markdown.rich_text_model import Block
+from bloggen.markdown.rich_text_model import HEADING, Block
 from bloggen.markdown.typography import (
     CENTURY_RE,
     CLOSING_GUILLEMET,
@@ -77,6 +77,8 @@ from bloggen.ui.qt_editor.clipboard_images import (
     prepare_external_paste,
 )
 from bloggen.ui.qt_editor.constants import (
+    BLOCK_KIND_PROPERTY,
+    BODY_POINT_SIZE,
     BOLD_PROPERTY,
     FOOTNOTE_ID_PROPERTY,
     FOOTNOTE_INSTANCE_PROPERTY,
@@ -95,6 +97,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     insert_blocks,
     insert_paragraph_after,
     is_caption_block,
+    repair_block_after_enter,
     is_semantic_inline_object_format,
     make_caption_char_format,
     normalize_figure_captions,
@@ -216,6 +219,11 @@ class MeropeTextEdit(QTextEdit):
         # on Windows. Filtering that real receiver makes Ctrl+wheel reliable;
         # wheelEvent remains as a fallback for synthetic/platform variants.
         self.viewport().installEventFilter(self)
+        # Text that ends up without an explicit size must still look like body
+        # text, not like Qt's smaller default font.
+        body_font = QFont(self.document().defaultFont())
+        body_font.setPointSizeF(BODY_POINT_SIZE)
+        self.document().setDefaultFont(body_font)
         self._image_resize_state: _ImageResizeState | None = None
         self._external_paste_context: ExternalPasteContext | None = None
         self._zoom_percent = 100
@@ -272,6 +280,9 @@ class MeropeTextEdit(QTextEdit):
             event.accept()
             return
         if self._handle_atomic_footnote_key(event):
+            return
+        if self._handle_enter_key(event):
+            event.accept()
             return
 
         char = event.text()
@@ -541,6 +552,52 @@ class MeropeTextEdit(QTextEdit):
             self._open_paragraph_after(figure_caption, cursor)
             return True
         return False
+
+    def _handle_enter_key(self, event: QKeyEvent) -> bool:
+        """Enter always leaves a well-formed block behind it.
+
+        At the end of a heading it opens an ordinary paragraph, as word
+        processors do; everywhere else Qt's native split runs, then the new
+        block gets back a coherent kind and the body text size.
+        """
+
+        if event.key() not in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return False
+        cursor = self.textCursor()
+        block = cursor.block()
+        at_end = (
+            not cursor.hasSelection()
+            and cursor.position() == block.position() + block.length() - 1
+        )
+        if (
+            at_end
+            and block.textList() is None
+            and block.blockFormat().property(BLOCK_KIND_PROPERTY) == HEADING
+        ):
+            edit = QTextCursor(self.document())
+            edit.beginEditBlock()
+            try:
+                paragraph = insert_paragraph_after(block)
+            finally:
+                edit.endEditBlock()
+            self.setTextCursor(paragraph)
+            return True
+
+        edit = QTextCursor(self.document())
+        edit.beginEditBlock()
+        try:
+            super().keyPressEvent(event)
+            repair_block_after_enter(self.textCursor().block())
+        finally:
+            edit.endEditBlock()
+        # The caret caches its own character format: realign its size with
+        # the repaired block so the next typed letters are not tiny.
+        current = self.currentCharFormat()
+        if current.fontPointSize() <= 0:
+            block_size = self.textCursor().block().charFormat().fontPointSize()
+            current.setFontPointSize(block_size or BODY_POINT_SIZE)
+            self.setCurrentCharFormat(current)
+        return True
 
     def _open_paragraph_after(self, caption, cursor: QTextCursor) -> None:
         edit = QTextCursor(self.document())
@@ -1056,7 +1113,8 @@ class MeropeTextEdit(QTextEdit):
                 while not it.atEnd():
                     fragment = it.fragment()
                     if fragment.isValid():
-                        base_size = fragment.charFormat().fontPointSize()
+                        # Unsized text renders at the body size: zoom it too.
+                        base_size = fragment.charFormat().fontPointSize() or BODY_POINT_SIZE
                         if base_size > 0:
                             scaled_format = QTextCharFormat()
                             scaled_format.setFontPointSize(base_size * ratio)

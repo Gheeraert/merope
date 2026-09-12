@@ -43,16 +43,25 @@ FOOTNOTE_ID_PROPERTY = _MEROPE_PROPERTY_BASE + 61
 FOOTNOTE_INSTANCE_PROPERTY = _MEROPE_PROPERTY_BASE + 62
 
 HEADING_POINT_SIZES = {1: 24.0, 2: 20.0, 3: 17.0, 4: 15.0}
+# Espacements visuels (pixels), jamais enregistrés. Qt fusionne les marges de
+# deux blocs voisins comme CSS : l'écart vaut la plus grande des deux. Les
+# proportions suivent la feuille de style du site (p 0,9rem, blockquote
+# 1,2rem, figures 1,5rem, titres détachés du texte qui précède).
+PARAGRAPH_MARGINS = (12.0, 12.0)
+BLOCKQUOTE_MARGINS = (18.0, 18.0)
+# Entre deux éléments d'une liste ; paragraphes et titres voisins donnent
+# l'écart avant et après la liste.
+LIST_ITEM_MARGINS = (4.0, 4.0)
 HEADING_MARGINS = {
-    1: (24.0, 14.0),
-    2: (20.0, 12.0),
-    3: (16.0, 10.0),
-    4: (12.0, 8.0),
+    1: (32.0, 16.0),
+    2: (28.0, 14.0),
+    3: (24.0, 12.0),
+    4: (20.0, 10.0),
 }
-IMAGE_BLOCK_MARGINS = (16.0, 16.0)
+IMAGE_BLOCK_MARGINS = (22.0, 22.0)
 # Une figure légendée : l'image colle à sa légende, qui porte l'espace final.
-FIGURE_IMAGE_BOTTOM_MARGIN = 3.0
-CAPTION_BLOCK_MARGINS = (0.0, 16.0)
+FIGURE_IMAGE_BOTTOM_MARGIN = 4.0
+CAPTION_BLOCK_MARGINS = (0.0, 22.0)
 CAPTION_POINT_SIZE = 9.5
 CAPTION_COLOR = "#5f6368"
 BODY_POINT_SIZE = 11.0

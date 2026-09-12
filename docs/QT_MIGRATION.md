@@ -1088,12 +1088,25 @@ par les actions, sans duplication de logique. Les formats inline synchronisent
 leur état coché avec le curseur. Les icônes utilisent d’abord `QStyle` ou le
 thème Qt, puis de petits glyphes dessinés par Qt, sans dépendance externe.
 
-L’aération du document est elle aussi strictement visuelle : les H1 à H4 ont
-des marges `QTextBlockFormat` hiérarchisées (24/14, 20/12, 16/10 et 12/8 px),
-et un paragraphe contenant une unique image Mérope, sans texte substantiel,
-reçoit 16 px avant et après. `refresh_block_visuals()` recalcule ces marges lors
-des créations et conversions ; aucun paragraphe vide ou saut supplémentaire
-n’entre dans le modèle, le Markdown, le recovery ou l’aperçu publié.
+L’aération du document est elle aussi strictement visuelle, avec des marges
+`QTextBlockFormat` (constantes de `constants.py`) proportionnées à la feuille de
+style du site : paragraphes 12/12 px, citations 18/18, éléments de liste 4/4,
+titres H1 à H4 hiérarchisés (32/16, 28/14, 24/12, 20/10), figure 22 px avant,
+sa légende portant les 22 px après. Qt fusionne les marges de deux blocs voisins
+comme CSS (l’écart vaut la plus grande), si bien que les paragraphes voisins
+détachent une liste dont les éléments restent serrés. `refresh_block_visuals()`
+recalcule ces marges lors des créations et conversions ; aucun paragraphe vide
+ou saut supplémentaire n’entre dans le modèle, le Markdown, le recovery ou
+l’aperçu publié.
+
+Entrée laisse toujours un bloc cohérent : en fin de titre, elle ouvre un
+paragraphe ordinaire (Qt réinitialisait le niveau et la police de la nouvelle
+ligne tout en gardant la propriété « titre » : le texte tapé apparaissait petit
+et était enregistré comme titre) ; au milieu d’un titre, les deux parties
+restent des titres ; en sortie de liste, le bloc devient un paragraphe
+(`repair_block_after_enter`), et le format courant du curseur reprend la taille
+du corps. Par sécurité, la police par défaut du document est celle du corps
+(11 pt) et le zoom agrandit aussi un texte resté sans taille explicite.
 
 Les raccourcis sont exercés par de vrais événements clavier avec le focus dans
 le corps : `Ctrl+G` et `Ctrl+B` pour le gras, `Ctrl+I` pour l’italique,

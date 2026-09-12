@@ -52,6 +52,7 @@ from bloggen.ui.qt_editor.constants import (
     ALIGNMENT_PROPERTY,
     BLOCK_KIND_PROPERTY,
     BLOCKQUOTE_LEFT_MARGIN,
+    BLOCKQUOTE_MARGINS,
     BODY_POINT_SIZE,
     BOLD_PROPERTY,
     CAPTION_BLOCK_MARGINS,
@@ -74,7 +75,9 @@ from bloggen.ui.qt_editor.constants import (
     IMAGE_SRC_PROPERTY,
     IMAGE_WIDTH_PROPERTY,
     ITALIC_PROPERTY,
+    LIST_ITEM_MARGINS,
     LIST_KIND_PROPERTY,
+    PARAGRAPH_MARGINS,
     RAW_BLOCK_GROUP_PROPERTY,
     RAW_BLOCK_KIND_PROPERTY,
     STRIKETHROUGH_PROPERTY,
@@ -127,6 +130,8 @@ def populate_document(document: QTextDocument, blocks: list[Block]) -> None:
         block_format = cursor.blockFormat()
         block_format.setAlignment(Qt.AlignmentFlag.AlignJustify)
         cursor.setBlockFormat(block_format)
+        # Text typed into the empty document gets the body size at once.
+        cursor.setBlockCharFormat(make_char_format(InlineRun()))
 
     cursor.movePosition(QTextCursor.MoveOperation.Start)
     document.clearUndoRedoStacks()
@@ -801,6 +806,31 @@ def set_figure_caption(caption: QTextBlock, alt: str | None) -> None:
             cursor.insertText(run.text, make_caption_char_format(run))
     finally:
         cursor.endEditBlock()
+
+
+def repair_block_after_enter(block: QTextBlock) -> None:
+    """Give the block Enter just created a coherent Mérope kind and look.
+
+    Qt resets a new line's heading level and character format (to its
+    default, smaller font) while our copied block properties still say
+    "heading", and leaving a list yields an untyped block: both typed
+    tiny text, and the first one was even saved as a heading.
+    """
+
+    if not block.isValid() or is_caption_block(block):
+        return
+    block_format = QTextBlockFormat(block.blockFormat())
+    kind = block_format.property(BLOCK_KIND_PROPERTY)
+    cursor = QTextCursor(block)
+    if raw_block_identity(block) is not None:
+        return
+    if kind == HEADING and not block_format.headingLevel() and block.textList() is None:
+        level = int(block_format.property(HEADING_LEVEL_PROPERTY) or 1)
+        block_format.setHeadingLevel(level)
+        cursor.setBlockFormat(block_format)
+    elif block.textList() is None and kind in (None, "", LIST_ITEM):
+        cursor.setBlockFormat(_make_block_format(PARAGRAPH, "justify", None))
+    refresh_block_visuals(block)
 
 
 def insert_paragraph_after(block: QTextBlock) -> QTextCursor:
@@ -1597,6 +1627,12 @@ def _set_visual_block_margins(
         top, bottom = IMAGE_BLOCK_MARGINS
         if captioned:
             bottom = FIGURE_IMAGE_BOTTOM_MARGIN
+    elif kind == PARAGRAPH:
+        top, bottom = PARAGRAPH_MARGINS
+    elif kind == BLOCKQUOTE:
+        top, bottom = BLOCKQUOTE_MARGINS
+    elif kind == LIST_ITEM:
+        top, bottom = LIST_ITEM_MARGINS
     else:
         top, bottom = 0.0, 0.0
     block_format.setTopMargin(top)

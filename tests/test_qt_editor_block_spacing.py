@@ -13,12 +13,23 @@ from PySide6.QtWidgets import QApplication, QTextEdit
 
 from bloggen.content.writer import write_content_file
 from bloggen.markdown.rich_text_export import blocks_to_markdown
-from bloggen.markdown.rich_text_model import HEADING, PARAGRAPH, Block, InlineRun
+from bloggen.markdown.rich_text_model import (
+    BLOCKQUOTE,
+    BULLET_LIST,
+    HEADING,
+    LIST_ITEM,
+    PARAGRAPH,
+    Block,
+    InlineRun,
+)
 from bloggen.ui.qt_editor.constants import (
+    BLOCKQUOTE_MARGINS,
     CAPTION_BLOCK_MARGINS,
     FIGURE_IMAGE_BOTTOM_MARGIN,
     HEADING_MARGINS,
     IMAGE_BLOCK_MARGINS,
+    LIST_ITEM_MARGINS,
+    PARAGRAPH_MARGINS,
 )
 from bloggen.ui.qt_editor.document_adapter import (
     block_is_image_only,
@@ -81,10 +92,41 @@ def test_heading_margins_are_hierarchical_and_semantically_neutral():
         heading_margins[index][1] >= heading_margins[index + 1][1]
         for index in range(3)
     )
-    assert all(_margins(qt_blocks[index]) == (0.0, 0.0) for index in (0, 2, 4, 6, 8))
+    assert all(_margins(qt_blocks[index]) == PARAGRAPH_MARGINS for index in (0, 2, 4, 6, 8))
     assert extract_blocks(document) == original
     assert document.isModified() is False
     assert document.isUndoAvailable() is False
+
+
+def test_paragraphs_quotes_and_list_items_are_spaced_without_semantic_change():
+    original = [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Texte")]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text="Citation")]),
+        Block(
+            kind=BULLET_LIST,
+            children=[
+                Block(kind=LIST_ITEM, runs=[InlineRun(text="un")]),
+                Block(kind=LIST_ITEM, runs=[InlineRun(text="deux")]),
+            ],
+        ),
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Fin")]),
+    ]
+    document = QTextDocument()
+
+    populate_document(document, original)
+
+    assert [_margins(block) for block in _blocks(document)] == [
+        PARAGRAPH_MARGINS,
+        BLOCKQUOTE_MARGINS,
+        LIST_ITEM_MARGINS,
+        LIST_ITEM_MARGINS,
+        PARAGRAPH_MARGINS,
+    ]
+    # Qt collapses neighbouring margins: a list is set apart by the
+    # paragraphs around it, its items stay close together.
+    assert LIST_ITEM_MARGINS[0] < PARAGRAPH_MARGINS[1]
+    assert extract_blocks(document) == original
+    assert document.isModified() is False
 
 
 def test_heading_conversions_replace_margins_and_undo_redo_together():
@@ -99,7 +141,7 @@ def test_heading_conversions_replace_margins_and_undo_redo_together():
     assert extract_blocks(editor.document())[0].level == 1
 
     set_paragraph(editor)
-    assert _margins(editor.document().begin()) == (0.0, 0.0)
+    assert _margins(editor.document().begin()) == PARAGRAPH_MARGINS
     assert extract_blocks(editor.document())[0].kind == PARAGRAPH
 
     set_heading(editor, 1)
@@ -140,7 +182,7 @@ def test_only_standalone_merope_image_paragraph_gets_image_margins():
     assert is_caption_block(qt_blocks[2])
     assert _margins(qt_blocks[2]) == CAPTION_BLOCK_MARGINS
     assert not block_is_image_only(qt_blocks[3])
-    assert _margins(qt_blocks[3]) == (0.0, 0.0)
+    assert _margins(qt_blocks[3]) == PARAGRAPH_MARGINS
     assert extract_blocks(document) == original
 
 
@@ -219,7 +261,7 @@ def test_save_reopen_restores_visual_spacing_without_changing_markdown(tmp_path)
         HEADING_MARGINS[2],
         FIGURE_MARGINS,
         CAPTION_BLOCK_MARGINS,
-        (0.0, 0.0),
+        PARAGRAPH_MARGINS,
     ]
     assert document.isModified() is False
     assert document.isUndoAvailable() is False
@@ -236,7 +278,7 @@ def test_save_reopen_restores_visual_spacing_without_changing_markdown(tmp_path)
         HEADING_MARGINS[2],
         FIGURE_MARGINS,
         CAPTION_BLOCK_MARGINS,
-        (0.0, 0.0),
+        PARAGRAPH_MARGINS,
     ]
     assert reopened.isModified() is False
     assert reopened.isUndoAvailable() is False
