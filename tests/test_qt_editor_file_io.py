@@ -501,6 +501,13 @@ def test_run_emits_ready_then_closed_around_qt_event_loop(monkeypatch):
             assert kwargs["images_dir"] == Path("images")
             assert kwargs["project_root"] == Path("project")
 
+        def fit_to_screen(self):
+            events.append("fit")
+
+        def restore_layout(self, settings):
+            assert settings == "réglages"
+            events.append("layout")
+
         def show(self):
             events.append("show")
 
@@ -509,10 +516,11 @@ def test_run_emits_ready_then_closed_around_qt_event_loop(monkeypatch):
 
     monkeypatch.setattr(qt_window_module.QApplication, "instance", lambda: FakeApplication())
     monkeypatch.setattr(qt_window_module, "QtEditorWindow", FakeWindow)
+    monkeypatch.setattr(qt_window_module, "editor_layout_settings", lambda: "réglages")
 
     assert qt_window_module.run(
         project_root=Path("project"),
         images_dir=Path("images"),
         ipc=True,
     ) == 0
-    assert events == ["show", "ready", "exec", "closed"]
+    assert events == ["fit", "layout", "show", "ready", "exec", "closed"]

@@ -867,6 +867,22 @@ le timer et le recovery restent actifs.
 
 ### Workflow documentaire Qt
 
+Disposition des panneaux : les boutons des docks « Contenus » et « Notes »
+passent à la ligne (`WrappingButtonRow`, sur la `FlowLayout` de la barre
+d’outils) au lieu d’imposer deux colonnes côte à côte ; leur largeur minimale
+est celle du bouton le plus large. Ils s’ouvrent à 230 px, la colonne de texte
+recevant tout le reste de la fenêtre. Lancée depuis Mérope (`run`), la fenêtre
+s’ouvre à 85 % de l’écran (1600 × 1000 au plus), puis restaure la taille et la
+largeur des panneaux de la session précédente depuis un fichier INI de
+l’utilisateur (`%APPDATA%\Merope\editeur-qt.ini` sous Windows, jamais le
+registre) ; ils y sont réenregistrés à la fermeture. Un état illisible ou d’une
+autre version (`LAYOUT_STATE_VERSION`) est ignoré. Les fenêtres créées
+directement (tests, intégrations) ne lisent ni n’écrivent ces réglages. Deux
+boutons-bascules en fin de barre d’outils (F8 : Contenus, F9 : Notes),
+branchés sur les `toggleViewAction` natives des docks, affichent ou masquent
+chaque panneau : un panneau fermé reste ainsi toujours récupérable, même quand
+les deux sont fermés et que cette disposition a été mémorisée.
+
 Le dock « Contenus » scanne récursivement les dossiers explicites pages et
 billets avec la primitive GUI-independent `scan_content_catalog`. Il ignore
 `.versions`, affiche le titre du front matter et conserve les fichiers

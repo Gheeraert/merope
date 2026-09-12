@@ -94,6 +94,45 @@ class FlowLayout(QLayout):
         return max(0, height), rows
 
 
+class WrappingButtonRow(QWidget):
+    """Buttons that wrap onto new rows instead of widening their panel.
+
+    The minimum width is the widest button, so a side panel can be made
+    narrow without clipping its commands.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.flow_layout = FlowLayout(
+            self, margin=0, horizontal_spacing=4, vertical_spacing=4
+        )
+        policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def add_button(self, button: QWidget) -> QWidget:
+        self.flow_layout.addWidget(button)
+        return button
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self.flow_layout.heightForWidth(width)
+
+    def sizeHint(self) -> QSize:
+        width = max(self.width(), self.minimumSizeHint().width())
+        return QSize(width, self.heightForWidth(width))
+
+    def minimumSizeHint(self) -> QSize:
+        return self.flow_layout.minimumSize()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.flow_layout.invalidate()
+        self.updateGeometry()
+
+
 class WrappingToolBar(QWidget):
     """Icon-only view over QActions; command ownership stays with QAction."""
 

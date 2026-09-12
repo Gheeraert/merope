@@ -75,6 +75,8 @@ def toolbar_icon(owner: QWidget, key: str) -> QIcon:
         return _eye_icon()
     if key == "clear_format":
         return _clear_format_icon()
+    if key in ("panel_contents", "panel_notes"):
+        return _panel_icon(left=key == "panel_contents")
     theme_name = _THEME_ICONS.get(key)
     fallback = _text_icon(key, _GLYPHS.get(key, key[:2].upper()))
     if theme_name:
@@ -103,6 +105,37 @@ def _text_icon(key: str, glyph: str) -> QIcon:
     elif key == "right":
         alignment = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
     painter.drawText(pixmap.rect().adjusted(2, 1, -2, -1), alignment, glyph)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _panel_icon(*, left: bool) -> QIcon:
+    """A window outline whose left or right strip is filled: a side panel."""
+
+    size = _ICON_SIZE
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    color = QColor("#202124")
+    frame = QRectF(3.5, 6.5, size - 7, size - 13)
+    strip_width = frame.width() * 0.34
+    strip = QRectF(
+        frame.left() if left else frame.right() - strip_width,
+        frame.top(),
+        strip_width,
+        frame.height(),
+    )
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    painter.drawRect(strip)
+    pen = painter.pen()
+    pen.setStyle(Qt.PenStyle.SolidLine)
+    pen.setColor(color)
+    pen.setWidthF(2.0)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawRoundedRect(frame, 2.5, 2.5)
     painter.end()
     return QIcon(pixmap)
 

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QGridLayout,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -15,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from bloggen.content.catalog import ContentCatalogEntry
+from bloggen.ui.qt_editor.wrapping_toolbar import WrappingButtonRow
 
 
 class ContentBrowser(QWidget):
@@ -34,7 +34,7 @@ class ContentBrowser(QWidget):
         self.list_widget.itemDoubleClicked.connect(lambda _item: self.openRequested.emit())
         layout.addWidget(self.list_widget)
 
-        buttons = QGridLayout()
+        buttons = WrappingButtonRow(self)
         specs = (
             ("Nouvelle page", self.newPageRequested),
             ("Nouveau billet", self.newPostRequested),
@@ -45,14 +45,14 @@ class ContentBrowser(QWidget):
             ("Actualiser", self.refreshRequested),
         )
         self.project_buttons: list[QPushButton] = []
-        for index, (label, signal) in enumerate(specs):
-            button = QPushButton(label, self)
+        for label, signal in specs:
+            button = QPushButton(label, buttons)
             button.clicked.connect(
                 lambda _checked=False, requested=signal: requested.emit()
             )
-            buttons.addWidget(button, index // 2, index % 2)
+            buttons.add_button(button)
             self.project_buttons.append(button)
-        layout.addLayout(buttons)
+        layout.addWidget(buttons)
 
     def set_project_enabled(self, enabled: bool) -> None:
         for button in self.project_buttons:

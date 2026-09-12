@@ -9,11 +9,12 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtCore import QByteArray, QSettings, QTimer, Qt, QUrl
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
     QCloseEvent,
+    QGuiApplication,
     QImageReader,
     QKeySequence,
     QTextCursor,
@@ -23,7 +24,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDockWidget,
     QFileDialog,
-    QHBoxLayout,
     QInputDialog,
     QMainWindow,
     QMessageBox,
@@ -146,7 +146,7 @@ from bloggen.ui.qt_editor.recovery import (
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor.toolbar_icons import toolbar_icon
-from bloggen.ui.qt_editor.wrapping_toolbar import WrappingToolBar
+from bloggen.ui.qt_editor.wrapping_toolbar import WrappingButtonRow, WrappingToolBar
 from bloggen.ui.qt_editor.constants import (
     BOLD_PROPERTY,
     ITALIC_PROPERTY,
@@ -164,6 +164,27 @@ class _RenumberSaveSnapshot:
     body_modified: bool
     cursor_position: int
     cursor_anchor: int
+
+
+CONTENT_DOCK_WIDTH = 230
+FOOTNOTE_DOCK_WIDTH = 230
+DEFAULT_WINDOW_MAX_WIDTH = 1600
+DEFAULT_WINDOW_MAX_HEIGHT = 1000
+# Bump when docks are added/renamed so an old saved layout is ignored.
+LAYOUT_STATE_VERSION = 1
+_GEOMETRY_KEY = "fenetre/geometrie"
+_STATE_KEY = "fenetre/panneaux"
+
+
+def editor_layout_settings() -> QSettings:
+    """Per-user INI file (not the registry) holding the editor's layout."""
+
+    return QSettings(
+        QSettings.Format.IniFormat,
+        QSettings.Scope.UserScope,
+        "Merope",
+        "editeur-qt",
+    )
 
 
 def _run_for_new_bitmap(run: InlineRun, src: str) -> InlineRun:
@@ -233,6 +254,15 @@ class QtEditorWindow(QMainWindow):
         self._create_toolbar()
         self._create_content_browser()
         self._create_footnote_panel()
+        self._add_panel_toggles()
+        # Start with slim side panels; the text column gets the rest. The
+        # user's own widths are restored later by ``restore_layout``.
+        self.resizeDocks(
+            [self.content_dock, self.footnote_dock],
+            [CONTENT_DOCK_WIDTH, FOOTNOTE_DOCK_WIDTH],
+            Qt.Orientation.Horizontal,
+        )
+        self._layout_settings: QSettings | None = None
         self.footnote_store.changed.connect(self._refresh_footnote_panel)
         self.footnote_store.modifiedChanged.connect(self._update_window_title)
         self.editor.footnoteActivated.connect(self.footnote_panel.select_note)
@@ -805,14 +835,14 @@ class QtEditorWindow(QMainWindow):
         layout.setContentsMargins(4, 4, 4, 4)
         self.footnote_panel = FootnotePanel(container)
         layout.addWidget(self.footnote_panel)
-        buttons = QHBoxLayout()
-        self.edit_footnote_button = QPushButton("Modifier...", container)
-        self.delete_footnote_button = QPushButton("Supprimer...", container)
+        buttons = WrappingButtonRow(container)
+        self.edit_footnote_button = QPushButton("Modifier...", buttons)
+        self.delete_footnote_button = QPushButton("Supprimer...", buttons)
         self.edit_footnote_button.clicked.connect(self._edit_selected_footnote)
         self.delete_footnote_button.clicked.connect(self._delete_selected_footnote)
-        buttons.addWidget(self.edit_footnote_button)
-        buttons.addWidget(self.delete_footnote_button)
-        layout.addLayout(buttons)
+        buttons.add_button(self.edit_footnote_button)
+        buttons.add_button(self.delete_footnote_button)
+        layout.addWidget(buttons)
         self.footnote_panel.noteSelected.connect(self._update_footnote_actions)
         self.footnote_dock.setWidget(container)
         self.addDockWidget(
@@ -821,6 +851,31 @@ class QtEditorWindow(QMainWindow):
         )
         self.footnote_panel.set_definitions(self.footnote_store.definitions)
         self._update_footnote_actions()
+
+    def _add_panel_toggles(self) -> None:
+        """Always offer a way back to a closed panel.
+
+        The action strip is not a QToolBar, so once both docks are closed no
+        title bar remains for Qt's native right-click menu; and the layout is
+        remembered between sessions.
+        """
+
+        self.toolbar.add_separator()
+        self.panel_actions: dict[str, QAction] = {}
+        for key, dock, label, shortcut in (
+            ("contents", self.content_dock, "Panneau Contenus", "F8"),
+            ("notes", self.footnote_dock, "Panneau Notes", "F9"),
+        ):
+            action = dock.toggleViewAction()
+            action.setIcon(toolbar_icon(self, f"panel_{key}"))
+            action.setText(label)
+            action.setShortcut(QKeySequence(shortcut))
+            action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+            tooltip = f"Afficher ou masquer le {label.lower()} — {shortcut}"
+            action.setToolTip(tooltip)
+            action.setStatusTip(tooltip)
+            self.toolbar.add_action(action)
+            self.panel_actions[key] = action
 
     @property
     def footnote_definitions(self) -> FootnoteDefinitions:
@@ -1728,9 +1783,45 @@ class QtEditorWindow(QMainWindow):
             self.autosave_timer.stop()
             self._close_html_preview()
             self.ipc_bridge.shutdown()
+            self._save_layout()
             event.accept()
         else:
             event.ignore()
+
+    def fit_to_screen(self) -> None:
+        """Open large enough for two side panels and a readable text column."""
+
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        self.resize(
+            min(DEFAULT_WINDOW_MAX_WIDTH, round(available.width() * 0.85)),
+            min(DEFAULT_WINDOW_MAX_HEIGHT, round(available.height() * 0.85)),
+        )
+
+    def restore_layout(self, settings: QSettings) -> None:
+        """Reuse the window size and panel widths of the previous session.
+
+        Only the real application opts in (see ``run``); editors created by
+        tests or embedders never read or write user settings.
+        """
+
+        self._layout_settings = settings
+        geometry = settings.value(_GEOMETRY_KEY)
+        state = settings.value(_STATE_KEY)
+        if isinstance(geometry, QByteArray) and not geometry.isEmpty():
+            self.restoreGeometry(geometry)
+        if isinstance(state, QByteArray) and not state.isEmpty():
+            self.restoreState(state, LAYOUT_STATE_VERSION)
+
+    def _save_layout(self) -> None:
+        settings = self._layout_settings
+        if settings is None:
+            return
+        settings.setValue(_GEOMETRY_KEY, self.saveGeometry())
+        settings.setValue(_STATE_KEY, self.saveState(LAYOUT_STATE_VERSION))
+        settings.sync()
 
     def request_live_config(self) -> int:
         """Request a fresh parent-owned ProjectConfig snapshot asynchronously."""
@@ -2072,6 +2163,8 @@ def run(
             f"de données.\n\n{exc}",
         )
         return 2
+    window.fit_to_screen()
+    window.restore_layout(editor_layout_settings())
     window.show()
     window._emit("ready")
     returncode = app.exec()
