@@ -365,7 +365,7 @@ def test_replace_action_is_enabled_only_for_unambiguous_image_target(tmp_path):
     window.close()
 
 
-def test_html_and_bitmap_image_paste_policy_remains_refused():
+def test_html_and_bitmap_image_paste_without_document_context_remains_refused():
     editor = MeropeTextEdit()
     original = [Block(kind=PARAGRAPH, runs=[InlineRun(text="Avant")])]
     populate_document(editor.document(), original)
@@ -381,6 +381,6 @@ def test_html_and_bitmap_image_paste_policy_remains_refused():
 
     bitmap = QMimeData()
     bitmap.setImageData(QImage(10, 10, QImage.Format.Format_RGB32))
-    assert editor.canInsertFromMimeData(bitmap) is False
+    assert editor.canInsertFromMimeData(bitmap) is True
     editor.insertFromMimeData(bitmap)
     assert extract_blocks(editor.document()) == original

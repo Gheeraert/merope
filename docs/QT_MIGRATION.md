@@ -269,15 +269,24 @@ HTML à `QTextEdit` :
 
 ```text
 QMimeData
-  → HTML
-  → html_to_blocks
-  → Block / InlineRun
-  → insert_blocks
-  → QTextDocument
+  ├─ MIME Mérope ───────────────→ Blocks
+  ├─ HTML ─→ staging images ────→ Blocks
+  ├─ QImage ─→ staging PNG ─────→ Blocks
+  ├─ local file URLs ───────────→ Blocks
+  └─ text/plain ────────────────→ texte
+                                  ↓
+                           validation complète
+                                  ↓
+                        commit assets projet
+                                  ↓
+                           insert_blocks
+                                  ↓
+                           QTextDocument
 ```
 
-`MeropeTextEdit.canInsertFromMimeData()` accepte un HTML non vide ou un texte
-brut non vide et refuse les formats MIME seuls qu’il ne sait pas interpréter.
+`MeropeTextEdit.canInsertFromMimeData()` accepte le MIME Mérope, un HTML non
+vide, une image Qt native, une liste d’URL locales ou un texte brut non vide,
+et refuse les formats MIME arbitraires.
 Le vrai chemin `QApplication.clipboard() → QTextEdit.paste()` aboutit ainsi à
 `MeropeTextEdit.insertFromMimeData()`, qui préfère le HTML disponible dans le
 MIME Qt natif. `acceptRichText` reste désactivé : Qt n’interprète jamais ce
@@ -301,12 +310,43 @@ Le texte brut est inséré littéralement, sans normalisation typographique
 globale immédiate, comme le fallback historique Tk. La typographie à la frappe
 et la commande explicite sur sélection restent disponibles ensuite.
 
-Les balises `<img>`, `<table>`, `<pre>` ainsi que les images VML Word
-`<v:imagedata>` et leur conteneur `<v:shape>` refusent intégralement le collage
-riche, même si le MIME fournit aussi un texte alternatif. La fenêtre explique
-que rien n’a été inséré afin d’éviter une perte de données. L’option stricte
-`reject_tags` a été ajoutée au parseur HTML canonique ; sa valeur par défaut
-reste vide, donc le comportement de l’éditeur Tk n’est pas modifié.
+La priorité d’entrée est fixe : MIME Mérope interne, HTML, `imageData()` Qt,
+URL de fichiers locaux, puis texte brut. Un HTML texte + image est donc traité
+avant son éventuel bitmap natif afin de conserver la position de l’image.
+
+Lorsqu’un HTML contient `<img>` ou `v:imagedata`, `clipboard_images.py` crée un
+staging `.merope-paste-*` sous le répertoire d’images du projet, donc sur le
+même volume. `html_to_blocks` y décode les data URI et télécharge les images
+HTTP(S) avec ses limites, allowlist, timeout, refus des adresses privées et
+redirections bloquées existants. Le chemin Qt ajoute `file://` local validé
+par Pillow, ainsi que le wrapper VML simple `v:shape`. Une seule image HTML
+non résolue peut utiliser l’unique `QImage` native comme secours positionnel ;
+plusieurs images ambiguës sont refusées.
+
+Les blocs complets sont validés avant le commit. Les fichiers staging sont
+ensuite copiés par `copy_into_images_dir`, avec les collisions historiques
+`photo.png`, `photo-2.png`, etc., et seuls leurs `image_src` sont réécrits en
+chemins relatifs au Markdown. Une ressource staging référencée plusieurs fois
+n’est commitée qu’une fois. Si parsing, téléchargement, validation, commit ou
+insertion échoue, le staging et les fichiers finaux nouvellement créés sont
+supprimés et document, sélection, dirty et undo restent inchangés. Ainsi,
+**collage refusé ≠ fichiers orphelins**. Après insertion réussie, undo reste
+documentaire et ne supprime pas l’asset physique, comme pour l’insertion
+manuelle.
+
+Une `QImage`/`QPixmap` seule est enregistrée en PNG dans le staging avant de
+devenir un `InlineRun`; plusieurs URL locales valides deviennent plusieurs
+paragraphes image. Un lot mêlant image et fichier non-image n’est jamais
+importé partiellement : son texte brut éventuel sert de fallback, sinon il est
+refusé. Sans document ouvert ou répertoire d’images configuré, tout collage
+nécessitant un asset est refusé explicitement, tandis que l’HTML sans image et
+le texte continuent de fonctionner.
+
+Les dimensions HTML ne sont conservées que lorsqu’elles sont des entiers
+strictement positifs. `alt` reste `image_alt`. Tables, `<pre>`, SVG, fichiers
+distants `file://`, UNC et VML inconnu restent refusés. Toutes les extensions
+de l’importeur partagé sont opt-in ; ses valeurs par défaut conservent le
+comportement Tk historique.
 
 Le round-trip expérimenté est exclusivement :
 
@@ -365,9 +405,10 @@ F. Google Docs dans Chrome — image seule
 ```
 
 Ce probe n’importe rien, ne télécharge aucune URL et ne lit aucun fichier
-référencé. Il ne formule pas encore de stratégie d’import. Les refus atomiques
-actuels de `<img>`, VML, bitmap MIME, tables et `<pre>` dans `MeropeTextEdit`
-restent strictement inchangés.
+référencé. Il reste découplé du chemin de production. Les recettes Word et
+Google Docs réelles permettront de confronter les formats observés aux chemins
+génériques de collage ; les tests automatisés utilisent des `QMimeData`
+synthétiques et ne prétendent pas remplacer cette recette.
 
 ### Images statiques
 
@@ -777,9 +818,9 @@ refusé n’est ni réécrit ni archivé.
 
 ## À faire dans le prochain lot
 
-- décider si l’étape suivante priorise un aperçu live avec debounce, build hors
-  thread GUI et politique d’obsolescence, ou le collage d’images Word/Google
-  Docs avec extraction/copie sûre des ressources MIME ;
+- effectuer la recette Word/Google Docs réelle à l’aide du probe 8a et traiter
+  séparément les représentations producteur qui ne rentreraient pas dans les
+  chemins génériques 8b ;
 - décider, dans un lot fonctionnel distinct, si une commande utilisateur
   explicite « Convertir les `((...))` » présente un intérêt ; aucune conversion
   interactive automatique n’est prévue ;
@@ -787,8 +828,6 @@ refusé n’est ni réécrit ni archivé.
   Docs sous Windows ;
 - éprouver le redimensionnement sous les facteurs d’échelle d’écran réellement
   utilisés sous Windows ;
-- définir séparément la stratégie de copie et de validation avant d’autoriser
-  les images provenant du presse-papiers ou du HTML riche ;
 - éprouver le lancement et le timeout sur les plateformes distribuées ainsi
   que le conditionnement de l’extra PySide6 ;
 - conserver Tkinter comme éditeur principal et fallback tant que la couverture
@@ -796,7 +835,7 @@ refusé n’est ni réécrit ni archivé.
 
 ## Volontairement différé
 
-- collage d’images et édition riche des légendes ;
+- édition riche des légendes et suppression physique des assets lors d’un undo ;
 - éventuelle commande explicite de conversion des `((note))` en notes
   structurées ;
 - tableaux WYSIWYG et blocs `verbatim` ;

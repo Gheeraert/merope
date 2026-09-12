@@ -423,13 +423,6 @@ def test_empty_html_uses_available_plain_text_fallback():
 @pytest.mark.parametrize(
     ("html", "tag"),
     [
-        ("<p>Avant<img src='data:image/png;base64,abc'>Après</p>", "img"),
-        ("<p>Avant<v:imagedata src='wordml://image1.png'>Après</p>", "v:imagedata"),
-        (
-            "<p>Avant</p><v:shape><v:imagedata src='wordml://image1.png'>"
-            "</v:imagedata></v:shape><p>Après</p>",
-            "v:shape",
-        ),
         ("<p>Avant</p><table><tr><td>Cellule</td></tr></table>", "table"),
         ("<p>Avant</p><pre>code</pre>", "pre"),
     ],

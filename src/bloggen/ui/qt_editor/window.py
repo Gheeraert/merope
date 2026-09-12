@@ -152,6 +152,7 @@ class QtEditorWindow(QMainWindow):
         self.ipc_bridge.protocolError.connect(self._on_preview_protocol_error)
         self.resize(920, 700)
         self.editor = MeropeTextEdit(self)
+        self._update_external_paste_context()
         self.editor.pasteRefused.connect(self._show_paste_refused)
         self.editor.clipboardRefused.connect(self._show_clipboard_refused)
         self.setCentralWidget(self.editor)
@@ -179,6 +180,7 @@ class QtEditorWindow(QMainWindow):
     def load_markdown(self, path: Path) -> None:
         loaded = load_content_document(path, self.editor.document())
         self.current_path = loaded.path
+        self._update_external_paste_context()
         self.current_kind = None
         self.metadata = loaded.metadata
         self.footnote_store.load(loaded.footnote_definitions)
@@ -296,6 +298,7 @@ class QtEditorWindow(QMainWindow):
         self.footnote_store.load(prepared.footnote_definitions)
         self.metadata = prepared.metadata
         self.current_path = prepared.current_path
+        self._update_external_paste_context()
         self.current_kind = prepared.current_kind
         self.save_action.setEnabled(self.current_path is not None)
         document.setModified(True)
@@ -305,6 +308,15 @@ class QtEditorWindow(QMainWindow):
     def _clear_recovery_draft(self) -> None:
         if self.project_root is not None:
             clear_draft(self.project_root)
+
+    def _update_external_paste_context(self) -> None:
+        if self.current_path is None or self.images_dir is None:
+            self.editor.set_external_paste_context()
+            return
+        self.editor.set_external_paste_context(
+            images_dir=self.images_dir,
+            doc_dir=self.current_path.parent,
+        )
 
     def show_reconstructed_markdown(self) -> None:
         try:

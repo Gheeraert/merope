@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QByteArray, QMimeData, QPoint, QSize, Qt, Signal
@@ -54,6 +55,12 @@ from bloggen.ui.qt_editor.clipboard_fragment import (
     InvalidMeropeClipboardFragment,
     decode_markdown_fragment,
     encode_selection_as_markdown,
+)
+from bloggen.ui.qt_editor.clipboard_images import (
+    ClipboardImagePasteError,
+    ExternalPasteContext,
+    PreparedExternalPaste,
+    prepare_external_paste,
 )
 from bloggen.ui.qt_editor.constants import (
     BOLD_PROPERTY,
@@ -142,8 +149,22 @@ class MeropeTextEdit(QTextEdit):
         self.setAcceptRichText(False)
         self.viewport().setMouseTracking(True)
         self._image_resize_state: _ImageResizeState | None = None
+        self._external_paste_context: ExternalPasteContext | None = None
         self.selectionChanged.connect(self.viewport().update)
         self.document().contentsChanged.connect(self.viewport().update)
+
+    def set_external_paste_context(
+        self,
+        *,
+        images_dir: Path | None = None,
+        doc_dir: Path | None = None,
+    ) -> None:
+        """Set only the filesystem context required by external image paste."""
+
+        if images_dir is None or doc_dir is None:
+            self._external_paste_context = None
+            return
+        self._external_paste_context = ExternalPasteContext(images_dir, doc_dir)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.matches(QKeySequence.StandardKey.Copy):
@@ -486,6 +507,12 @@ class MeropeTextEdit(QTextEdit):
             return True
         if source.hasHtml() and bool(source.html().strip()):
             return True
+        if source.hasImage():
+            return True
+        if source.hasUrls() and source.urls() and all(
+            url.isLocalFile() for url in source.urls()
+        ):
+            return True
         return source.hasText() and bool(source.text())
 
     def insertFromMimeData(self, source: QMimeData) -> None:
@@ -498,8 +525,7 @@ class MeropeTextEdit(QTextEdit):
         """
 
         has_internal_fragment = source.hasFormat(MEROPE_FRAGMENT_MIME)
-        has_rich_html = source.hasHtml() and bool(source.html().strip())
-        if has_internal_fragment or has_rich_html:
+        if has_internal_fragment:
             try:
                 blocks = blocks_from_rich_mime_data(source)
                 if blocks:
@@ -511,23 +537,54 @@ class MeropeTextEdit(QTextEdit):
                     cursor = insert_blocks(self.textCursor(), blocks)
                     self.setTextCursor(cursor)
                     return
-                if has_internal_fragment:
-                    return
+                return
             except InvalidMeropeClipboardFragment as exc:
                 self.pasteRefused.emit(f"Fragment Mérope invalide : {exc}")
                 return
-            except UnsupportedHtmlStructureError as exc:
-                self.pasteRefused.emit(str(exc))
-                return
             except UnsupportedDocumentError as exc:
-                if has_internal_fragment:
-                    self.pasteRefused.emit(f"Fragment Mérope invalide : {exc}")
-                else:
-                    self.pasteRefused.emit(str(exc))
+                self.pasteRefused.emit(f"Fragment Mérope invalide : {exc}")
                 return
             except Exception as exc:
-                self.pasteRefused.emit(f"Le collage HTML n’a pas pu être analysé : {exc}")
+                self.pasteRefused.emit(f"Le fragment Mérope n’a pas pu être analysé : {exc}")
                 return
+
+        prepared: PreparedExternalPaste | None = None
+        original_cursor = QTextCursor(self.textCursor())
+        try:
+            prepared = prepare_external_paste(
+                source,
+                self._external_paste_context,
+                html_importer=html_to_blocks,
+            )
+            if prepared is not None and prepared.blocks:
+                blocks = prepared.commit_assets()
+                cursor, contains_note = expand_selection_to_footnotes(
+                    self.textCursor()
+                )
+                if contains_note:
+                    self.setTextCursor(cursor)
+                cursor = insert_blocks(self.textCursor(), blocks)
+                self.setTextCursor(cursor)
+                prepared.accept()
+                return
+            if prepared is not None:
+                prepared.discard()
+        except (
+            ClipboardImagePasteError,
+            UnsupportedHtmlStructureError,
+            UnsupportedDocumentError,
+        ) as exc:
+            if prepared is not None:
+                prepared.rollback()
+            self.setTextCursor(original_cursor)
+            self.pasteRefused.emit(str(exc))
+            return
+        except Exception as exc:
+            if prepared is not None:
+                prepared.rollback()
+            self.setTextCursor(original_cursor)
+            self.pasteRefused.emit(f"Le collage externe n’a pas pu être analysé : {exc}")
+            return
 
         cursor, contains_note = expand_selection_to_footnotes(self.textCursor())
         if contains_note:

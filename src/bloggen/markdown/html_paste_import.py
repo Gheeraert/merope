@@ -20,7 +20,7 @@ import re
 import socket
 import urllib.request
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -86,12 +86,22 @@ class UnsupportedHtmlStructureError(ValueError):
     """Raised when a caller requires lossless rejection of selected tags."""
 
 
+class UnresolvedHtmlImageError(UnsupportedHtmlStructureError):
+    """Raised when a strict caller cannot preserve one announced image."""
+
+
 def html_to_blocks(
     html: str,
     *,
     images_dir: Path | None = None,
     doc_dir: Path | None = None,
     reject_tags: Iterable[str] = (),
+    image_src_resolver: Callable[[str], str | None] | None = None,
+    strict_images: bool = False,
+    allow_vml_images: bool = False,
+    reject_unknown_vml: bool = False,
+    preserve_image_dimensions: bool = False,
+    deduplicate_images: bool = False,
 ) -> list[Block]:
     """Parse a pasted HTML fragment into a list of ``Block``.
 
@@ -108,11 +118,20 @@ def html_to_blocks(
     ``reject_tags`` lets a stricter adapter refuse structures it cannot yet
     preserve before parsing has any side effect.  The default remains empty,
     preserving the historical Tk import behaviour.
+
+    The resolver and strict/VML switches are opt-in adapter hooks. Their
+    defaults preserve the historical tolerant Tk path exactly.
     """
     builder = _HtmlBlockBuilder(
         images_dir=images_dir,
         doc_dir=doc_dir or images_dir,
         reject_tags=reject_tags,
+        image_src_resolver=image_src_resolver,
+        strict_images=strict_images,
+        allow_vml_images=allow_vml_images,
+        reject_unknown_vml=reject_unknown_vml,
+        preserve_image_dimensions=preserve_image_dimensions,
+        deduplicate_images=deduplicate_images,
     )
     builder.feed(html)
     builder.close()
@@ -138,11 +157,23 @@ class _HtmlBlockBuilder(HTMLParser):
         images_dir: Path | None,
         doc_dir: Path | None,
         reject_tags: Iterable[str],
+        image_src_resolver: Callable[[str], str | None] | None,
+        strict_images: bool,
+        allow_vml_images: bool,
+        reject_unknown_vml: bool,
+        preserve_image_dimensions: bool,
+        deduplicate_images: bool,
     ) -> None:
         super().__init__(convert_charrefs=True)
         self.images_dir = images_dir
         self.doc_dir = doc_dir
         self.reject_tags = frozenset(tag.lower() for tag in reject_tags)
+        self.image_src_resolver = image_src_resolver
+        self.strict_images = strict_images
+        self.allow_vml_images = allow_vml_images
+        self.reject_unknown_vml = reject_unknown_vml
+        self.preserve_image_dimensions = preserve_image_dimensions
+        self.deduplicate_images = deduplicate_images
         self.result: list[Block] = []
         self.frame_stack: list[_Frame] = []
         self.inline_stack: list[dict] = []
@@ -300,9 +331,58 @@ class _HtmlBlockBuilder(HTMLParser):
                 )
             )
 
-    def _emit_image(self, src: str, alt: str) -> None:
+    def _emit_image(
+        self,
+        src: str,
+        alt: str,
+        width: str | None,
+        height: str | None,
+    ) -> None:
         frame = self._open_implicit_paragraph_if_needed()
-        frame.runs.append(InlineRun(image_src=src, image_alt=alt))
+        if (
+            self.deduplicate_images
+            and frame.runs
+            and frame.runs[-1].image_src == src
+        ):
+            return
+        frame.runs.append(
+            InlineRun(
+                image_src=src,
+                image_alt=alt,
+                image_width=width,
+                image_height=height,
+            )
+        )
+
+    def _handle_image(self, attrs_dict: dict[str, str]) -> None:
+        src = attrs_dict.get("src", "")
+        alt = (
+            attrs_dict.get("alt")
+            or attrs_dict.get("title")
+            or attrs_dict.get("o:title")
+            or ""
+        )
+        if self.image_src_resolver is not None:
+            resolved = self.image_src_resolver(src)
+        else:
+            resolved = resolve_image_src(src, self.images_dir, self.doc_dir)
+        if resolved:
+            self._emit_image(
+                resolved,
+                alt,
+                _positive_dimension(attrs_dict.get("width"))
+                if self.preserve_image_dimensions
+                else None,
+                _positive_dimension(attrs_dict.get("height"))
+                if self.preserve_image_dimensions
+                else None,
+            )
+        elif self.strict_images:
+            raise UnresolvedHtmlImageError(
+                "Une image annoncée dans le HTML n’a pas pu être préservée"
+            )
+        elif alt:
+            self._emit_text(f"[Image : {alt}]")
 
     # -- HTMLParser hooks -------------------------------------------------
 
@@ -313,21 +393,25 @@ class _HtmlBlockBuilder(HTMLParser):
         self._handle_start(tag, attrs, self_closing=True)
 
     def _handle_start(self, tag: str, attrs: list[tuple[str, str | None]], *, self_closing: bool) -> None:
+        tag = tag.lower()
         if tag in self.reject_tags:
             raise UnsupportedHtmlStructureError(
                 f"La structure HTML <{tag}> n’est pas encore prise en charge par l’éditeur Qt"
             )
-        attrs_dict = {k: (v or "") for k, v in attrs}
+        attrs_dict = {k.lower(): (v or "") for k, v in attrs}
 
         if tag == "img":
-            src = attrs_dict.get("src", "")
-            alt = attrs_dict.get("alt", "")
-            resolved = _resolve_image_src(src, self.images_dir, self.doc_dir)
-            if resolved:
-                self._emit_image(resolved, alt)
-            elif alt:
-                self._emit_text(f"[Image : {alt}]")
+            self._handle_image(attrs_dict)
             return
+        if self.allow_vml_images and tag == "v:imagedata":
+            self._handle_image(attrs_dict)
+            return
+        if self.allow_vml_images and tag == "v:shape":
+            return
+        if self.reject_unknown_vml and tag.startswith("v:"):
+            raise UnsupportedHtmlStructureError(
+                f"La structure VML <{tag}> ne peut pas être préservée sans ambiguïté"
+            )
         if tag == "br":
             self._break_paragraph()
             return
@@ -352,7 +436,10 @@ class _HtmlBlockBuilder(HTMLParser):
         self._push_inline(bold=bold, italic=italic, strike=strike, superscript=superscript)
 
     def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
         if tag in ("img", "br"):
+            return
+        if self.allow_vml_images and tag in ("v:imagedata", "v:shape"):
             return
         if tag in _BLOCK_TAGS:
             self._close_block(tag)
@@ -409,7 +496,18 @@ def _style_is_superscript(style: dict[str, str]) -> bool:
     return style.get("vertical-align", "") == "super"
 
 
-def _resolve_image_src(src: str, images_dir: Path | None, doc_dir: Path | None) -> str | None:
+def _positive_dimension(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return value if int(value) > 0 else None
+    except ValueError:
+        return None
+
+
+def resolve_image_src(src: str, images_dir: Path | None, doc_dir: Path | None) -> str | None:
+    """Resolve the historically supported data/http image sources."""
+
     if not src or images_dir is None:
         return None
     doc_dir = doc_dir or images_dir

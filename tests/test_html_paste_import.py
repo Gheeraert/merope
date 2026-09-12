@@ -9,6 +9,7 @@ from bloggen.markdown.html_paste_import import (
 )
 from bloggen.markdown.note_shortcuts import convert_double_paren_notes_in_blocks
 from bloggen.markdown.rich_text_export import blocks_to_markdown
+from bloggen.markdown.rich_text_model import PARAGRAPH, Block
 from bloggen.markdown.typography import CLOSING_GUILLEMET, NBSP, OPENING_GUILLEMET
 
 _TINY_PNG_BASE64 = (
@@ -439,3 +440,58 @@ def test_image_without_images_dir_falls_back_to_alt_text():
 
 def test_image_with_no_alt_and_unresolvable_src_is_dropped():
     assert _export('<p>Texte <img src="cid:something"> ici.</p>') == "Texte  ici.\n"
+
+
+def test_opt_in_vml_image_resolver_preserves_dimensions_and_deduplicates():
+    from bloggen.markdown.rich_text_model import InlineRun
+
+    html = (
+        '<p>Avant<img src="same" alt="Image" width="320" height="180">'
+        '<v:shape><v:imagedata src="same"></v:imagedata></v:shape>Après</p>'
+    )
+    blocks = html_to_blocks(
+        html,
+        image_src_resolver=lambda src: "staged.png" if src == "same" else None,
+        strict_images=True,
+        allow_vml_images=True,
+        preserve_image_dimensions=True,
+        deduplicate_images=True,
+    )
+
+    assert blocks == [
+        Block(
+            kind=PARAGRAPH,
+            runs=[
+                InlineRun(text="Avant"),
+                InlineRun(
+                    image_src="staged.png",
+                    image_alt="Image",
+                    image_width="320",
+                    image_height="180",
+                ),
+                InlineRun(text="Après"),
+            ],
+        )
+    ]
+
+
+def test_non_numeric_html_image_dimensions_are_ignored_in_opt_in_path():
+    blocks = html_to_blocks(
+        '<p><img src="x" width="50%" height="auto"></p>',
+        image_src_resolver=lambda src: "staged.png",
+        strict_images=True,
+        preserve_image_dimensions=True,
+    )
+    image = blocks[0].runs[0]
+    assert image.image_width is None
+    assert image.image_height is None
+
+
+def test_dimension_and_dedup_options_do_not_change_historical_defaults():
+    blocks = html_to_blocks(
+        '<p><img src="same" width="320"><img src="same" width="320"></p>',
+        image_src_resolver=lambda src: "staged.png",
+        strict_images=True,
+    )
+    assert len(blocks[0].runs) == 2
+    assert all(run.image_width is None for run in blocks[0].runs)
