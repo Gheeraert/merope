@@ -13,7 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from bloggen.content.footnotes import footnote_reference_order
-from bloggen.content.writer import write_content_file
+from bloggen.content.writer import read_content_file, write_content_file
 from bloggen.markdown.front_matter import parse_front_matter
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks
@@ -58,6 +58,7 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_strikethrough,
     toggle_superscript,
 )
+from bloggen.ui.qt_editor.file_io import load_content_document, save_content_document
 from bloggen.ui.qt_editor.recovery import build_recovery_draft, prepare_recovery_draft
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor.window import QtEditorWindow
@@ -580,6 +581,32 @@ def test_recovery_roundtrip_accepts_table_and_verbatim(tmp_path):
     prepared = prepare_recovery_draft(tmp_path, draft)
 
     assert prepared.body_blocks == blocks
+
+
+def test_fenced_code_opens_saves_and_reopens_as_protected_verbatim(tmp_path):
+    metadata = {"title": "Raw", "slug": "raw", "type": "page"}
+    source = "```python\nx = 1\n\ny = 2\n```\n\nParagraphe.\n"
+    path = write_content_file(tmp_path, "raw.md", metadata, source)
+    document = QTextDocument()
+
+    loaded = load_content_document(path, document)
+
+    expected = [
+        Block(kind=VERBATIM, raw_text="```python\nx = 1\n\ny = 2\n```"),
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Paragraphe.")]),
+    ]
+    assert extract_blocks(document) == expected
+    assert document.begin().blockFormat().property(RAW_BLOCK_KIND_PROPERTY) == VERBATIM
+    assert not document.isModified()
+
+    result = save_content_document(path, loaded.metadata, document)
+    assert result.markdown_body == source
+    assert read_content_file(path)[1].removeprefix("\n") == source
+    reopened = QTextDocument()
+    load_content_document(path, reopened)
+    assert extract_blocks(reopened) == expected
+    assert reopened.begin().blockFormat().property(RAW_BLOCK_KIND_PROPERTY) == VERBATIM
+    assert not reopened.isModified()
 
 
 def test_preview_snapshot_contains_raw_blocks_without_mutating_document(tmp_path, monkeypatch):
