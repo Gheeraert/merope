@@ -27,6 +27,11 @@ from PySide6.QtGui import (
 
 from bloggen.content.footnotes import FootnoteDefinitions
 from bloggen.content.image_size import max_percent_for, parse_width
+from bloggen.markdown.caption import (
+    caption_markdown,
+    caption_runs,
+    normalize_caption_runs,
+)
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -49,6 +54,11 @@ from bloggen.ui.qt_editor.constants import (
     BLOCKQUOTE_LEFT_MARGIN,
     BODY_POINT_SIZE,
     BOLD_PROPERTY,
+    CAPTION_BLOCK_MARGINS,
+    CAPTION_COLOR,
+    CAPTION_POINT_SIZE,
+    CAPTION_SOURCE_PROPERTY,
+    FIGURE_IMAGE_BOTTOM_MARGIN,
     FOOTNOTE_ID_PROPERTY,
     FOOTNOTE_INSTANCE_PROPERTY,
     FOOTNOTE_MARKER_PROPERTY,
@@ -59,6 +69,7 @@ from bloggen.ui.qt_editor.constants import (
     IMAGE_ALT_PROPERTY,
     IMAGE_HEIGHT_PROPERTY,
     IMAGE_BLOCK_MARGINS,
+    IMAGE_CAPTION_KIND,
     IMAGE_MARKER_PROPERTY,
     IMAGE_SRC_PROPERTY,
     IMAGE_WIDTH_PROPERTY,
@@ -142,8 +153,16 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
         raise UnsupportedBlockError(
             "Les objets structurés ne peuvent pas être insérés dans un bloc brut"
         )
+    if (
+        selection_crosses_caption_boundary(insertion)
+        or caption_block_for_selection(insertion) is not None
+    ):
+        raise UnsupportedBlockError(
+            "Une légende d’image ne peut contenir que du texte"
+        )
 
     insertion.beginEditBlock()
+    first_position = insertion.selectionStart()
     try:
         if insertion.hasSelection():
             insertion.removeSelectedText()
@@ -152,6 +171,7 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
             heading_level = _heading_level(insertion.block())
             _insert_runs(insertion, blocks[0].runs, heading_level=heading_level)
             refresh_block_visuals(insertion.block())
+            _normalize_after_insertion(insertion, first_position)
             return insertion
 
         original_block_format = QTextBlockFormat(insertion.blockFormat())
@@ -172,9 +192,18 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
             _insert_new_block(insertion, original_block_format, original_char_format)
             if original_list is not None:
                 original_list.add(insertion.block())
+        _normalize_after_insertion(insertion, first_position)
     finally:
         insertion.endEditBlock()
     return insertion
+
+
+def _normalize_after_insertion(insertion: QTextCursor, first_position: int) -> None:
+    """Pair inserted figures with captions before the edit block closes."""
+
+    position = insertion.position()
+    if normalize_figure_captions(insertion.document(), first_position, position):
+        insertion.setPosition(min(position, insertion.document().characterCount() - 1))
 
 
 def insert_footnote_reference(cursor: QTextCursor, note_id: str) -> QTextCursor:
@@ -185,6 +214,10 @@ def insert_footnote_reference(cursor: QTextCursor, note_id: str) -> QTextCursor:
     if raw_block_identity(cursor.block()) is not None:
         raise UnsupportedInlineError(
             "Un appel de note ne peut pas être inséré dans un bloc brut"
+        )
+    if is_caption_block(cursor.block()):
+        raise UnsupportedInlineError(
+            "Un appel de note ne peut pas être inséré dans une légende d’image"
         )
     if cursor.hasSelection():
         raise UnsupportedInlineError(
@@ -372,6 +405,14 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
 
         block_format = block.blockFormat()
         kind = block_format.property(BLOCK_KIND_PROPERTY)
+        if kind == IMAGE_CAPTION_KIND:
+            # Captions are folded into the paragraph above (see below). One
+            # reaching this point has lost its image and goes with it, exactly
+            # as ``normalize_figure_captions`` would remove it. (Copied
+            # caption text is turned into a paragraph beforehand, see
+            # ``release_orphan_captions_as_text``.)
+            block = block.next()
+            continue
         if not kind:
             native_heading_level = block_format.headingLevel()
             kind = HEADING if native_heading_level else PARAGRAPH
@@ -388,11 +429,37 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
             if level not in HEADING_POINT_SIZES:
                 raise UnsupportedBlockError(f"Niveau de titre Qt non pris en charge : H{level}")
 
+        runs = _extract_runs(block)
+        following = block.next()
+        if is_caption_block(following):
+            captions: list[QTextBlock] = []
+            while is_caption_block(following):
+                captions.append(following)
+                following = following.next()
+            image_index = next(
+                (index for index, run in enumerate(runs) if run.image_src is not None),
+                None,
+            )
+            if image_index is not None:
+                runs[image_index] = replace(
+                    runs[image_index], image_alt=_captions_alt(captions)
+                )
+                result.append(
+                    Block(
+                        kind=kind,
+                        level=level,
+                        runs=runs,
+                        alignment=_alignment_from_format(block_format),
+                    )
+                )
+                block = following
+                continue
+
         result.append(
             Block(
                 kind=kind,
                 level=level,
-                runs=_extract_runs(block),
+                runs=runs,
                 alignment=_alignment_from_format(block_format),
             )
         )
@@ -584,6 +651,9 @@ def refresh_block_visuals(block: QTextBlock) -> None:
 
     if not block.isValid():
         return
+    if is_caption_block(block):
+        _refresh_caption_visuals(block)
+        return
     block_format = QTextBlockFormat(block.blockFormat())
     kind = block_format.property(BLOCK_KIND_PROPERTY) or PARAGRAPH
     level = (
@@ -592,11 +662,13 @@ def refresh_block_visuals(block: QTextBlock) -> None:
         else None
     )
     cursor = QTextCursor(block)
+    image_only = kind == PARAGRAPH and block_is_image_only(block)
     _set_visual_block_margins(
         block_format,
         kind=kind,
         level=level,
-        image_only=kind == PARAGRAPH and block_is_image_only(block),
+        image_only=image_only,
+        captioned=image_only and is_caption_block(block.next()),
     )
     cursor.setBlockFormat(block_format)
     cursor.movePosition(
@@ -630,6 +702,493 @@ def block_is_image_only(block: QTextBlock) -> bool:
                 return False
         iterator += 1
     return image_count == 1
+
+
+# -- figure captions ------------------------------------------------------------
+#
+# A paragraph holding one image and nothing else is published as a figure whose
+# caption is the image's alt text. In Qt that caption is an editable block of
+# kind IMAGE_CAPTION_KIND right below the image. The canonical model does not
+# change: extraction folds the caption back into ``image_alt``, and
+# ``normalize_figure_captions`` restores the pairing after arbitrary edits.
+
+
+def is_caption_block(block: QTextBlock) -> bool:
+    return (
+        block.isValid()
+        and block.blockFormat().property(BLOCK_KIND_PROPERTY) == IMAGE_CAPTION_KIND
+    )
+
+
+def is_figure_block(block: QTextBlock) -> bool:
+    """A plain paragraph holding exactly one Mérope image (and blanks)."""
+
+    if not block.isValid() or is_caption_block(block) or block.textList() is not None:
+        return False
+    kind = block.blockFormat().property(BLOCK_KIND_PROPERTY)
+    if kind not in (None, "", PARAGRAPH):
+        return False
+    if block.blockFormat().headingLevel():
+        return False
+    return block_is_image_only(block)
+
+
+def figure_caption_block(image_block: QTextBlock) -> QTextBlock | None:
+    following = image_block.next()
+    return following if is_figure_block(image_block) and is_caption_block(following) else None
+
+
+def caption_text_runs(block: QTextBlock) -> list[InlineRun]:
+    """What a caption block currently says, as bold/italic runs only."""
+
+    return normalize_caption_runs(_extract_runs(block))
+
+
+def figure_caption_alt(caption: QTextBlock) -> str | None:
+    """The alt text a caption block stands for.
+
+    An untouched caption returns exactly the value it was loaded from (``None``
+    and ``""`` included, and any unusual marker layout); an edited one is
+    serialized with ``**``/``*`` markers.
+    """
+
+    source = _caption_source(caption)
+    current = caption_text_runs(caption)
+    if caption_runs(source) == current:
+        return source
+    return caption_markdown(current)
+
+
+def make_caption_block_format(
+    source: str | None,
+    alignment: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignLeft,
+) -> QTextBlockFormat:
+    block_format = QTextBlockFormat()
+    block_format.setProperty(BLOCK_KIND_PROPERTY, IMAGE_CAPTION_KIND)
+    _set_optional_property(block_format, CAPTION_SOURCE_PROPERTY, source)
+    block_format.setAlignment(alignment)
+    block_format.setTopMargin(CAPTION_BLOCK_MARGINS[0])
+    block_format.setBottomMargin(CAPTION_BLOCK_MARGINS[1])
+    return block_format
+
+
+def make_caption_char_format(run: InlineRun | None = None) -> QTextCharFormat:
+    run = run or InlineRun()
+    char_format = make_char_format(
+        InlineRun(bold=run.bold, italic=run.italic)
+    )
+    char_format.setFontPointSize(CAPTION_POINT_SIZE)
+    char_format.setForeground(QColor(CAPTION_COLOR))
+    return char_format
+
+
+def set_figure_caption(caption: QTextBlock, alt: str | None) -> None:
+    """Replace a caption's text with ``alt`` (markers rendered)."""
+
+    cursor = QTextCursor(caption)
+    cursor.beginEditBlock()
+    try:
+        block_format = QTextBlockFormat(caption.blockFormat())
+        block_format.clearProperty(CAPTION_SOURCE_PROPERTY)
+        _set_optional_property(block_format, CAPTION_SOURCE_PROPERTY, alt)
+        cursor.setBlockFormat(block_format)
+        cursor.movePosition(
+            QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
+        )
+        cursor.removeSelectedText()
+        cursor.setBlockCharFormat(make_caption_char_format())
+        for run in caption_runs(alt):
+            cursor.insertText(run.text, make_caption_char_format(run))
+    finally:
+        cursor.endEditBlock()
+
+
+def insert_paragraph_after(block: QTextBlock) -> QTextCursor:
+    """Open an ordinary empty paragraph right after ``block``."""
+
+    cursor = QTextCursor(block)
+    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+    cursor.insertBlock(
+        _make_block_format(PARAGRAPH, "justify", None),
+        make_char_format(InlineRun()),
+    )
+    return cursor
+
+
+def caption_block_for_selection(cursor: QTextCursor) -> QTextBlock | None:
+    """The caption holding the whole caret/selection, if there is one."""
+
+    document = cursor.document()
+    block = document.findBlock(cursor.selectionStart())
+    if not is_caption_block(block):
+        return None
+    if cursor.selectionEnd() > block.position() + block.length() - 1:
+        return None
+    return block
+
+
+def selection_crosses_caption_boundary(cursor: QTextCursor) -> bool:
+    """Whether editing the selection would merge a caption with its neighbours.
+
+    Allowed: a selection inside one caption, or one covering whole figures
+    (image paragraph and caption). Refused: any other selection containing
+    the separator above or below a caption.
+    """
+
+    if not cursor.hasSelection():
+        return False
+    start = cursor.selectionStart()
+    end = cursor.selectionEnd()
+    document = cursor.document()
+    block = document.findBlock(start)
+    if block.isValid() and block.previous().isValid():
+        block = block.previous()
+    while block.isValid() and block.position() <= end:
+        if is_caption_block(block):
+            above = block.position() - 1
+            below = block.position() + block.length() - 1
+            touches = start <= above < end or start <= below < end
+            image = block.previous()
+            covers_figure = image.isValid() and start <= image.position() and end >= below
+            if touches and not covers_figure:
+                return True
+        block = block.next()
+    return False
+
+
+def normalize_figure_captions(
+    document: QTextDocument,
+    start: int | None = None,
+    end: int | None = None,
+) -> bool:
+    """Restore "every figure has exactly one caption, every caption a figure".
+
+    Only blocks around ``[start, end]`` are examined when given. Returns
+    whether the document changed; the caller owns the undo grouping.
+    """
+
+    changed = False
+    for _attempt in range(10_000):
+        fix = _next_caption_fix(document, start, end)
+        if fix is None:
+            return changed
+        fix()
+        changed = True
+    raise UnsupportedBlockError("Normalisation des légendes interrompue")
+
+
+def caption_normalization_needed(
+    document: QTextDocument,
+    start: int | None = None,
+    end: int | None = None,
+) -> bool:
+    """Cheap check so callers open an undo group only when something is off."""
+
+    return _next_caption_fix(document, start, end) is not None
+
+
+def selection_image_alts(cursor: QTextCursor) -> list[str | None]:
+    """Alt text of every image in a selection, in order, as currently shown.
+
+    A figure's alt text is its typed caption, which the image's own property
+    may not reflect yet; copying an image on its own must carry it.
+    """
+
+    start = cursor.selectionStart()
+    end = cursor.selectionEnd()
+    alts: list[str | None] = []
+    block = cursor.document().findBlock(start)
+    while block.isValid() and block.position() < end:
+        caption = figure_caption_block(block)
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            if fragment.isValid() and fragment.charFormat().isImageFormat():
+                for position in range(fragment.position(), fragment.position() + fragment.length()):
+                    if start <= position < end:
+                        if caption is not None:
+                            alts.append(figure_caption_alt(caption))
+                        else:
+                            alts.append(
+                                _optional_image_property(
+                                    fragment.charFormat(), IMAGE_ALT_PROPERTY
+                                )
+                            )
+            iterator += 1
+        block = block.next()
+    return alts
+
+
+def apply_image_alts(document: QTextDocument, alts: list[str | None]) -> None:
+    """Give the document's images, in order, the given alt texts."""
+
+    positions: list[int] = []
+    block = document.begin()
+    while block.isValid():
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            if fragment.isValid() and fragment.charFormat().isImageFormat():
+                positions.extend(
+                    range(fragment.position(), fragment.position() + fragment.length())
+                )
+            iterator += 1
+        block = block.next()
+    if len(positions) != len(alts):
+        return
+    for position, alt in zip(positions, alts):
+        cursor = QTextCursor(document)
+        cursor.setPosition(position)
+        cursor.setPosition(position + 1, QTextCursor.MoveMode.KeepAnchor)
+        char_format = cursor.charFormat()
+        if not char_format.isImageFormat() or not char_format.property(IMAGE_MARKER_PROPERTY):
+            continue
+        image_format = QTextImageFormat(char_format.toImageFormat())
+        image_format.clearProperty(IMAGE_ALT_PROPERTY)
+        _set_optional_property(image_format, IMAGE_ALT_PROPERTY, alt)
+        cursor.setCharFormat(image_format)
+
+
+def release_orphan_captions_as_text(document: QTextDocument) -> None:
+    """Turn captions without an image into plain paragraphs.
+
+    For clipboard fragments only: copying part of a caption must copy its
+    words, whereas in the editor an orphan caption disappears with its image.
+    """
+
+    block = document.begin()
+    while block.isValid():
+        if is_caption_block(block) and _first_image_position(block.previous()) is None:
+            cursor = QTextCursor(block)
+            cursor.setBlockFormat(_make_block_format(PARAGRAPH, "justify", None))
+            cursor.movePosition(
+                QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
+            )
+            body = QTextCharFormat()
+            body.setFontPointSize(BODY_POINT_SIZE)
+            body.setForeground(QColor("#000000"))
+            cursor.mergeCharFormat(body)
+        block = block.next()
+
+
+def _next_caption_fix(document: QTextDocument, start: int | None, end: int | None):
+    first, last = _caption_scan_range(document, start, end)
+    block = first
+    while block.isValid():
+        if is_caption_block(block):
+            previous = block.previous()
+            if is_caption_block(previous):
+                return lambda previous=previous, block=block: _merge_captions(previous, block)
+            if not is_figure_block(previous):
+                return lambda block=block: _release_orphan_caption(block)
+            expected = _caption_alignment(previous)
+            if block.blockFormat().alignment() != expected:
+                return lambda block=block: _refresh_caption_visuals(block)
+        elif is_figure_block(block) and not is_caption_block(block.next()):
+            return lambda block=block: _caption_missing_figure(block)
+        if last is not None and block == last:
+            break
+        block = block.next()
+    return None
+
+
+def _caption_scan_range(
+    document: QTextDocument,
+    start: int | None,
+    end: int | None,
+) -> tuple[QTextBlock, QTextBlock | None]:
+    if start is None or end is None:
+        return document.begin(), None
+    last_position = max(0, document.characterCount() - 1)
+    first = document.findBlock(max(0, min(start, last_position)))
+    for _ in range(2):
+        if first.previous().isValid():
+            first = first.previous()
+    last = document.findBlock(max(0, min(end, document.characterCount() - 1)))
+    for _ in range(2):
+        if last.next().isValid():
+            last = last.next()
+    return first, last
+
+
+def _caption_missing_figure(image_block: QTextBlock) -> None:
+    _insert_caption_after(QTextCursor(image_block), _first_image_alt(image_block))
+    refresh_block_visuals(image_block)
+
+
+def _insert_caption_after(cursor: QTextCursor, alt: str | None) -> None:
+    image_block = cursor.block()
+    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+    cursor.insertBlock(
+        make_caption_block_format(alt, _caption_alignment(image_block)),
+        make_caption_char_format(),
+    )
+    for run in caption_runs(alt):
+        cursor.insertText(run.text, make_caption_char_format(run))
+
+
+def _release_orphan_caption(caption: QTextBlock) -> None:
+    """A caption without its figure: hand its words to an image, or drop it.
+
+    Text typed beside the image turns the figure into an inline image; the
+    caption then becomes that image's alt text. A caption whose image was
+    deleted goes with it (undo restores both).
+    """
+
+    previous = caption.previous()
+    if _can_host_caption_text(previous):
+        _set_first_image_alt(previous, figure_caption_alt(caption))
+    _remove_block(caption)
+    if previous.isValid():
+        refresh_block_visuals(previous)
+
+
+def _merge_captions(first: QTextBlock, second: QTextBlock) -> None:
+    words = caption_text_runs(second)
+    cursor = QTextCursor(first)
+    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+    if words and caption_text_runs(first):
+        cursor.insertText(" ", make_caption_char_format())
+    for run in words:
+        cursor.insertText(run.text, make_caption_char_format(run))
+    _remove_block(second)
+
+
+def _remove_block(block: QTextBlock) -> None:
+    cursor = QTextCursor(block.document())
+    previous = block.previous()
+    if previous.isValid():
+        # When the previous block is empty, Qt keeps the *removed* block's
+        # format for the merged block; restore the previous block's own.
+        kept_block_format = QTextBlockFormat(previous.blockFormat())
+        kept_char_format = QTextCharFormat(previous.charFormat())
+        cursor.setPosition(block.position() - 1)
+        cursor.setPosition(
+            block.position() + block.length() - 1, QTextCursor.MoveMode.KeepAnchor
+        )
+        cursor.removeSelectedText()
+        if cursor.block().blockFormat() != kept_block_format:
+            cursor.setBlockFormat(kept_block_format)
+            cursor.setBlockCharFormat(kept_char_format)
+        return
+    # First block of the document: empty it and make it a plain paragraph.
+    cursor.setPosition(block.position())
+    cursor.setPosition(
+        block.position() + block.length() - 1, QTextCursor.MoveMode.KeepAnchor
+    )
+    cursor.removeSelectedText()
+    cursor.setBlockFormat(_make_block_format(PARAGRAPH, "justify", None))
+    cursor.setBlockCharFormat(make_char_format(InlineRun()))
+
+
+def _refresh_caption_visuals(caption: QTextBlock) -> None:
+    block_format = QTextBlockFormat(caption.blockFormat())
+    block_format.setAlignment(_caption_alignment(caption.previous()))
+    block_format.setTopMargin(CAPTION_BLOCK_MARGINS[0])
+    block_format.setBottomMargin(CAPTION_BLOCK_MARGINS[1])
+    cursor = QTextCursor(caption)
+    cursor.setBlockFormat(block_format)
+    cursor.movePosition(
+        QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
+    )
+    visual = QTextCharFormat()
+    visual.setFontPointSize(CAPTION_POINT_SIZE)
+    visual.setForeground(QColor(CAPTION_COLOR))
+    cursor.mergeBlockCharFormat(visual)
+    cursor.mergeCharFormat(visual)
+
+
+def _caption_alignment(image_block: QTextBlock) -> Qt.AlignmentFlag:
+    """The caption starts under the image, like the site's figcaption."""
+
+    if not image_block.isValid():
+        return Qt.AlignmentFlag.AlignLeft
+    alignment = _alignment_from_format(image_block.blockFormat())
+    if alignment == "center":
+        return Qt.AlignmentFlag.AlignHCenter
+    if alignment == "right":
+        return Qt.AlignmentFlag.AlignRight
+    return Qt.AlignmentFlag.AlignLeft
+
+
+def _caption_source(caption: QTextBlock) -> str | None:
+    try:
+        return _optional_image_property(caption.blockFormat(), CAPTION_SOURCE_PROPERTY)
+    except UnsupportedInlineError:
+        return None
+
+
+def _captions_alt(captions: list[QTextBlock]) -> str | None:
+    if len(captions) == 1:
+        return figure_caption_alt(captions[0])
+    texts = [figure_caption_alt(caption) or "" for caption in captions]
+    return " ".join(text for text in texts if text)
+
+
+def _can_host_caption_text(block: QTextBlock) -> bool:
+    """Leaf blocks whose first image receives an orphan caption's words.
+
+    Must match ``extract_blocks``, which folds a caption into the preceding
+    paragraph, heading or quotation, and drops it after anything else.
+    """
+
+    if not block.isValid() or block.textList() is not None or is_caption_block(block):
+        return False
+    try:
+        if raw_block_identity(block) is not None:
+            return False
+    except UnsupportedBlockError:
+        return False
+    return _first_image_position(block) is not None
+
+
+def _first_image_position(block: QTextBlock) -> int | None:
+    if not block.isValid():
+        return None
+    iterator = block.begin()
+    while not iterator.atEnd():
+        fragment = iterator.fragment()
+        if fragment.isValid() and fragment.charFormat().isImageFormat():
+            return fragment.position()
+        iterator += 1
+    return None
+
+
+def _first_image_alt(block: QTextBlock) -> str | None:
+    position = _first_image_position(block)
+    if position is None:
+        return None
+    cursor = QTextCursor(block.document())
+    cursor.setPosition(position + 1)
+    try:
+        return image_run_from_format(cursor.charFormat()).image_alt
+    except UnsupportedInlineError:
+        return None
+
+
+def _set_first_image_alt(block: QTextBlock, alt: str | None) -> bool:
+    position = _first_image_position(block)
+    if position is None or _first_image_alt(block) == alt:
+        return False
+    cursor = QTextCursor(block.document())
+    cursor.setPosition(position)
+    cursor.setPosition(position + 1, QTextCursor.MoveMode.KeepAnchor)
+    image_format = QTextImageFormat(cursor.charFormat().toImageFormat())
+    image_format.clearProperty(IMAGE_ALT_PROPERTY)
+    _set_optional_property(image_format, IMAGE_ALT_PROPERTY, alt)
+    cursor.setCharFormat(image_format)
+    return True
+
+
+def _is_figure_runs(runs: list[InlineRun]) -> bool:
+    images = [run for run in runs if run.image_src is not None]
+    if len(images) != 1:
+        return False
+    return all(
+        run.image_src is not None
+        or (run.footnote_ref is None and not run.text.strip())
+        for run in runs
+    )
 
 
 def validate_blocks(blocks: Iterable[Block]) -> None:
@@ -882,6 +1441,12 @@ def _populate_leaf_block(cursor: QTextCursor, block: Block, first: bool) -> bool
         block.runs,
         heading_level=block.level if block.kind == HEADING else None,
     )
+    if block.kind == PARAGRAPH and _is_figure_runs(block.runs):
+        image_block = cursor.block()
+        image = next(run for run in block.runs if run.image_src is not None)
+        _insert_caption_after(cursor, image.image_alt)
+        refresh_block_visuals(image_block)
+        return False
     refresh_block_visuals(cursor.block())
     return False
 
@@ -1024,11 +1589,14 @@ def _set_visual_block_margins(
     kind: object,
     level: int | None,
     image_only: bool,
+    captioned: bool = False,
 ) -> None:
     if kind == HEADING and level in HEADING_MARGINS:
         top, bottom = HEADING_MARGINS[level]
     elif kind == PARAGRAPH and image_only:
         top, bottom = IMAGE_BLOCK_MARGINS
+        if captioned:
+            bottom = FIGURE_IMAGE_BOTTOM_MARGIN
     else:
         top, bottom = 0.0, 0.0
     block_format.setTopMargin(top)

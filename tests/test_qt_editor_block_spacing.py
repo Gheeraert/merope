@@ -14,13 +14,22 @@ from PySide6.QtWidgets import QApplication, QTextEdit
 from bloggen.content.writer import write_content_file
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_model import HEADING, PARAGRAPH, Block, InlineRun
-from bloggen.ui.qt_editor.constants import HEADING_MARGINS, IMAGE_BLOCK_MARGINS
+from bloggen.ui.qt_editor.constants import (
+    CAPTION_BLOCK_MARGINS,
+    FIGURE_IMAGE_BOTTOM_MARGIN,
+    HEADING_MARGINS,
+    IMAGE_BLOCK_MARGINS,
+)
 from bloggen.ui.qt_editor.document_adapter import (
     block_is_image_only,
     extract_blocks,
     insert_blocks,
+    is_caption_block,
     populate_document,
 )
+
+# A standalone image is followed by its caption, which holds the gap below.
+FIGURE_MARGINS = (IMAGE_BLOCK_MARGINS[0], FIGURE_IMAGE_BOTTOM_MARGIN)
 from bloggen.ui.qt_editor.file_io import load_content_document, save_content_document
 from bloggen.ui.qt_editor.formatting import set_heading, set_paragraph
 from bloggen.ui.qt_editor.image_selection import (
@@ -125,9 +134,13 @@ def test_only_standalone_merope_image_paragraph_gets_image_margins():
 
     qt_blocks = list(_blocks(document))
     assert block_is_image_only(qt_blocks[1])
-    assert _margins(qt_blocks[1]) == IMAGE_BLOCK_MARGINS
-    assert not block_is_image_only(qt_blocks[2])
-    assert _margins(qt_blocks[2]) == (0.0, 0.0)
+    # A standalone image is a figure: its caption block follows and carries
+    # the bottom spacing.
+    assert _margins(qt_blocks[1]) == FIGURE_MARGINS
+    assert is_caption_block(qt_blocks[2])
+    assert _margins(qt_blocks[2]) == CAPTION_BLOCK_MARGINS
+    assert not block_is_image_only(qt_blocks[3])
+    assert _margins(qt_blocks[3]) == (0.0, 0.0)
     assert extract_blocks(document) == original
 
 
@@ -143,7 +156,8 @@ def test_image_insertion_margins_share_the_single_document_undo():
 
     insert_blocks(QTextCursor(document), image_blocks)
 
-    assert _margins(document.begin()) == IMAGE_BLOCK_MARGINS
+    assert _margins(document.begin()) == FIGURE_MARGINS
+    assert is_caption_block(document.begin().next())
     # Inserting a lone paragraph reuses the destination block's own
     # formatting (like an ordinary paste), which is the empty document's
     # default justified paragraph here - not ``image_blocks``' own
@@ -155,7 +169,7 @@ def test_image_insertion_margins_share_the_single_document_undo():
     assert _margins(document.begin()) == (0.0, 0.0)
     assert document.isUndoAvailable() is False
     document.redo()
-    assert _margins(document.begin()) == IMAGE_BLOCK_MARGINS
+    assert _margins(document.begin()) == FIGURE_MARGINS
     assert extract_blocks(document) == [replace(image_blocks[0], alignment="justify")]
 
 
@@ -176,7 +190,7 @@ def test_replacing_standalone_image_preserves_block_spacing():
         allow_source_change=True,
     )
 
-    assert _margins(document.begin()) == IMAGE_BLOCK_MARGINS
+    assert _margins(document.begin()) == FIGURE_MARGINS
     assert block_is_image_only(document.begin())
 
 
@@ -203,7 +217,8 @@ def test_save_reopen_restores_visual_spacing_without_changing_markdown(tmp_path)
     assert [_margins(block) for block in _blocks(document)] == [
         HEADING_MARGINS[1],
         HEADING_MARGINS[2],
-        IMAGE_BLOCK_MARGINS,
+        FIGURE_MARGINS,
+        CAPTION_BLOCK_MARGINS,
         (0.0, 0.0),
     ]
     assert document.isModified() is False
@@ -219,7 +234,8 @@ def test_save_reopen_restores_visual_spacing_without_changing_markdown(tmp_path)
     assert [_margins(block) for block in _blocks(reopened)] == [
         HEADING_MARGINS[1],
         HEADING_MARGINS[2],
-        IMAGE_BLOCK_MARGINS,
+        FIGURE_MARGINS,
+        CAPTION_BLOCK_MARGINS,
         (0.0, 0.0),
     ]
     assert reopened.isModified() is False

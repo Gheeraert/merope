@@ -8,7 +8,18 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import (
+    QByteArray,
+    QEvent,
+    QMimeData,
+    QPoint,
+    QRect,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
@@ -74,11 +85,20 @@ from bloggen.ui.qt_editor.constants import (
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
 )
+from bloggen.markdown.caption import flatten_caption_text
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
+    caption_block_for_selection,
+    caption_normalization_needed,
+    figure_caption_block,
     inline_format_enabled,
     insert_blocks,
+    insert_paragraph_after,
+    is_caption_block,
     is_semantic_inline_object_format,
+    make_caption_char_format,
+    normalize_figure_captions,
+    selection_crosses_caption_boundary,
     make_raw_block_format,
     make_raw_char_format,
     raw_block_identity,
@@ -168,6 +188,8 @@ _RESIZE_CURSORS = {
     "sw": Qt.CursorShape.SizeBDiagCursor,
 }
 _RESIZE_ACCENT = QColor(42, 109, 181)
+CAPTION_PLACEHOLDER = "Légende de l’image (facultative)"
+CAPTION_PLACEHOLDER_COLOR = "#9aa0a6"
 
 
 class MeropeTextEdit(QTextEdit):
@@ -200,6 +222,12 @@ class MeropeTextEdit(QTextEdit):
         self._applying_zoom_overlay = False
         self.selectionChanged.connect(self.viewport().update)
         self.document().contentsChanged.connect(self._on_contents_changed)
+        # Figure captions are re-paired with their images after any edit
+        # (native deletes, drag and drop, undo-free paths...), merged into the
+        # edit that broke the pairing so undo stays a single step.
+        self._caption_region: tuple[int, int] | None = None
+        self._normalizing_captions = False
+        self.document().contentsChange.connect(self._note_caption_change)
 
     def set_external_paste_context(
         self,
@@ -238,6 +266,9 @@ class MeropeTextEdit(QTextEdit):
             event.accept()
             return
         if self._handle_raw_block_key(event):
+            event.accept()
+            return
+        if self._handle_caption_key(event):
             event.accept()
             return
         if self._handle_atomic_footnote_key(event):
@@ -299,7 +330,13 @@ class MeropeTextEdit(QTextEdit):
         menu = self.createStandardContextMenu(event.pos())
         menu.addSeparator()
         caption_action = menu.addAction("Légende...")
-        caption_action.triggered.connect(self.imageMetadataRequested.emit)
+        if figure_caption_block(self.document().findBlock(target.start)) is not None:
+            # A figure's caption is typed right below it.
+            caption_action.triggered.connect(
+                lambda _checked=False, start=target.start: self.edit_figure_caption(start)
+            )
+        else:
+            caption_action.triggered.connect(self.imageMetadataRequested.emit)
         self._add_image_size_menu(menu, target)
         menu.exec(event.globalPos())
         menu.deleteLater()
@@ -442,6 +479,150 @@ class MeropeTextEdit(QTextEdit):
             replacement_format = QTextCharFormat()
         return replacement_format
 
+    # -- figure captions ----------------------------------------------------------
+
+    def _handle_caption_key(self, event: QKeyEvent) -> bool:
+        """Keep a caption one line, attached to its image, apart from the text.
+
+        Enter never splits a caption (it opens a paragraph after the figure),
+        and Backspace/Delete never merge a caption with the image or with the
+        text around it. Selections straddling a caption edge are refused.
+        """
+
+        key = event.key()
+        enter = key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        erase = key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete)
+        typing = bool(event.text()) and not event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        )
+        if not (enter or erase or typing):
+            return False
+        cursor = self.textCursor()
+        if selection_crosses_caption_boundary(cursor):
+            return True
+
+        caption = caption_block_for_selection(cursor)
+        if caption is not None:
+            if enter:
+                self._open_paragraph_after(caption, cursor)
+                return True
+            if event.text() == "\t":
+                return True
+            if not cursor.hasSelection():
+                at_start = cursor.position() == caption.position()
+                at_end = cursor.position() == caption.position() + caption.length() - 1
+                if (key == Qt.Key.Key_Backspace and at_start) or (
+                    key == Qt.Key.Key_Delete and at_end
+                ):
+                    return True
+            return False
+
+        if cursor.hasSelection():
+            return False
+        block = cursor.block()
+        position = cursor.position()
+        if (
+            key == Qt.Key.Key_Backspace
+            and position == block.position()
+            and is_caption_block(block.previous())
+        ):
+            previous = block.previous()
+            self._place_cursor(previous.position() + previous.length() - 1)
+            return True
+        if key == Qt.Key.Key_Delete and position == block.position() + block.length() - 1:
+            following = block.next()
+            if is_caption_block(following):
+                self._place_cursor(following.position())
+                return True
+        figure_caption = figure_caption_block(block)
+        if enter and figure_caption is not None and position > block.position():
+            self._open_paragraph_after(figure_caption, cursor)
+            return True
+        return False
+
+    def _open_paragraph_after(self, caption, cursor: QTextCursor) -> None:
+        edit = QTextCursor(self.document())
+        edit.beginEditBlock()
+        try:
+            if cursor.hasSelection():
+                cursor.removeSelectedText()
+            paragraph = insert_paragraph_after(caption)
+        finally:
+            edit.endEditBlock()
+        self.setTextCursor(paragraph)
+
+    def _place_cursor(self, position: int) -> None:
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(position)
+        self.setTextCursor(cursor)
+
+    def edit_figure_caption(self, image_position: int) -> bool:
+        """Put the caret in a figure's caption, its current text selected."""
+
+        caption = figure_caption_block(self.document().findBlock(image_position))
+        if caption is None:
+            return False
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(caption.position())
+        cursor.setPosition(
+            caption.position() + caption.length() - 1, QTextCursor.MoveMode.KeepAnchor
+        )
+        self.setTextCursor(cursor)
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _insert_plain_text_in_caption(self, text: str) -> bool:
+        flat = flatten_caption_text(text)
+        if not flat:
+            return False
+        cursor = self.textCursor()
+        cursor.beginEditBlock()
+        try:
+            cursor.insertText(flat, make_caption_char_format())
+        finally:
+            cursor.endEditBlock()
+        self.setTextCursor(cursor)
+        return True
+
+    def _note_caption_change(self, position: int, _removed: int, added: int) -> None:
+        if self._normalizing_captions:
+            return
+        end = position + max(added, 0)
+        region = self._caption_region
+        self._caption_region = (
+            (position, end)
+            if region is None
+            else (min(region[0], position), max(region[1], end))
+        )
+        if region is None:
+            QTimer.singleShot(0, self.normalize_captions)
+
+    def normalize_captions(self) -> bool:
+        """Re-pair figures and captions, joined to the edit that broke them."""
+
+        region = self._caption_region
+        self._caption_region = None
+        document = self.document()
+        # Right after an undo the restored state was already consistent;
+        # joining a fix there would rewrite history.
+        if document.isRedoAvailable():
+            return False
+        start, end = region if region is not None else (None, None)
+        if not caption_normalization_needed(document, start, end):
+            return False
+        self._normalizing_captions = True
+        edit = QTextCursor(document)
+        edit.joinPreviousEditBlock()
+        try:
+            changed = normalize_figure_captions(document, start, end)
+        finally:
+            edit.endEditBlock()
+            self._normalizing_captions = False
+        self.viewport().update()
+        return changed
+
     def copy(self) -> None:
         if not self._copy_merope_selection(cut=False):
             super().copy()
@@ -554,6 +735,11 @@ class MeropeTextEdit(QTextEdit):
         if cut and selection_crosses_raw_boundary(cursor):
             self.clipboardRefused.emit(
                 "La coupe ne peut pas traverser la frontière d’un bloc brut"
+            )
+            return True
+        if cut and selection_crosses_caption_boundary(cursor):
+            self.clipboardRefused.emit(
+                "La coupe ne peut pas séparer une légende de son image"
             )
             return True
         if contains_note:
@@ -726,6 +912,7 @@ class MeropeTextEdit(QTextEdit):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)
+        self._paint_caption_placeholders()
         geometry = self.image_resize_geometry()
         if geometry is None:
             return
@@ -752,6 +939,39 @@ class MeropeTextEdit(QTextEdit):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(ghost)
         self._paint_resize_label(painter, state)
+
+    def _paint_caption_placeholders(self) -> None:
+        """Hint where an empty caption can be typed (visible blocks only)."""
+
+        layout = self.document().documentLayout()
+        dy = self.verticalScrollBar().value()
+        bottom = self.viewport().height()
+        block = self.cursorForPosition(QPoint(0, 0)).block()
+        painter: QPainter | None = None
+        while block.isValid():
+            if layout.blockBoundingRect(block).top() - dy > bottom:
+                break
+            if is_caption_block(block) and block.length() <= 1:
+                caret = QTextCursor(self.document())
+                caret.setPosition(block.position())
+                line = self.cursorRect(caret)
+                if painter is None:
+                    painter = QPainter(self.viewport())
+                    painter.setPen(QColor(CAPTION_PLACEHOLDER_COLOR))
+                # An empty line keeps its unzoomed height: size the hint to it.
+                font = QFont(self.font())
+                font.setItalic(True)
+                font.setPixelSize(max(8, round(line.height() * 0.7)))
+                painter.setFont(font)
+                width = self.viewport().width() - line.left() - 4
+                painter.drawText(
+                    QRect(line.left() + 2, line.top(), max(0, width), line.height()),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    CAPTION_PLACEHOLDER,
+                )
+            block = block.next()
+        if painter is not None:
+            painter.end()
 
     def _paint_resize_label(self, painter: QPainter, state: _ImageResizeState) -> None:
         metrics = painter.fontMetrics()
@@ -904,6 +1124,18 @@ class MeropeTextEdit(QTextEdit):
                 "Le collage ne peut pas remplacer une frontière de bloc brut"
             )
             return
+        if selection_crosses_caption_boundary(paste_cursor):
+            self.pasteRefused.emit(
+                "Le collage ne peut pas séparer une légende de son image"
+            )
+            return
+        if caption_block_for_selection(paste_cursor) is not None:
+            text = source.text() if source.hasText() else ""
+            if not self._insert_plain_text_in_caption(text):
+                self.pasteRefused.emit(
+                    "Une légende d’image ne peut recevoir que du texte"
+                )
+            return
         raw_identities = selection_block_identities(paste_cursor)
         if any(identity is not None for identity in raw_identities):
             if len(raw_identities) != 1 or None in raw_identities:
@@ -1004,6 +1236,13 @@ class MeropeTextEdit(QTextEdit):
                 "Le collage ne peut pas remplacer une frontière de bloc brut"
             )
             return False
+        if selection_crosses_caption_boundary(cursor):
+            self.pasteRefused.emit(
+                "Le collage ne peut pas séparer une légende de son image"
+            )
+            return False
+        if caption_block_for_selection(cursor) is not None:
+            return self._insert_plain_text_in_caption(text)
         identities = selection_block_identities(cursor)
         raw_identities = {identity for identity in identities if identity is not None}
         if raw_identities:

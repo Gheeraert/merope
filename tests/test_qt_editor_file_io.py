@@ -17,6 +17,7 @@ from bloggen.content.writer import read_content_file, write_content_file
 from bloggen.markdown.rich_text_import import markdown_to_blocks
 from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
 from bloggen.ui.qt_editor.document_adapter import (
+    caption_block_for_selection,
     extract_blocks,
 )
 from bloggen.ui.qt_editor.file_io import (
@@ -452,7 +453,7 @@ def test_insert_image_dialog_requires_an_open_document(tmp_path, monkeypatch):
     assert warnings and "Ouvrez d’abord" in warnings[0]
 
 
-def test_insert_image_dialog_collects_file_and_caption(tmp_path, monkeypatch):
+def test_insert_image_dialog_asks_no_caption_and_moves_into_it(tmp_path, monkeypatch):
     doc_dir = tmp_path / "content" / "pages"
     images_dir = tmp_path / "assets" / "images"
     source = tmp_path / "incoming" / "photo.png"
@@ -468,11 +469,14 @@ def test_insert_image_dialog_collects_file_and_caption(tmp_path, monkeypatch):
     monkeypatch.setattr(
         QInputDialog,
         "getText",
-        lambda *args: ("Ma légende", True),
+        lambda *args: pytest.fail("La légende se tape sous l’image, sans question"),
     )
 
     window._insert_image_from_dialog()
 
+    # The caret waits in the (empty) caption, ready for typing.
+    assert caption_block_for_selection(window.editor.textCursor()) is not None
+    window.editor.insertPlainText("Ma légende")
     assert extract_blocks(window.editor.document()) == [
         Block(
             kind=PARAGRAPH,
@@ -485,6 +489,8 @@ def test_insert_image_dialog_collects_file_and_caption(tmp_path, monkeypatch):
             alignment="justify",
         )
     ]
+    window.editor.document().setModified(False)
+    window.close()
 
 
 def test_run_emits_ready_then_closed_around_qt_event_loop(monkeypatch):

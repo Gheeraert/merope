@@ -12,6 +12,12 @@ ALIGNMENT_PROPERTY = _MEROPE_PROPERTY_BASE + 3
 LIST_KIND_PROPERTY = _MEROPE_PROPERTY_BASE + 4
 RAW_BLOCK_KIND_PROPERTY = _MEROPE_PROPERTY_BASE + 5
 RAW_BLOCK_GROUP_PROPERTY = _MEROPE_PROPERTY_BASE + 6
+# Légende tapée sous une image seule : texte stocké tel qu'il a été chargé,
+# afin de réécrire exactement une légende que l'auteur n'a pas modifiée.
+CAPTION_SOURCE_PROPERTY = _MEROPE_PROPERTY_BASE + 7
+
+# Type Qt (jamais canonique) du bloc de légende qui suit une image seule.
+IMAGE_CAPTION_KIND = "merope-image-caption"
 
 # Proprietes de caracteres. Elles portent la semantique Merope independamment
 # du rendu visuel choisi pour le QTextDocument.
@@ -44,5 +50,10 @@ HEADING_MARGINS = {
     4: (12.0, 8.0),
 }
 IMAGE_BLOCK_MARGINS = (16.0, 16.0)
+# Une figure légendée : l'image colle à sa légende, qui porte l'espace final.
+FIGURE_IMAGE_BOTTOM_MARGIN = 3.0
+CAPTION_BLOCK_MARGINS = (0.0, 16.0)
+CAPTION_POINT_SIZE = 9.5
+CAPTION_COLOR = "#5f6368"
 BODY_POINT_SIZE = 11.0
 BLOCKQUOTE_LEFT_MARGIN = 24.0

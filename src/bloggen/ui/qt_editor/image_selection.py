@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtGui import QTextCursor, QTextDocument
 
 from bloggen.markdown.rich_text_model import InlineRun
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedInlineError,
+    figure_caption_alt,
+    figure_caption_block,
     image_run_from_format,
     make_image_format,
+    set_figure_caption,
 )
 
 
@@ -52,10 +55,21 @@ def merope_image_at_position(
                 return ImageTarget(
                     start=position,
                     end=position + 1,
-                    run=image_run_from_format(fragment.charFormat()),
+                    run=_with_visible_caption(
+                        block, image_run_from_format(fragment.charFormat())
+                    ),
                 )
         iterator += 1
     return None
+
+
+def _with_visible_caption(block, run: InlineRun) -> InlineRun:
+    """A figure's alt text is what its caption block shows right now."""
+
+    caption = figure_caption_block(block)
+    if caption is None:
+        return run
+    return replace(run, image_alt=figure_caption_alt(caption))
 
 
 def merope_images_in_selection(cursor: QTextCursor) -> list[ImageTarget]:
@@ -79,7 +93,9 @@ def merope_images_in_selection(cursor: QTextCursor) -> list[ImageTarget]:
                 and fragment_end > start
                 and fragment_start < end
             ):
-                run = image_run_from_format(fragment.charFormat())
+                run = _with_visible_caption(
+                    block, image_run_from_format(fragment.charFormat())
+                )
                 selected_start = max(fragment_start, start)
                 selected_end = min(fragment_end, end)
                 targets.extend(
@@ -154,6 +170,12 @@ def replace_merope_image(
     try:
         cursor.removeSelectedText()
         cursor.insertImage(make_image_format(run))
+        # A figure's visible caption is its own block. Callers that change
+        # the alt text on purpose (the image dialog) update it too; the others
+        # pass the alt they read and leave a typed caption alone.
+        caption = figure_caption_block(document.findBlock(target.start))
+        if caption is not None and run.image_alt != target.run.image_alt:
+            set_figure_caption(caption, run.image_alt)
     finally:
         cursor.endEditBlock()
     cursor.setPosition(target.start)

@@ -29,11 +29,15 @@ from bloggen.ui.qt_editor.constants import (
 )
 from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
+    is_caption_block,
     is_raw_block,
     is_semantic_inline_object_format,
     refresh_block_visuals,
     selection_touches_raw_block,
 )
+
+# An image caption only carries bold and italic (``**``/``*`` in its alt text).
+_CAPTION_PROPERTIES = frozenset({BOLD_PROPERTY, ITALIC_PROPERTY})
 
 
 def toggle_bold(editor: QTextEdit) -> None:
@@ -74,11 +78,16 @@ def set_link(editor: QTextEdit, href: str | None) -> None:
     """Apply a native Qt anchor, or remove it when ``href`` is ``None``."""
 
     selection = editor.textCursor()
-    ranges = _selected_text_ranges(selection) if selection.hasSelection() else None
+    ranges = (
+        _selected_text_ranges(selection, include_captions=False)
+        if selection.hasSelection()
+        else None
+    )
     if ranges == [] or (
         not selection.hasSelection()
         and (
             is_raw_block(selection.block())
+            or is_caption_block(selection.block())
             or is_semantic_inline_object_format(selection.charFormat())
         )
     ):
@@ -173,7 +182,13 @@ def set_list(editor: QTextEdit, kind: str) -> None:
     cursor = editor.textCursor()
     if selection_touches_raw_block(cursor):
         return
-    blocks = _selected_blocks(editor.document(), cursor)
+    blocks = [
+        block
+        for block in _selected_blocks(editor.document(), cursor)
+        if not is_caption_block(block)
+    ]
+    if not blocks:
+        return
     cursor.beginEditBlock()
     for block in blocks:
         text_list = block.textList()
@@ -220,7 +235,12 @@ def set_alignment(editor: QTextEdit, alignment: str) -> None:
     cursor = editor.textCursor()
     if selection_touches_raw_block(cursor):
         return
-    blocks = _selected_blocks(editor.document(), cursor)
+    # A caption follows its image's alignment on its own.
+    blocks = [
+        block
+        for block in _selected_blocks(editor.document(), cursor)
+        if not is_caption_block(block)
+    ]
     if any(block.textList() is not None for block in blocks):
         raise ValueError("L'alignement des elements de liste n'est pas pris en charge")
     cursor.beginEditBlock()
@@ -238,7 +258,12 @@ def toggle_justify(editor: QTextEdit) -> None:
 
     selection = editor.textCursor()
     block = selection.block()
-    if not block.isValid() or is_raw_block(block) or block.textList() is not None:
+    if (
+        not block.isValid()
+        or is_raw_block(block)
+        or is_caption_block(block)
+        or block.textList() is not None
+    ):
         return
     block_format = block.blockFormat()
     stored = block_format.property(ALIGNMENT_PROPERTY)
@@ -267,10 +292,18 @@ def _toggle_inline(
     apply_visual: Callable[[QTextCharFormat, bool], None],
 ) -> None:
     cursor = editor.textCursor()
-    text_ranges = _selected_text_ranges(cursor) if cursor.hasSelection() else None
+    in_captions = property_id in _CAPTION_PROPERTIES
+    text_ranges = (
+        _selected_text_ranges(cursor, include_captions=in_captions)
+        if cursor.hasSelection()
+        else None
+    )
     if text_ranges == [] or (
         not cursor.hasSelection()
-        and is_semantic_inline_object_format(cursor.charFormat())
+        and (
+            is_semantic_inline_object_format(cursor.charFormat())
+            or (not in_captions and is_caption_block(cursor.block()))
+        )
     ):
         return
     enabled = not _selection_all_has_format(cursor, property_id, text_ranges)
@@ -287,6 +320,11 @@ def _set_leaf_block_kind(editor: QTextEdit, kind: str, level: int | None = None)
     blocks = _selected_blocks(editor.document(), cursor)
     cursor.beginEditBlock()
     for block in blocks:
+        if is_caption_block(block):
+            # A caption keeps its kind; only its look is restored (clearing
+            # formats would otherwise leave body-sized text in it).
+            refresh_block_visuals(block)
+            continue
         text_list = block.textList()
         if text_list is not None:
             text_list.remove(block)
@@ -337,6 +375,8 @@ def _selection_all_has_format(
 
 def _selected_text_ranges(
     cursor: QTextCursor,
+    *,
+    include_captions: bool = True,
 ) -> list[tuple[int, int, QTextCharFormat]]:
     if not cursor.hasSelection():
         return []
@@ -345,7 +385,7 @@ def _selected_text_ranges(
     ranges: list[tuple[int, int, QTextCharFormat]] = []
     block = cursor.document().findBlock(selection_start)
     while block.isValid() and block.position() < selection_end:
-        if is_raw_block(block):
+        if is_raw_block(block) or (not include_captions and is_caption_block(block)):
             block = block.next()
             continue
         iterator = block.begin()

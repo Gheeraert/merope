@@ -480,8 +480,9 @@ le champ historique de légende et conserve littéralement ses marqueurs `*` et
 
 La commande « Insérer une image... » exige un document réel ouvert et un
 répertoire d’images configuré. Elle copie le fichier avec
-`copy_into_images_dir`, demande une légende simple, puis insère le même
-`InlineRun` via `insert_blocks`. Undo/redo porte sur le document Qt ; la copie
+`copy_into_images_dir`, puis insère le même `InlineRun` via `insert_blocks`,
+sans poser de question : si l’image est seule dans son paragraphe, le curseur
+se place dans sa légende, qui se tape directement sous l’image. Undo/redo porte sur le document Qt ; la copie
 physique reste volontairement sur disque après undo.
 
 Une image Mérope est ciblée par la plage exacte de son caractère objet Qt et
@@ -499,6 +500,49 @@ par `make_image_format`, dans une seule opération undo. Les champs non touchés
 conservent exactement leur valeur, y compris une taille historique en pixels
 (signalée dans le dialogue) ; toucher la largeur écrit un pourcentage et
 supprime la hauteur. Une légende vidée reste la chaîne vide.
+
+#### Légendes tapées sous l’image
+
+Un paragraphe qui ne contient qu’une image (et des blancs) est publié comme une
+figure dont la légende est le texte alternatif. Dans l’éditeur Qt, cette
+légende est un bloc éditable placé juste sous l’image (`IMAGE_CAPTION_KIND`,
+petit texte gris aligné sur l’image) : on y tape directement, gras et italique
+compris. Le modèle canonique ne change pas : `extract_blocks` replie le bloc
+dans `image_alt`, en `**`/`*` (module pur `bloggen.markdown.caption`, qui suit
+la règle de flanquement de Pandoc : `5 * 3` reste littéral). Une légende non
+modifiée est réécrite exactement comme chargée (`CAPTION_SOURCE_PROPERTY`),
+`None` et `""` compris. Une légende vide affiche l’indication « Légende de
+l’image (facultative) », dessinée seulement pour les blocs visibles.
+
+Garde-fous (même approche que les blocs bruts) :
+
+- Entrée dans la légende, ou après l’image, ouvre un paragraphe sous la figure
+  au lieu de couper la légende ; Retour arrière et Suppr ne fusionnent jamais
+  la légende avec l’image ni avec le texte voisin (le curseur saute à la place) ;
+- une sélection à cheval sur un bord de légende est refusée pour la frappe, la
+  suppression, la coupe et le collage ; une sélection couvrant des figures
+  entières reste libre ;
+- le collage dans une légende n’accepte que du texte, ramené à une ligne ; notes,
+  images et tableaux y sont refusés avant tout dialogue ; seuls gras et italique
+  y sont applicables (titres, listes, citations, alignement, souligné, barré,
+  exposant et liens y sont sans effet).
+
+Après toute modification, `normalize_figure_captions` rétablit l’invariant
+« toute figure a une légende, toute légende suit une figure », dans la zone
+touchée, et fusionne la correction à l’édition qui l’a rendue nécessaire
+(`joinPreviousEditBlock`) : un seul Ctrl+Z annule les deux, et elle ne s’exécute
+pas juste après une annulation. Une image supprimée emporte sa légende ; du
+texte tapé à côté de l’image en fait une image en ligne, et la légende devient
+son texte alternatif ; une image redevenue seule retrouve sa légende.
+`extract_blocks` applique les mêmes règles, si bien que le Markdown ne dépend
+jamais du moment où la normalisation a eu lieu.
+
+Les `ImageTarget` (dialogue Image, recadrage, redimensionnement) voient la
+légende affichée ; changer la légende dans le dialogue met le bloc à jour dans
+la même opération d’annulation, et « Légende... » au clic droit d’une figure
+place simplement le curseur dans sa légende. Copier une image seule emporte sa
+légende courante (`selection_image_alts`), et des mots copiés dans une légende
+restent du texte.
 
 Les commandes gras, italique, barré, exposant et lien parcourent désormais
 seulement les intervalles textuels d’une sélection. Une image traversée reste

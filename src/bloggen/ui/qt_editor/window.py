@@ -73,6 +73,7 @@ from bloggen.markdown.rich_text_model import (
 )
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
+    caption_block_for_selection,
     extract_blocks,
     inline_format_enabled,
     insert_footnote_reference,
@@ -1294,7 +1295,22 @@ class QtEditorWindow(QMainWindow):
         self.editor.setTextCursor(cursor)
         return table
 
+    def _refuse_in_caption(self, what: str) -> bool:
+        """Warn before any dialog when the caret sits in an image caption."""
+
+        if caption_block_for_selection(self.editor.textCursor()) is None:
+            return False
+        QMessageBox.warning(
+            self,
+            "Insertion impossible",
+            f"Une légende d’image ne peut contenir que du texte : placez le "
+            f"curseur hors de la légende pour insérer {what}.",
+        )
+        return True
+
     def _insert_table_from_dialog(self) -> bool:
+        if self._refuse_in_caption("un tableau"):
+            return False
         rows, accepted = QInputDialog.getInt(
             self,
             "Tableau",
@@ -1323,6 +1339,8 @@ class QtEditorWindow(QMainWindow):
         return True
 
     def _insert_footnote_from_dialog(self) -> bool:
+        if self._refuse_in_caption("un appel de note"):
+            return False
         if self.editor.textCursor().hasSelection():
             QMessageBox.warning(
                 self,
@@ -1436,6 +1454,8 @@ class QtEditorWindow(QMainWindow):
         return run
 
     def _insert_image_from_dialog(self) -> None:
+        if self._refuse_in_caption("une image"):
+            return
         if self.current_path is None:
             QMessageBox.warning(
                 self,
@@ -1458,17 +1478,15 @@ class QtEditorWindow(QMainWindow):
         )
         if not source:
             return
-        image_alt, accepted = QInputDialog.getText(
-            self,
-            "Image",
-            "Légende (sert aussi de texte alternatif) :",
-        )
-        if not accepted:
-            return
         try:
-            self.insert_image_file(Path(source), image_alt=image_alt)
+            self.insert_image_file(Path(source))
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Insertion impossible", str(exc))
+            return
+        # The caption is typed right below a standalone image: go there.
+        image_position = self.editor.textCursor().position() - 1
+        if image_position >= 0:
+            self.editor.edit_figure_caption(image_position)
 
     def replace_targeted_image(self, run: InlineRun) -> bool:
         """Replace the unique selected/adjacent image, if unambiguous."""

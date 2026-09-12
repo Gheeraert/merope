@@ -8,7 +8,13 @@ from PySide6.QtGui import QTextCursor, QTextDocument, QTextDocumentFragment
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks
 from bloggen.markdown.rich_text_model import Block
-from bloggen.ui.qt_editor.document_adapter import extract_blocks, validate_blocks
+from bloggen.ui.qt_editor.document_adapter import (
+    apply_image_alts,
+    extract_blocks,
+    release_orphan_captions_as_text,
+    selection_image_alts,
+    validate_blocks,
+)
 
 
 MEROPE_FRAGMENT_MIME = "application/x-merope-markdown-fragment"
@@ -26,6 +32,10 @@ def encode_selection_as_markdown(cursor: QTextCursor) -> bytes:
     fragment_document = QTextDocument()
     fragment_cursor = QTextCursor(fragment_document)
     fragment_cursor.insertFragment(QTextDocumentFragment(cursor))
+    # Images carry their typed captions, even when copied on their own; and
+    # copied caption words without their image stay text on the clipboard.
+    apply_image_alts(fragment_document, selection_image_alts(cursor))
+    release_orphan_captions_as_text(fragment_document)
     blocks = extract_blocks(fragment_document)
     validate_blocks(blocks)
     return blocks_to_markdown(blocks).encode("utf-8")
