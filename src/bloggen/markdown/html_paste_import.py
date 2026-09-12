@@ -48,6 +48,7 @@ from bloggen.markdown.typography import (
 _BOLD_TAGS = {"b", "strong"}
 _ITALIC_TAGS = {"i", "em"}
 _STRIKE_TAGS = {"s", "strike", "del"}
+_UNDERLINE_TAGS = {"u"}
 _SUPERSCRIPT_TAGS = {"sup"}
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _BLOCK_TAGS = _HEADING_TAGS | {"p", "li", "blockquote", "ul", "ol"}
@@ -185,12 +186,20 @@ class _HtmlBlockBuilder(HTMLParser):
         *,
         bold: bool = False,
         italic: bool = False,
+        underline: bool = False,
         strike: bool = False,
         superscript: bool = False,
         link_href: str | None = None,
     ) -> None:
         self.inline_stack.append(
-            {"bold": bold, "italic": italic, "strike": strike, "superscript": superscript, "link_href": link_href}
+            {
+                "bold": bold,
+                "italic": italic,
+                "underline": underline,
+                "strike": strike,
+                "superscript": superscript,
+                "link_href": link_href,
+            }
         )
 
     def _pop_inline(self) -> None:
@@ -200,6 +209,7 @@ class _HtmlBlockBuilder(HTMLParser):
     def _current_flags(self) -> dict:
         bold = any(f["bold"] for f in self.inline_stack)
         italic = any(f["italic"] for f in self.inline_stack)
+        underline = any(f["underline"] for f in self.inline_stack)
         strike = any(f["strike"] for f in self.inline_stack)
         superscript = any(f["superscript"] for f in self.inline_stack)
         link_href = None
@@ -210,6 +220,7 @@ class _HtmlBlockBuilder(HTMLParser):
         return {
             "bold": bold,
             "italic": italic,
+            "underline": underline,
             "strike": strike,
             "superscript": superscript,
             "link_href": link_href,
@@ -325,6 +336,7 @@ class _HtmlBlockBuilder(HTMLParser):
                     text=text,
                     bold=flags["bold"],
                     italic=flags["italic"],
+                    underline=flags["underline"],
                     strikethrough=flags["strike"],
                     superscript=flags["superscript"],
                     link_href=flags["link_href"],
@@ -431,9 +443,16 @@ class _HtmlBlockBuilder(HTMLParser):
         style = _parse_style(attrs_dict.get("style", ""))
         bold = _style_is_bold(style) if "font-weight" in style else tag in _BOLD_TAGS
         italic = _style_is_italic(style) if "font-style" in style else tag in _ITALIC_TAGS
+        underline = _style_is_underline(style) if "text-decoration" in style else tag in _UNDERLINE_TAGS
         strike = _style_is_strike(style) if "text-decoration" in style else tag in _STRIKE_TAGS
         superscript = _style_is_superscript(style) if "vertical-align" in style else tag in _SUPERSCRIPT_TAGS
-        self._push_inline(bold=bold, italic=italic, strike=strike, superscript=superscript)
+        self._push_inline(
+            bold=bold,
+            italic=italic,
+            underline=underline,
+            strike=strike,
+            superscript=superscript,
+        )
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
@@ -464,6 +483,7 @@ def _same_flags(run: InlineRun, flags: dict) -> bool:
         and run.footnote_ref is None
         and run.bold == flags["bold"]
         and run.italic == flags["italic"]
+        and run.underline == flags["underline"]
         and run.strikethrough == flags["strike"]
         and run.superscript == flags["superscript"]
         and run.link_href == flags["link_href"]
@@ -490,6 +510,10 @@ def _style_is_italic(style: dict[str, str]) -> bool:
 
 def _style_is_strike(style: dict[str, str]) -> bool:
     return "line-through" in style.get("text-decoration", "")
+
+
+def _style_is_underline(style: dict[str, str]) -> bool:
+    return "underline" in style.get("text-decoration", "")
 
 
 def _style_is_superscript(style: dict[str, str]) -> bool:

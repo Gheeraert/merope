@@ -187,8 +187,12 @@ Markdown, au vrai output ou au sidecar TEI utilisateur.
 - l’adaptateur explicite `Block`/`InlineRun ↔ QTextDocument` pour les
   paragraphes, titres H1 à H4, citations, listes simples à puces ou numérotées
   et alignements ;
-- les formats inline gras, italique, barré, exposant et lien, y compris leurs
-  combinaisons ;
+- les blocs TABLE et VERBATIM sous forme de source brute monospacée éditable,
+  avec regroupement transitoire et fallback sans perte d’une table invalide
+  vers VERBATIM ;
+- les formats inline gras, italique, souligné, barré, exposant et lien, y
+  compris leurs combinaisons ; le soulignement est persisté par la syntaxe
+  Pandoc `[texte]{.underline}` et rendu depuis le TEI `simple:underline` ;
 - la préservation exacte des espaces insécables U+00A0 par parcours des
   `QTextBlock` et `QTextFragment`, sans `QTextDocument.toPlainText()` ;
 - les listes, ancres, alignements, curseurs et piles undo/redo natifs de Qt ;
@@ -202,8 +206,9 @@ Markdown, au vrai output ou au sidecar TEI utilisateur.
 - l’enregistrement par `extract_blocks`, `blocks_to_markdown`, puis
   `write_content_file`, avec conservation des métadonnées et archivage
   préalable dans `.versions` par le service partagé avec Tkinter ;
-- l’état modifié natif `QTextDocument.isModified()` et les choix Enregistrer,
-  Ne pas enregistrer ou Annuler avant ouverture et fermeture ;
+- le dirty global réunissant corps, `FootnoteStore`, métadonnées et session
+  importée, avec les choix Enregistrer, Ne pas enregistrer ou Annuler avant
+  ouverture et fermeture ;
 - le lancement expérimental depuis la fenêtre principale dans un processus
   séparé, sans aucun import PySide6 côté Tkinter ;
 - une seule instance Qt expérimentale à la fois, avec détection des erreurs
@@ -217,6 +222,8 @@ Markdown, au vrai output ou au sidecar TEI utilisateur.
   dimensions ni alignement ;
 - l’insertion d’une image locale dans un document déjà ouvert, avec copie et
   résolution du chemin relatif assurées par le service d’images partagé ;
+- le collage externe d’images HTML, VML simple, `QImage` native ou fichiers
+  locaux via un staging transactionnel avant insertion canonique ;
 - les appels et définitions de notes de bas de page existants, séparés entre le
   document principal et un store canonique affiché dans un panneau en lecture
   seule, puis réunis sans sérialisation Qt lors de la sauvegarde ;
@@ -224,6 +231,10 @@ Markdown, au vrai output ou au sidecar TEI utilisateur.
   partagé `.merope-recovery/draft.json`, lorsque `project_root` est fourni ;
 - l’aperçu HTML ponctuel du document Qt non enregistré avec configuration Tk
   vivante, via le vrai pipeline de publication et un scratch isolé ;
+- le workflow projet : navigateur de contenus, création, import, métadonnées,
+  premier save, conversion page/billet, suppression et actualisation ;
+- les outils quotidiens recherche/remplacement, collage texte brut, insertion
+  manuelle de U+00A0, zoom visuel et raccourcis associés ;
 - une erreur explicite avant toute modification du document pour les blocs ou
   feuilles inline que ce prototype ne sait pas conserver.
 
@@ -963,12 +974,33 @@ bloc brut, les lignes collées restent dans le même groupe. « Espace insécabl
 y compris comme caractère littéral dans TABLE/VERBATIM.
 
 `Ctrl` + molette règle seulement le zoom de rendu de 50 % à 300 %, par pas de
-10 %. Ce niveau reste propre à la session : aucun `Block`, `InlineRun`, attribut
-d’image, fichier Markdown, recovery, dirty ou historique undo ne le mémorise.
-Les raccourcis quotidiens incluent aussi `Ctrl+F`, `Ctrl+H`, `Ctrl+Shift+S` pour
-le barré, `Ctrl+Shift+=` pour l’exposant et `Alt+J` pour basculer le paragraphe
-courant entre gauche et justifié ; les raccourcis existants ouvrir, enregistrer,
-gras, italique, lien, undo et redo sont conservés.
+10 %. Le filtre est installé sur le `viewport` du `QTextEdit`, récepteur réel
+des événements de molette de `QAbstractScrollArea` sous Windows ; sans Ctrl,
+l’événement reste confié au scroll natif. Ce niveau reste propre à la session :
+aucun `Block`, `InlineRun`, attribut d’image, fichier Markdown, recovery, dirty
+ou historique undo ne le mémorise.
+
+Le bandeau supérieur Qt est une vue compacte des mêmes `QAction` : un
+`FlowLayout` répartit ses `QToolButton` iconiques sur autant de lignes que la
+largeur l’exige. Les callbacks, états, raccourcis et infobulles restent portés
+par les actions, sans duplication de logique. Les formats inline synchronisent
+leur état coché avec le curseur. Les icônes utilisent d’abord `QStyle` ou le
+thème Qt, puis de petits glyphes dessinés par Qt, sans dépendance externe.
+
+Les raccourcis sont exercés par de vrais événements clavier avec le focus dans
+le corps : `Ctrl+G` et `Ctrl+B` pour le gras, `Ctrl+I` pour l’italique,
+`Ctrl+U` pour le soulignement canonique, `Ctrl+C/X/V` pour les chemins Mérope,
+`Ctrl+Shift+V` pour le texte brut, `Ctrl+Espace` (alias `Alt+Espace`) pour
+U+00A0, `Ctrl+Z` pour annuler et `Ctrl+Y` (alias `Ctrl+Shift+Z`) pour rétablir.
+S’ajoutent `Ctrl+F`, `Ctrl+H`, `Ctrl+Shift+S` pour le barré, `Ctrl+Shift+=`
+pour l’exposant et `Alt+J` pour basculer le paragraphe courant entre gauche et
+justifié.
+
+L’historique Qt conserve les opérations successives pendant l’édition et après
+un enregistrement ordinaire. Il est remis à zéro lors du remplacement complet
+de session (ouvrir, nouveau, import, recovery). La renumérotation de notes au
+save reste l’exception volontaire : son historique est vidé après succès afin
+qu’un undo du corps ne puisse pas désynchroniser les IDs du `FootnoteStore`.
 
 ## Parité fonctionnelle automatisée : prête pour recette humaine
 

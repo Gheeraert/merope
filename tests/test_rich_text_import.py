@@ -35,6 +35,20 @@ def test_superscript_roundtrip():
     assert _roundtrip(body).strip() == body.strip()
 
 
+def test_underline_and_underlined_link_roundtrip():
+    body = (
+        "Un [texte]{.underline} et "
+        "[[***lien***](https://example.org)]{.underline}.\n"
+    )
+    blocks = markdown_to_blocks(body)
+    assert blocks[0].runs[1].underline
+    assert blocks[0].runs[3].underline
+    assert blocks[0].runs[3].bold
+    assert blocks[0].runs[3].italic
+    assert blocks[0].runs[3].link_href == "https://example.org"
+    assert _roundtrip(body).strip() == body.strip()
+
+
 def test_footnote_reference_and_definition_roundtrip():
     body = "Une phrase avec une note[^1].\n\n[^1]: Le texte de la note.\n"
     assert _roundtrip(body).strip() == body.strip()

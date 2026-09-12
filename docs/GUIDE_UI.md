@@ -33,7 +33,7 @@ Sauf mention contraire, les chemins de fichiers/dossiers demandés sont **relati
 
 ## Barre d'outils
 
-Sous la barre de menu, une rangée de boutons donne un accès direct à **Nouveau projet...**, **Charger... / Enregistrer / Enregistrer sous...** (mêmes actions que le menu Fichier), à l'**Éditeur de contenu...** (détaillé plus bas), à **Générer le site** (équivalent à Actions > Générer le site) et à **Publier (FTP)...** (détaillé plus bas, section « Publication FTP » — accessible uniquement depuis cette barre d'outils, pas depuis le menu Actions).
+Sous la barre de menu, une rangée de boutons donne un accès direct à **Nouveau projet...**, **Charger... / Enregistrer / Enregistrer sous...** (mêmes actions que le menu Fichier), aux deux éditeurs **Éditeur de contenu...** (Tkinter historique) et **Éditeur Qt (expérimental)...**, à **Générer le site** (équivalent à Actions > Générer le site) et à **Publier (FTP)...** (détaillé plus bas, section « Publication FTP » — accessible uniquement depuis cette barre d'outils, pas depuis le menu Actions).
 
 ### Nouveau projet...
 
@@ -244,9 +244,49 @@ Les trois colonnes sont **vides au départ** : c'est normal, il faut commencer p
 
 ---
 
-## Éditeur de contenu
+## Éditeurs de contenu : Tkinter et Qt
 
-*Fenêtre séparée (bouton « Éditeur de contenu... » dans la barre d'outils) pour rédiger des pages et des billets en saisie visuelle (WYSIWYG) — sans écrire de Markdown à la main — et les enregistrer directement dans les dossiers `pages_dir`/`posts_dir` définis dans l'onglet Chemins.*
+Deux choix sont actuellement proposés dans la barre d’outils :
+
+- **Éditeur de contenu...** ouvre l’éditeur Tkinter historique dans
+  l’application principale. Il reste l’éditeur principal et le fallback ;
+- **Éditeur Qt (expérimental)...** ouvre un second éditeur dans un processus
+  séparé. Il utilise les mêmes fichiers Markdown et le même modèle canonique,
+  mais reste en phase de recette. Aucune bascule automatique vers Qt n’est
+  planifiée pour l’instant.
+
+L’éditeur Qt nécessite l’extra optionnel PySide6 :
+`pip install -e ".[qt_editor]"`. S’il manque, Mérope affiche une erreur explicite
+et l’éditeur Tkinter reste disponible.
+
+Les deux permettent de créer, ouvrir, importer, convertir et supprimer pages et
+billets, d’éditer métadonnées, texte riche, images, notes et blocs bruts, puis de
+sauvegarder dans les dossiers `pages_dir`/`posts_dir`. Ils partagent également
+les règles de typographie, le recovery et le pipeline réel d’aperçu.
+
+Différences d’interface encore volontaires :
+
+- la description détaillée ci-dessous correspond à l’éditeur **Tkinter**
+  historique, avec ses boutons à icônes et son aperçu ponctuel ou en direct ;
+- l’éditeur **Qt** possède un bandeau compact à icônes qui revient
+  automatiquement sur plusieurs lignes selon la largeur disponible, un dock
+  « Contenus » et un dock « Notes » en lecture seule ; chaque icône expose son
+  libellé et son raccourci dans une infobulle, et l’édition riche d’une
+  définition de note s’effectue dans un dialogue modal ;
+- l’aperçu Qt est pour l’instant uniquement ponctuel ; il n’existe pas encore
+  d’aperçu live automatique ;
+- le resize Qt utilise une poignée en bas à droite, tandis que Tkinter affiche
+  quatre poignées ;
+- un collage Qt contenant une image impossible à préserver est refusé
+  atomiquement, alors que le chemin Tk historique peut conserver un texte de
+  remplacement.
+
+L’état technique détaillé de Qt est tenu dans `docs/QT_MIGRATION.md`.
+
+### Interface Tkinter historique
+
+*Fenêtre séparée pour rédiger des pages et des billets en saisie visuelle
+(WYSIWYG), sans écrire de Markdown à la main.*
 
 **Colonne de gauche** : liste des pages et billets déjà présents sur le disque.
 - **Nouvelle page** / **Nouveau billet** : repart d'un document vierge du type choisi.
@@ -343,7 +383,9 @@ Avant sauvegarde ou génération, la configuration est vérifiée automatiquemen
 - `src/bloggen/ui/dialogs.py` — boîtes de dialogue d'ajout/modification d'une entrée de menu ou d'une section.
 - `src/bloggen/ui/tooltip.py` — composant d'info-bulle affiché au survol des champs.
 - `src/bloggen/ui/content_editor/` — éditeur de contenu WYSIWYG, découpé par préoccupation : `window.py` (fenêtre, assemblage), `dialogs.py` (métadonnées), `notes.py` (panneau de notes, dont la renumérotation à l'enregistrement, `_renumber_footnotes`), `typography.py` (typographie française en direct), `autosave.py`, `undo_redo.py`, `blocks.py`, `file_ops.py`, `find_replace.py`, `formatting.py`, `paste.py`, `preview.py` (aperçu HTML, voir plus haut).
-- `src/bloggen/ui/preview_process.py` — sous-processus `pywebview` de l'aperçu HTML (fenêtre séparée : `pywebview` exige que sa boucle d'événements tourne sur le vrai thread principal du processus, déjà occupé par Tkinter).
+- `src/bloggen/ui/qt_editor/` — éditeur Qt expérimental : adaptateur `Block`/`InlineRun` ↔ `QTextDocument`, fenêtre, presse-papiers, images, notes, recovery, aperçu ponctuel et outils de recherche/remplacement.
+- `src/bloggen/ui/qt_editor_launcher.py` et `qt_editor_protocol.py` — lancement du processus Qt et protocole JSONL bidirectionnel avec la fenêtre Tkinter, notamment pour fournir la configuration vivante à l’aperçu.
+- `src/bloggen/ui/preview_process.py` — sous-processus `pywebview` partagé par les aperçus HTML des éditeurs (fenêtre séparée : sa boucle d’événements ne doit pas entrer en concurrence avec celle de Tkinter ou de Qt).
 - `src/bloggen/ui/ftp_publish_dialog.py` — fenêtre de publication FTP (formulaire, transfert en arrière-plan avec barre de progression/annulation, confirmation de suppression des fichiers obsolètes).
 - `src/bloggen/publish/ftp_publisher.py` — transfert FTP/FTPS réel, manifeste des fichiers déployés par MEROPE (détection des fichiers obsolètes sans jamais toucher aux fichiers d'une autre application partageant le même dossier distant), suppression des fichiers obsolètes.
 - `src/bloggen/publish/ftp_credentials.py` — lecture/écriture du mot de passe FTP dans le gestionnaire d'identifiants du système (dépendance optionnelle `keyring`, jamais dans `site.json`).

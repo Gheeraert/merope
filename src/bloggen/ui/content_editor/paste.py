@@ -179,6 +179,8 @@ class PasteMixin:
                 self.text.tag_add("bold", start, end)
             if run.italic:
                 self.text.tag_add("italic", start, end)
+            if run.underline:
+                self.text.tag_add("underline", start, end)
             if run.strikethrough:
                 self.text.tag_add("strike", start, end)
             if run.superscript:

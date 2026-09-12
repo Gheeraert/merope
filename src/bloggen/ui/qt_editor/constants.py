@@ -19,6 +19,7 @@ BOLD_PROPERTY = _MEROPE_PROPERTY_BASE + 20
 ITALIC_PROPERTY = _MEROPE_PROPERTY_BASE + 21
 STRIKETHROUGH_PROPERTY = _MEROPE_PROPERTY_BASE + 22
 SUPERSCRIPT_PROPERTY = _MEROPE_PROPERTY_BASE + 23
+UNDERLINE_PROPERTY = _MEROPE_PROPERTY_BASE + 24
 
 # Proprietes des images. Les attributs documentaires restent distincts des
 # dimensions natives de QTextImageFormat, qui ne servent qu'au rendu.

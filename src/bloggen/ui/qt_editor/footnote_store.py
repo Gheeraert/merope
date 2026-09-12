@@ -28,6 +28,7 @@ def plain_footnote_text(runs: list[InlineRun]) -> str | None:
         if (
             run.bold
             or run.italic
+            or run.underline
             or run.strikethrough
             or run.superscript
             or run.link_href is not None

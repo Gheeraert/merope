@@ -26,10 +26,14 @@ Le système est organisé en modules correspondant au pipeline réel :
 - dialogues
 - éditeur de menus
 - panneaux bannière / médias / notes
-- éditeur de contenu WYSIWYG (pages/billets)
-- aperçu HTML optionnel de l'éditeur (`ui/content_editor/preview.py` + `ui/preview_process.py`,
+- deux éditeurs de contenu WYSIWYG (pages/billets) au-dessus du même modèle :
+  Tkinter historique dans `ui/content_editor/` et Qt expérimental dans
+  `ui/qt_editor/`, lancé en processus séparé par `ui/qt_editor_launcher.py`
+- aperçu HTML optionnel des éditeurs (`ui/content_editor/preview.py`,
+  `ui/qt_editor/preview.py` + `ui/preview_process.py`,
   fenêtre `pywebview` lancée en sous-processus séparé — pywebview exige que sa propre boucle
-  d'événements tourne sur le vrai thread principal du processus, déjà occupé par Tkinter)
+  d'événements tourne sur le vrai thread principal de son processus, séparément
+  des boucles Tkinter et Qt)
 - publication FTP (`ui/ftp_publish_dialog.py`), au-dessus de `publish/` ci-dessous
 
 ### `content/`
@@ -83,12 +87,12 @@ Le système est organisé en modules correspondant au pipeline réel :
 
 ### Exception bornée : éditeur de contenu WYSIWYG
 
-L’éditeur de contenu intégré (`ui/content_editor/`, découpé par
-préoccupation en modules — fenêtre, autosauvegarde, undo/redo, notes,
-collage, formatage, aperçu HTML... — voir le docstring de
-`content_editor/window.py`) permet de rouvrir en WYSIWYG un fichier
-qu’il a lui-même écrit. Cela suppose un import Markdown limité
-(`markdown/rich_text_import.py`), ce qui touche en apparence à la
+Les deux éditeurs de contenu — Tkinter historique (`ui/content_editor/`) et Qt
+expérimental (`ui/qt_editor/`) — permettent de rouvrir en saisie visuelle un
+fichier produit par Mérope. Ils partagent le modèle `Block` / `InlineRun`, les
+importeurs/exporteurs et les services métier ; chaque toolkit ne fournit qu’un
+adaptateur de document et ses interactions propres. Cela suppose un import
+Markdown limité (`markdown/rich_text_import.py`), ce qui touche en apparence à la
 règle « pas de parseur Markdown maison ». Portée de l’exception :
 - cet importeur ne comprend que le sous-ensemble Markdown produit par
   `markdown/rich_text_export.py` (titres ATX, gras/italique/barré, liens,
@@ -103,8 +107,9 @@ Le collage riche depuis Word/Google Docs (`ui/clipboard_html.py` +
 `markdown/html_paste_import.py`) est une seconde exception du même esprit,
 mais pour du HTML plutôt que du Markdown : lecture du format presse-papiers
 « HTML Format » (via `ctypes`, sans dépendance supplémentaire) puis import
-borné (`html.parser.HTMLParser`) vers le même modèle de blocs. Portée
-identique : reconnaît un sous-ensemble pratique (paragraphes, titres,
-gras/italique/barré, liens, listes à un niveau, citations, images), et tout
-élément non reconnu conserve son texte visible plutôt que d’afficher du
-HTML brut ou de planter. Ne touche pas non plus au pipeline Pandoc.
+borné (`html.parser.HTMLParser`) vers le même modèle de blocs. Il reconnaît un
+sous-ensemble pratique (paragraphes, titres, gras/italique/barré, liens,
+listes à un niveau, citations, images). L’adaptateur Tkinter conserve son
+fallback historique tolérant ; l’adaptateur Qt refuse atomiquement un collage
+dont une structure ou une image annoncée ne peut pas être préservée. Aucun des
+deux chemins ne touche au pipeline Pandoc.

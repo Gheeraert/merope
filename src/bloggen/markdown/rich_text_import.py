@@ -2,7 +2,7 @@
 
 This is a deliberately constrained importer: it only understands the subset
 of Markdown produced by :mod:`bloggen.markdown.rich_text_export` (ATX
-headings, bold/italic/strikethrough, links, images, footnote references,
+headings, bold/italic/underline/strikethrough, links, images, footnote references,
 bullet/ordered lists, blockquotes, pipe tables, footnote definitions). Any
 chunk of text it cannot confidently classify is preserved as a ``VERBATIM``
 block and reproduced byte-for-byte on the next export, instead of being
@@ -47,6 +47,8 @@ _STRUCTURAL_LINE_RE = re.compile(r"^(#{1,6}\s|>\s?|[-*]\s|\d+\.\s|\||<)")
 _ATOM_RE = re.compile(
     r"!\[(?P<image_alt>[^\]]*)\]\((?P<image_src>[^)]+)\)(\{(?P<image_attrs>[^}]*)\})?"
     r"|\[\^(?P<footnote_ref>[^\]]+)\]"
+    r"|\[\[(?P<underline_link_text>[^\]]*)\]\((?P<underline_link_href>[^)]+)\)\]\{\.underline\}"
+    r"|\[(?P<underline_text>[^\]]*)\]\{\.underline\}"
     r"|\[(?P<link_text>[^\]]*)\]\((?P<link_href>[^)]+)\)"
     r"|(?P<emphasis>\*\*\*.+?\*\*\*|\*\*.+?\*\*|~~.+?~~|\^[^\^]+?\^|\*[^*]+?\*)"
 )
@@ -196,6 +198,15 @@ def _atom_to_run(match: re.Match[str]) -> InlineRun:
         )
     if match.group("footnote_ref") is not None:
         return InlineRun(footnote_ref=match.group("footnote_ref"))
+    if match.group("underline_link_href") is not None:
+        run = _peel_emphasis(match.group("underline_link_text") or "")
+        run.underline = True
+        run.link_href = match.group("underline_link_href")
+        return run
+    if match.group("underline_text") is not None:
+        run = _peel_emphasis(match.group("underline_text") or "")
+        run.underline = True
+        return run
     if match.group("link_href") is not None:
         run = _peel_emphasis(match.group("link_text") or "")
         run.link_href = match.group("link_href")

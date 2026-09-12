@@ -51,6 +51,7 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_italic,
     toggle_strikethrough,
     toggle_superscript,
+    toggle_underline,
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor.window import QtEditorWindow
@@ -199,6 +200,7 @@ def test_semantic_text_format_on_footnote_marker_is_refused():
     [
         (toggle_bold, "bold", True),
         (toggle_italic, "italic", True),
+        (toggle_underline, "underline", True),
         (toggle_strikethrough, "strikethrough", True),
         (toggle_superscript, "superscript", True),
         (lambda editor: set_link(editor, "https://example.org"), "link_href", "https://example.org"),
@@ -224,6 +226,7 @@ def test_text_format_across_reference_changes_only_text(command, field, value):
     [
         toggle_bold,
         toggle_italic,
+        toggle_underline,
         toggle_strikethrough,
         toggle_superscript,
         lambda editor: set_link(editor, "https://example.org"),

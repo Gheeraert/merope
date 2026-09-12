@@ -58,6 +58,28 @@ def test_superscript_combined_with_bold():
     assert blocks_to_markdown(blocks) == "**^exp^**\n"
 
 
+def test_underline_uses_pandoc_span_and_wraps_links_safely():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[
+                InlineRun(text="souligne", underline=True),
+                InlineRun(text=" et "),
+                InlineRun(
+                    text="lien gras",
+                    bold=True,
+                    underline=True,
+                    link_href="https://example.org",
+                ),
+            ],
+        )
+    ]
+    assert blocks_to_markdown(blocks) == (
+        "[souligne]{.underline} et "
+        "[[**lien gras**](https://example.org)]{.underline}\n"
+    )
+
+
 def test_caret_in_plain_text_is_escaped():
     blocks = [Block(kind=PARAGRAPH, runs=[InlineRun(text="a^b")])]
     assert blocks_to_markdown(blocks) == "a\\^b\n"

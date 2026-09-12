@@ -1,5 +1,9 @@
 # Brief Codex — V1
 
+> Brief historique de la V1 Tkinter. L’application actuelle propose également
+> un éditeur de contenu Qt expérimental, sans remplacement de l’éditeur Tkinter.
+> Voir `docs/GUIDE_UI.md` et `docs/QT_MIGRATION.md` pour l’état courant.
+
 ## Mission
 
 Construire la V1 d’un générateur statique académique avec interface graphique locale.

@@ -1,5 +1,10 @@
 # Spécification de l’interface graphique V1
 
+> Ce document décrit la spécification historique V1 fondée sur Tkinter.
+> L’application actuelle conserve cette interface et propose aussi un éditeur
+> de contenu Qt expérimental. Voir `docs/GUIDE_UI.md` pour le choix entre les
+> deux éditeurs et `docs/QT_MIGRATION.md` pour son état exact.
+
 ## Technologie
 Tkinter.
 

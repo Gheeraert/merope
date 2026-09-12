@@ -141,6 +141,10 @@
     <sup><xsl:apply-templates/></sup>
   </xsl:template>
 
+  <xsl:template match="tei:hi[contains(concat(' ', normalize-space(@rendition), ' '), ' simple:underline ')]">
+    <u><xsl:apply-templates/></u>
+  </xsl:template>
+
   <xsl:template match="tei:ref[@target]">
     <a href="{normalize-space(@target)}"><xsl:apply-templates/></a>
   </xsl:template>
@@ -316,6 +320,10 @@
 
   <xsl:template match="tei:hi[contains(concat(' ', normalize-space(@rendition), ' '), ' simple:superscript ')]" mode="note-body">
     <sup><xsl:apply-templates mode="note-body"/></sup>
+  </xsl:template>
+
+  <xsl:template match="tei:hi[contains(concat(' ', normalize-space(@rendition), ' '), ' simple:underline ')]" mode="note-body">
+    <u><xsl:apply-templates mode="note-body"/></u>
   </xsl:template>
 
   <xsl:template match="tei:hi[@rend='smallcaps']" mode="note-body">

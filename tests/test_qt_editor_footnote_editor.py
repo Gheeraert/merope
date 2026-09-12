@@ -44,6 +44,7 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_italic,
     toggle_strikethrough,
     toggle_superscript,
+    toggle_underline,
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit, blocks_from_rich_mime_data
 from bloggen.ui.qt_editor.window import QtEditorWindow
@@ -105,6 +106,7 @@ def _dialog(runs: list[InlineRun]) -> FootnoteEditorDialog:
         [InlineRun(text="Simple")],
         [InlineRun(text="Gras", bold=True)],
         [InlineRun(text="Italique", italic=True)],
+        [InlineRun(text="Souligné", underline=True)],
         [InlineRun(text="Barré", strikethrough=True)],
         [InlineRun(text="Exposant", superscript=True)],
         [InlineRun(text="Lien", link_href="../page.html#section")],
@@ -133,13 +135,14 @@ def test_dialog_formatting_uses_shared_commands_and_local_undo_redo():
     _select(editor, 0, 7)
     toggle_bold(editor)
     toggle_italic(editor)
+    toggle_underline(editor)
     _select(editor, 8, 13)
     toggle_strikethrough(editor)
     toggle_superscript(editor)
     set_link(editor, "https://example.org")
 
     assert footnote_runs_from_document(editor.document()) == [
-        InlineRun(text="Bossuet", bold=True, italic=True),
+        InlineRun(text="Bossuet", bold=True, italic=True, underline=True),
         InlineRun(text=" "),
         InlineRun(
             text="Meaux",
@@ -172,7 +175,7 @@ def test_dialog_toolbar_shortcuts_target_its_local_document():
 
     QTest.keyClick(
         dialog.editor,
-        Qt.Key.Key_B,
+        Qt.Key.Key_G,
         Qt.KeyboardModifier.ControlModifier,
     )
     QTest.keyClick(
@@ -180,9 +183,14 @@ def test_dialog_toolbar_shortcuts_target_its_local_document():
         Qt.Key.Key_I,
         Qt.KeyboardModifier.ControlModifier,
     )
+    QTest.keyClick(
+        dialog.editor,
+        Qt.Key.Key_U,
+        Qt.KeyboardModifier.ControlModifier,
+    )
     QApplication.processEvents()
     assert footnote_runs_from_document(dialog.editor.document()) == [
-        InlineRun(text="Locale", bold=True, italic=True)
+        InlineRun(text="Locale", bold=True, italic=True, underline=True)
     ]
 
     QTest.keyClick(
@@ -191,15 +199,15 @@ def test_dialog_toolbar_shortcuts_target_its_local_document():
         Qt.KeyboardModifier.ControlModifier,
     )
     assert footnote_runs_from_document(dialog.editor.document()) == [
-        InlineRun(text="Locale", bold=True)
+        InlineRun(text="Locale", bold=True, italic=True)
     ]
     QTest.keyClick(
         dialog.editor,
-        Qt.Key.Key_Z,
-        Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        Qt.Key.Key_Y,
+        Qt.KeyboardModifier.ControlModifier,
     )
     assert footnote_runs_from_document(dialog.editor.document()) == [
-        InlineRun(text="Locale", bold=True, italic=True)
+        InlineRun(text="Locale", bold=True, italic=True, underline=True)
     ]
 
 

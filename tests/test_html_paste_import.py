@@ -49,6 +49,13 @@ def test_superscript_tag():
     assert _export("<p>Un <sup>exposant</sup> ici.</p>") == "Un ^exposant^ ici.\n"
 
 
+def test_underline_tag_and_style_are_canonical():
+    assert _export("<p><u>souligne</u></p>") == "[souligne]{.underline}\n"
+    assert _export(
+        '<p><span style="text-decoration: underline line-through">mixte</span></p>'
+    ) == "[~~mixte~~]{.underline}\n"
+
+
 def test_superscript_via_vertical_align_style_google_docs():
     html = '<p>texte<span style="vertical-align:super;font-size:xx-small">2</span> exposant.</p>'
     assert _export(html) == "texte^2^ exposant.\n"

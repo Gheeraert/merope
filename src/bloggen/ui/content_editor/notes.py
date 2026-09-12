@@ -127,6 +127,7 @@ class NotesMixin:
         self._note_font_refs.extend([bold_font, italic_font, superscript_font])
         widget.tag_configure("bold", font=bold_font)
         widget.tag_configure("italic", font=italic_font)
+        widget.tag_configure("underline", underline=True)
         widget.tag_configure("link_style", foreground="#1a73e8", underline=True)
         widget.tag_configure("superscript", offset=6, font=superscript_font)
 
@@ -156,6 +157,8 @@ class NotesMixin:
                 widget.tag_add("bold", start, end)
             if run.italic:
                 widget.tag_add("italic", start, end)
+            if run.underline:
+                widget.tag_add("underline", start, end)
             if run.link_href:
                 tag = self._new_tag("note_link")
                 self._note_link_data[tag] = run.link_href
@@ -177,6 +180,7 @@ class NotesMixin:
                     text=buffer,
                     bold="bold" in active,
                     italic="italic" in active,
+                    underline="underline" in active,
                     link_href=self._note_link_data.get(link_tag) if link_tag else None,
                 )
             )

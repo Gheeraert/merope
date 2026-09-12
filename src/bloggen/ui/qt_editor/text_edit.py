@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QByteArray, QMimeData, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -158,6 +158,10 @@ class MeropeTextEdit(QTextEdit):
         super().__init__(parent)
         self.setAcceptRichText(False)
         self.viewport().setMouseTracking(True)
+        # QAbstractScrollArea dispatches native wheel input to its viewport
+        # on Windows. Filtering that real receiver makes Ctrl+wheel reliable;
+        # wheelEvent remains as a fallback for synthetic/platform variants.
+        self.viewport().installEventFilter(self)
         self._image_resize_state: _ImageResizeState | None = None
         self._external_paste_context: ExternalPasteContext | None = None
         self._zoom_percent = 100
@@ -633,14 +637,25 @@ class MeropeTextEdit(QTextEdit):
         return True
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        if (
-            event.modifiers() & Qt.KeyboardModifier.ControlModifier
-            and event.angleDelta().y()
-        ):
-            self.adjust_zoom(1 if event.angleDelta().y() > 0 else -1)
-            event.accept()
+        if self._consume_zoom_wheel(event):
             return
         super().wheelEvent(event)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self.viewport() and event.type() == QEvent.Type.Wheel:
+            if self._consume_zoom_wheel(event):
+                return True
+        return super().eventFilter(watched, event)
+
+    def _consume_zoom_wheel(self, event: QWheelEvent) -> bool:
+        if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            return False
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        if not delta:
+            return False
+        self.adjust_zoom(1 if delta > 0 else -1)
+        event.accept()
+        return True
 
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         """Accept only MIME content that Merope can inspect safely itself."""

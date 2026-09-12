@@ -13,6 +13,7 @@ from bloggen.ui.qt_editor.constants import (
     ITALIC_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
+    UNDERLINE_PROPERTY,
 )
 from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
@@ -209,6 +210,7 @@ def _semantic_signature(char_format: QTextCharFormat) -> tuple[object, ...]:
     return (
         inline_format_enabled(char_format, BOLD_PROPERTY),
         inline_format_enabled(char_format, ITALIC_PROPERTY),
+        inline_format_enabled(char_format, UNDERLINE_PROPERTY),
         inline_format_enabled(char_format, STRIKETHROUGH_PROPERTY),
         inline_format_enabled(char_format, SUPERSCRIPT_PROPERTY),
         char_format.anchorHref() if char_format.isAnchor() else None,

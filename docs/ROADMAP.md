@@ -1,5 +1,14 @@
 # Roadmap
 
+## État actuel des éditeurs
+
+L’application principale reste en Tkinter et propose actuellement deux éditeurs
+de contenu : l’éditeur Tkinter historique et un éditeur Qt expérimental lancé
+dans un processus séparé. La parité fonctionnelle automatisée du socle Qt est
+atteinte ; la prochaine étape est une recette humaine et l’inventaire des écarts
+observés. Aucune bascule de l’éditeur principal vers Qt n’est planifiée à ce
+stade.
+
 ## V1
 - config JSON
 - interface Tkinter
@@ -21,7 +30,7 @@
 - sections de premier niveau du menu latéral pouvant pointer directement vers une page/un billet/un site externe, sans sous-menu obligatoire
 - menu latéral à 3 niveaux (sections, sous-sections, billets) avec numérotation automatique optionnelle (I., II.../A., B...) pour les plans structurés
 - thème du site généré inspiré de Twenty Fourteen (bandeau noir, accent vert, typographie sans-serif) ; recherche intégrée au bandeau, menu latéral en tons clairs sur fond noir accolé au bandeau et au texte sans espace, fond noir étiré jusqu'en bas de la colonne, titre de menu facultatif (ex. « Menu »)
-- raccourci `((note))` (convention Hypothèses) converti en note de bas de page à la frappe, au collage et à la génération, y compris collé à la ponctuation
+- raccourci `((note))` (convention Hypothèses) conservé comme texte éditable à la frappe, au collage et à l’enregistrement, puis converti en note Pandoc uniquement pendant la normalisation d’aperçu/génération, y compris collé à la ponctuation
 - suppression fiable d'une note (y compris vide) depuis le panneau de notes, et renumérotation automatique des notes à l'enregistrement selon leur ordre d'apparition dans le texte
 - espace insécable automatique après « p. »/« pp. » devant un numéro de page, et normalisée dans les guillemets chevrons déjà présents au collage
 - copie TEI complète (avec teiHeader) conservée à côté de chaque source Markdown, indépendamment du réglage « Conserver TEI »
@@ -31,7 +40,7 @@
 - redimensionnement/copie de l'image de bannière proposé au moment de l'import
 - pagination réelle de l'archive des billets (`blog.posts_per_page`, une page HTML par tranche)
 - validation diagnostique du TEI généré contre le profil TEI Commons Publishing (grammaire RelaxNG *et* règles Schematron embarquées), avec option pour la rendre bloquante (`build.fail_on_invalid_commons_publishing`) plutôt que purement informative
-- aperçu HTML de l'éditeur de contenu, au clic ou en direct pendant la frappe (fenêtre séparée, pipeline de génération réel) — voir « Éditeur de contenu » dans `docs/GUIDE_UI.md`
+- aperçu HTML par le pipeline de génération réel : ponctuel ou live dans l’éditeur Tkinter, ponctuel seulement dans l’éditeur Qt à ce stade — voir « Éditeurs de contenu » dans `docs/GUIDE_UI.md`
 
 ## V1.1
 - amélioration responsive

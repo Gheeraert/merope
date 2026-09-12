@@ -68,6 +68,7 @@ class BlocksMixin:
                         text=buffer,
                         bold="bold" in active,
                         italic="italic" in active,
+                        underline="underline" in active,
                         strikethrough="strike" in active,
                         superscript="superscript" in active,
                         link_href=self.link_data.get(link_tag) if link_tag else None,
@@ -283,6 +284,8 @@ class BlocksMixin:
                 self.text.tag_add("bold", start, end)
             if run.italic:
                 self.text.tag_add("italic", start, end)
+            if run.underline:
+                self.text.tag_add("underline", start, end)
             if run.strikethrough:
                 self.text.tag_add("strike", start, end)
             if run.superscript:

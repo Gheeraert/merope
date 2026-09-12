@@ -1,10 +1,10 @@
-"""Pivot data model between the Tkinter rich-text editor and Markdown.
+"""Pivot data model between the rich-text editors and Markdown.
 
 ``Block``/``InlineRun`` are the intermediate representation used by both
 directions of conversion (:mod:`bloggen.markdown.rich_text_export` and
 :mod:`bloggen.markdown.rich_text_import`), so that neither direction needs
-to know about the Tkinter ``Text`` widget, and neither the widget-facing UI
-code needs to know about Markdown syntax.
+to know about the Tkinter ``Text`` widget or Qt ``QTextDocument``, and neither
+widget-facing UI needs to know about Markdown syntax.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ class InlineRun:
     text: str = ""
     bold: bool = False
     italic: bool = False
+    underline: bool = False
     strikethrough: bool = False
     superscript: bool = False
     link_href: str | None = None

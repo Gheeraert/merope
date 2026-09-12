@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -69,6 +68,7 @@ from bloggen.markdown.rich_text_model import (
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
     extract_blocks,
+    inline_format_enabled,
     insert_footnote_reference,
     insert_blocks,
     populate_document,
@@ -93,6 +93,7 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_justify,
     toggle_strikethrough,
     toggle_superscript,
+    toggle_underline,
 )
 from bloggen.ui.qt_editor.find_replace_dialog import FindReplaceDialog
 from bloggen.ui.editor_recovery import (
@@ -136,6 +137,15 @@ from bloggen.ui.qt_editor.recovery import (
     prepare_recovery_draft,
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
+from bloggen.ui.qt_editor.toolbar_icons import toolbar_icon
+from bloggen.ui.qt_editor.wrapping_toolbar import WrappingToolBar
+from bloggen.ui.qt_editor.constants import (
+    BOLD_PROPERTY,
+    ITALIC_PROPERTY,
+    STRIKETHROUGH_PROPERTY,
+    SUPERSCRIPT_PROPERTY,
+    UNDERLINE_PROPERTY,
+)
 from bloggen.ui.qt_editor_protocol import emit_event
 
 
@@ -195,7 +205,6 @@ class QtEditorWindow(QMainWindow):
         self._update_external_paste_context()
         self.editor.pasteRefused.connect(self._show_paste_refused)
         self.editor.clipboardRefused.connect(self._show_clipboard_refused)
-        self.setCentralWidget(self.editor)
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
         self._create_toolbar()
@@ -439,128 +448,270 @@ class QtEditorWindow(QMainWindow):
         dialog.exec()
 
     def _create_toolbar(self) -> None:
-        toolbar = QToolBar("Mise en forme", self)
-        self.addToolBar(toolbar)
-        self._add_action(toolbar, "Ouvrir", self._open_from_dialog, "Ctrl+O")
+        self.toolbar = WrappingToolBar(self)
+        # QMainWindow's menu-widget slot spans the full window above both
+        # docks. Keeping the responsive strip there avoids forcing it into
+        # the much narrower document column between Contenus and Notes.
+        self.setMenuWidget(self.toolbar)
+        self.setCentralWidget(self.editor)
+        toolbar = self.toolbar
+
+        self._add_action(
+            toolbar, "Ouvrir", self._open_from_dialog, "Ctrl+O", icon_key="open"
+        )
         self.save_action = self._add_action(
-            toolbar, "Enregistrer", self.save_document, "Ctrl+S"
+            toolbar,
+            "Enregistrer",
+            self.save_document,
+            "Ctrl+S",
+            icon_key="save",
         )
         self.save_action.setEnabled(False)
         self.metadata_action = self._add_action(
             toolbar,
             "Métadonnées...",
             self._edit_metadata_from_dialog,
+            icon_key="metadata",
         )
         self.preview_action = self._add_action(
             toolbar,
             "Aperçu HTML",
             self._request_html_preview,
+            icon_key="preview",
         )
-        toolbar.addSeparator()
-        self._add_action(toolbar, "Rechercher", self._show_find_dialog, "Ctrl+F")
+        toolbar.add_separator()
         self._add_action(
             toolbar,
-            "Remplacer",
-            self._show_replace_dialog,
-            "Ctrl+H",
+            "Annuler",
+            self.editor.undo,
+            shortcuts=["Ctrl+Z"],
+            icon_key="undo",
+        )
+        self._add_action(
+            toolbar,
+            "Retablir",
+            self.editor.redo,
+            shortcuts=["Ctrl+Y", "Ctrl+Shift+Z"],
+            icon_key="redo",
+            tooltip="Rétablir — Ctrl+Y / Ctrl+Maj+Z",
+        )
+        self._add_action(
+            toolbar,
+            "Couper",
+            self.editor.cut,
+            "Ctrl+X",
+            icon_key="cut",
+        )
+        self._add_action(
+            toolbar,
+            "Copier",
+            self.editor.copy,
+            "Ctrl+C",
+            icon_key="copy",
+        )
+        self._add_action(
+            toolbar,
+            "Coller",
+            self.editor.paste,
+            "Ctrl+V",
+            icon_key="paste",
         )
         self._add_action(
             toolbar,
             "Coller en texte brut",
             lambda: self.editor.paste_plain_text(),
             "Ctrl+Shift+V",
+            icon_key="plain_paste",
+            tooltip="Coller en texte brut — Ctrl+Maj+V",
         )
+        toolbar.add_separator()
         nbsp_action = self._add_action(
             toolbar,
             "Espace insécable",
             self.editor.insert_nbsp,
+            icon_key="nbsp",
+            tooltip="Espace insécable — Ctrl+Espace / Alt+Espace",
         )
         nbsp_action.setShortcuts(
             [QKeySequence("Ctrl+Space"), QKeySequence("Alt+Space")]
         )
-        toolbar.addSeparator()
-        self._add_action(toolbar, "Gras", lambda: toggle_bold(self.editor), "Ctrl+B")
-        self._add_action(toolbar, "Italique", lambda: toggle_italic(self.editor), "Ctrl+I")
-        self._add_action(
+        self.bold_action = self._add_action(
+            toolbar,
+            "Gras",
+            lambda: toggle_bold(self.editor),
+            shortcuts=["Ctrl+G", "Ctrl+B"],
+            icon_key="bold",
+            tooltip="Gras — Ctrl+G / Ctrl+B",
+            checkable=True,
+        )
+        self.italic_action = self._add_action(
+            toolbar,
+            "Italique",
+            lambda: toggle_italic(self.editor),
+            "Ctrl+I",
+            icon_key="italic",
+            checkable=True,
+        )
+        self.underline_action = self._add_action(
+            toolbar,
+            "Souligné",
+            lambda: toggle_underline(self.editor),
+            "Ctrl+U",
+            icon_key="underline",
+            checkable=True,
+        )
+        self.strike_action = self._add_action(
             toolbar,
             "Barre",
             lambda: toggle_strikethrough(self.editor),
             "Ctrl+Shift+S",
+            icon_key="strike",
+            tooltip="Barré — Ctrl+Maj+S",
+            checkable=True,
         )
-        self._add_action(
+        self.superscript_action = self._add_action(
             toolbar,
             "Exposant",
             lambda: toggle_superscript(self.editor),
             "Ctrl+Shift+=",
+            icon_key="superscript",
+            tooltip="Exposant — Ctrl+Maj+=",
+            checkable=True,
         )
-        self._add_action(toolbar, "Lien", self._prompt_for_link, "Ctrl+K")
-        self._add_action(toolbar, "Insérer une note...", self._insert_footnote_from_dialog)
-        self._add_action(toolbar, "Renuméroter les notes", self.save_document)
-        self._add_action(toolbar, "Insérer une image...", self._insert_image_from_dialog)
+        self._add_action(
+            toolbar, "Lien", self._prompt_for_link, "Ctrl+K", icon_key="link"
+        )
+        toolbar.add_separator()
+
+        self._add_action(
+            toolbar,
+            "Insérer une note...",
+            self._insert_footnote_from_dialog,
+            icon_key="note",
+        )
+        self._add_action(
+            toolbar,
+            "Renuméroter les notes",
+            self.save_document,
+            icon_key="renumber",
+        )
+        self._add_action(
+            toolbar,
+            "Insérer une image...",
+            self._insert_image_from_dialog,
+            icon_key="image",
+        )
         self.image_action = self._add_action(
             toolbar,
             "Image...",
             self._edit_targeted_image,
+            icon_key="image_edit",
         )
         self.image_action.setEnabled(False)
         self.replace_image_action = self._add_action(
             toolbar,
             "Remplacer l’image...",
             self._replace_image_from_dialog,
+            icon_key="image_replace",
         )
         self.replace_image_action.setEnabled(False)
         self.crop_image_action = self._add_action(
             toolbar,
             "Recadrer...",
             self._crop_image_from_dialog,
+            icon_key="crop",
         )
         self.crop_image_action.setEnabled(False)
-        toolbar.addSeparator()
+        toolbar.add_separator()
 
         block_group = QActionGroup(self)
-        for label, callback in [
-            ("Paragraphe", lambda: set_paragraph(self.editor)),
-            ("H1", lambda: set_heading(self.editor, 1)),
-            ("H2", lambda: set_heading(self.editor, 2)),
-            ("H3", lambda: set_heading(self.editor, 3)),
-            ("H4", lambda: set_heading(self.editor, 4)),
-            ("Citation", lambda: set_blockquote(self.editor)),
+        for label, icon_key, callback in [
+            ("Paragraphe", "paragraph", lambda: set_paragraph(self.editor)),
+            ("H1", "h1", lambda: set_heading(self.editor, 1)),
+            ("H2", "h2", lambda: set_heading(self.editor, 2)),
+            ("H3", "h3", lambda: set_heading(self.editor, 3)),
+            ("H4", "h4", lambda: set_heading(self.editor, 4)),
+            ("Citation", "quote", lambda: set_blockquote(self.editor)),
         ]:
-            action = self._add_action(toolbar, label, callback)
-            action.setCheckable(True)
+            action = self._add_action(
+                toolbar, label, callback, icon_key=icon_key, checkable=True
+            )
             block_group.addAction(action)
 
-        toolbar.addSeparator()
-        self._add_action(toolbar, "Liste a puces", lambda: set_list(self.editor, BULLET_LIST))
-        self._add_action(toolbar, "Liste numerotee", lambda: set_list(self.editor, ORDERED_LIST))
-        self._add_action(toolbar, "Tableau...", self._insert_table_from_dialog)
-        toolbar.addSeparator()
-        for label, alignment in [
-            ("Gauche", "left"),
-            ("Centre", "center"),
-            ("Droite", "right"),
-            ("Justifie", "justify"),
+        toolbar.add_separator()
+        self._add_action(
+            toolbar,
+            "Liste a puces",
+            lambda: set_list(self.editor, BULLET_LIST),
+            icon_key="bullets",
+        )
+        self._add_action(
+            toolbar,
+            "Liste numerotee",
+            lambda: set_list(self.editor, ORDERED_LIST),
+            icon_key="numbered",
+        )
+        self._add_action(
+            toolbar, "Tableau...", self._insert_table_from_dialog, icon_key="table"
+        )
+        toolbar.add_separator()
+        for label, alignment, icon_key in [
+            ("Gauche", "left", "left"),
+            ("Centre", "center", "center"),
+            ("Droite", "right", "right"),
+            ("Justifie", "justify", "justify"),
         ]:
             self._add_action(
                 toolbar,
                 label,
                 lambda checked=False, value=alignment: set_alignment(self.editor, value),
+                icon_key=icon_key,
             )
         self._add_action(
             toolbar,
             "Justifier gauche/plein",
             lambda: toggle_justify(self.editor),
             "Alt+J",
+            icon_key="justify",
         )
-        toolbar.addSeparator()
-        self._add_action(toolbar, "Annuler", self.editor.undo, "Ctrl+Z")
-        self._add_action(toolbar, "Retablir", self.editor.redo, "Ctrl+Shift+Z")
+        toolbar.add_separator()
+        self._add_action(
+            toolbar, "Rechercher", self._show_find_dialog, "Ctrl+F", icon_key="find"
+        )
+        self._add_action(
+            toolbar,
+            "Remplacer",
+            self._show_replace_dialog,
+            "Ctrl+H",
+            icon_key="replace",
+        )
         self._add_action(
             toolbar,
             "Typographie",
             self.editor.apply_typography_to_selection,
+            icon_key="typography",
         )
-        self._add_action(toolbar, "Voir Markdown", self.show_reconstructed_markdown)
+        self._add_action(
+            toolbar,
+            "Voir Markdown",
+            self.show_reconstructed_markdown,
+            icon_key="markdown",
+        )
+        self.editor.cursorPositionChanged.connect(self._sync_inline_format_actions)
+        self.editor.selectionChanged.connect(self._sync_inline_format_actions)
+        self.editor.document().contentsChanged.connect(self._sync_inline_format_actions)
+        self._sync_inline_format_actions()
+
+    def _sync_inline_format_actions(self) -> None:
+        char_format = self.editor.textCursor().charFormat()
+        for action, property_id in (
+            (self.bold_action, BOLD_PROPERTY),
+            (self.italic_action, ITALIC_PROPERTY),
+            (self.underline_action, UNDERLINE_PROPERTY),
+            (self.strike_action, STRIKETHROUGH_PROPERTY),
+            (self.superscript_action, SUPERSCRIPT_PROPERTY),
+        ):
+            action.setChecked(inline_format_enabled(char_format, property_id))
 
     def _show_find_dialog(self) -> None:
         self._open_find_replace_dialog(show_replace=False)
@@ -1652,16 +1803,29 @@ class QtEditorWindow(QMainWindow):
 
     def _add_action(
         self,
-        toolbar: QToolBar,
+        toolbar: WrappingToolBar,
         label: str,
         callback,
         shortcut: str | None = None,
+        *,
+        shortcuts: list[str] | None = None,
+        icon_key: str,
+        tooltip: str | None = None,
+        checkable: bool = False,
     ) -> QAction:
-        action = QAction(label, self)
-        if shortcut is not None:
-            action.setShortcut(shortcut)
+        action = QAction(toolbar_icon(self, icon_key), label, self)
+        sequences = shortcuts or ([shortcut] if shortcut is not None else [])
+        if sequences:
+            action.setShortcuts([QKeySequence(value) for value in sequences])
+        action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        action.setCheckable(checkable)
+        if tooltip is None:
+            suffix = " / ".join(sequences)
+            tooltip = f"{label} — {suffix}" if suffix else label
+        action.setToolTip(tooltip)
+        action.setStatusTip(tooltip)
         action.triggered.connect(callback)
-        toolbar.addAction(action)
+        toolbar.add_action(action)
         return action
 
 

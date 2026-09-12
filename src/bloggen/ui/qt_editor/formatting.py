@@ -25,6 +25,7 @@ from bloggen.ui.qt_editor.constants import (
     LIST_KIND_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
+    UNDERLINE_PROPERTY,
 )
 from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
@@ -49,6 +50,10 @@ def toggle_italic(editor: QTextEdit) -> None:
     _toggle_inline(editor, ITALIC_PROPERTY, QTextCharFormat.setFontItalic)
 
 
+def toggle_underline(editor: QTextEdit) -> None:
+    _toggle_inline(editor, UNDERLINE_PROPERTY, QTextCharFormat.setFontUnderline)
+
+
 def toggle_strikethrough(editor: QTextEdit) -> None:
     _toggle_inline(editor, STRIKETHROUGH_PROPERTY, QTextCharFormat.setFontStrikeOut)
 
@@ -68,15 +73,62 @@ def toggle_superscript(editor: QTextEdit) -> None:
 def set_link(editor: QTextEdit, href: str | None) -> None:
     """Apply a native Qt anchor, or remove it when ``href`` is ``None``."""
 
-    char_format = QTextCharFormat()
-    char_format.setAnchor(href is not None)
-    char_format.setAnchorHref(href or "")
-    char_format.setFontUnderline(href is not None)
-    if href is not None:
-        char_format.setForeground(QColor("#1a5fb4"))
-    else:
-        char_format.setForeground(editor.palette().brush(QPalette.ColorRole.Text))
-    _merge_text_char_format(editor, char_format)
+    selection = editor.textCursor()
+    ranges = _selected_text_ranges(selection) if selection.hasSelection() else None
+    if ranges == [] or (
+        not selection.hasSelection()
+        and (
+            is_raw_block(selection.block())
+            or is_semantic_inline_object_format(selection.charFormat())
+        )
+    ):
+        return
+
+    if not selection.hasSelection():
+        char_format = QTextCharFormat()
+        char_format.setAnchor(href is not None)
+        char_format.setAnchorHref(href or "")
+        char_format.setFontUnderline(
+            href is not None
+            or inline_format_enabled(selection.charFormat(), UNDERLINE_PROPERTY)
+        )
+        char_format.setForeground(
+            QColor("#1a5fb4")
+            if href is not None
+            else editor.palette().brush(QPalette.ColorRole.Text)
+        )
+        selection.beginEditBlock()
+        selection.mergeCharFormat(char_format)
+        selection.endEditBlock()
+        editor.setTextCursor(selection)
+        return
+
+    targets = ranges
+    edit_cursor = QTextCursor(selection.document())
+    edit_cursor.beginEditBlock()
+    try:
+        for start, end, existing_format in targets:
+            char_format = QTextCharFormat()
+            char_format.setAnchor(href is not None)
+            char_format.setAnchorHref(href or "")
+            char_format.setFontUnderline(
+                href is not None
+                or inline_format_enabled(existing_format, UNDERLINE_PROPERTY)
+            )
+            if href is not None:
+                char_format.setForeground(QColor("#1a5fb4"))
+            else:
+                char_format.setForeground(
+                    editor.palette().brush(QPalette.ColorRole.Text)
+                )
+            target = QTextCursor(selection.document())
+            target.setPosition(start)
+            if end != start:
+                target.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            target.mergeCharFormat(char_format)
+    finally:
+        edit_cursor.endEditBlock()
+    editor.setTextCursor(selection)
 
 
 def set_paragraph(editor: QTextEdit) -> None:

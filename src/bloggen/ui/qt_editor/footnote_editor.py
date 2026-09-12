@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from PySide6.QtCore import QMimeData, Qt
-from PySide6.QtGui import QAction, QKeyEvent, QTextDocument
+from PySide6.QtGui import QAction, QKeyEvent, QKeySequence, QTextDocument
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -34,6 +34,7 @@ from bloggen.ui.qt_editor.formatting import (
     set_link,
     toggle_bold,
     toggle_italic,
+    toggle_underline,
     toggle_strikethrough,
     toggle_superscript,
 )
@@ -94,6 +95,7 @@ def _semantic_run_segments(runs: list[InlineRun]) -> list[tuple[object, ...]]:
         attributes = (
             run.bold,
             run.italic,
+            run.underline,
             run.strikethrough,
             run.superscript,
             run.link_href,
@@ -227,12 +229,21 @@ class FootnoteEditorDialog(QDialog):
         self.editor.document().setModified(False)
         layout.addWidget(self.editor)
 
-        self._add_action(toolbar, "Gras", lambda: toggle_bold(self.editor), "Ctrl+B")
+        bold_action = self._add_action(
+            toolbar, "Gras", lambda: toggle_bold(self.editor), "Ctrl+B"
+        )
+        bold_action.setShortcuts([QKeySequence("Ctrl+G"), QKeySequence("Ctrl+B")])
         self._add_action(
             toolbar,
             "Italique",
             lambda: toggle_italic(self.editor),
             "Ctrl+I",
+        )
+        self._add_action(
+            toolbar,
+            "Souligné",
+            lambda: toggle_underline(self.editor),
+            "Ctrl+U",
         )
         self._add_action(
             toolbar,
@@ -247,7 +258,12 @@ class FootnoteEditorDialog(QDialog):
         self._add_action(toolbar, "Lien", self._prompt_for_link, "Ctrl+K")
         toolbar.addSeparator()
         self._add_action(toolbar, "Annuler", self.editor.undo, "Ctrl+Z")
-        self._add_action(toolbar, "Rétablir", self.editor.redo, "Ctrl+Shift+Z")
+        redo_action = self._add_action(
+            toolbar, "Rétablir", self.editor.redo, "Ctrl+Shift+Z"
+        )
+        redo_action.setShortcuts(
+            [QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")]
+        )
         self._add_action(
             toolbar,
             "Typographie",

@@ -122,14 +122,23 @@ def _merge_adjacent_runs(runs: list[InlineRun]) -> list[InlineRun]:
             if previous_is_plain_text and (
                 previous.bold,
                 previous.italic,
+                previous.underline,
                 previous.strikethrough,
                 previous.superscript,
                 previous.link_href,
-            ) == (run.bold, run.italic, run.strikethrough, run.superscript, run.link_href):
+            ) == (
+                run.bold,
+                run.italic,
+                run.underline,
+                run.strikethrough,
+                run.superscript,
+                run.link_href,
+            ):
                 merged[-1] = InlineRun(
                     text=previous.text + run.text,
                     bold=previous.bold,
                     italic=previous.italic,
+                    underline=previous.underline,
                     strikethrough=previous.strikethrough,
                     superscript=previous.superscript,
                     link_href=previous.link_href,
@@ -157,7 +166,13 @@ def _run_to_md(run: InlineRun) -> str:
     leading = ""
     trailing = ""
     core = run.text
-    has_marked_formatting = run.bold or run.italic or run.strikethrough or run.superscript
+    has_marked_formatting = (
+        run.bold
+        or run.italic
+        or run.underline
+        or run.strikethrough
+        or run.superscript
+    )
     if has_marked_formatting and core:
         stripped = core.strip()
         if stripped:
@@ -180,6 +195,15 @@ def _run_to_md(run: InlineRun) -> str:
             text = f"**{text}**"
         elif run.italic:
             text = f"*{text}*"
+    if run.underline:
+        # Pandoc's native bracketed-span syntax survives the configured
+        # Markdown -> TEI pipeline as ``hi rendition=simple:underline``.
+        # Keep a link inside that span: attributes attached directly to a
+        # Markdown link are not retained as underline by Pandoc.
+        if run.link_href:
+            text = f"[{text}]({run.link_href})"
+        return f"{leading}[{text}]{{.underline}}{trailing}"
+
     text = f"{leading}{text}{trailing}"
     if run.link_href:
         text = f"[{text}]({run.link_href})"

@@ -71,6 +71,16 @@ def test_transform_inline_styles_with_pandoc_rendition_attributes():
     assert "<strong>gras</strong>" in html
 
 
+def test_transform_pandoc_underline_in_body_and_note():
+    tei = _tei_body(
+        "<p><hi rendition='simple:underline'>corps</hi></p>"
+        "<note><p><hi rendition='simple:underline'>note</hi></p></note>"
+    )
+    html = render_tei_xml_to_html_fragment(tei)
+    assert "<u>corps</u>" in html
+    assert "<u>note</u>" in html
+
+
 def test_transform_inline_styles_with_combined_rendition():
     tei = _tei_body("<p><hi rendition='simple:bold simple:italic'>mixte</hi></p>")
     html = render_tei_xml_to_html_fragment(tei)

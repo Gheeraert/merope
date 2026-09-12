@@ -8,8 +8,10 @@ Google Docs → Markdown → XML-TEI → HTML
 
 ## Objectifs V1
 
-- interface graphique locale (Tkinter)
-- éditeur de contenu WYSIWYG intégré (pages/billets, sans écrire de Markdown à la main)
+- interface graphique locale principale en Tkinter
+- deux éditeurs de contenu disponibles : l’éditeur Tkinter historique et
+  l’éditeur Qt expérimental, tous deux pour les pages/billets sans écrire de
+  Markdown à la main
 - configuration JSON chargeable / sauvegardable
 - menu horizontal supérieur
 - menu latéral hiérarchique simple
@@ -34,6 +36,7 @@ C’est un outil de préparation, de configuration et de génération de site st
 
 - Python 3.11+
 - Tkinter
+- PySide6 optionnel pour l’éditeur Qt (`pip install -e ".[qt_editor]"`)
 - lxml
 - Pillow
 - Pandoc installé dans le système
@@ -51,6 +54,19 @@ Voir :
 Le générateur est fonctionnel de bout en bout (configuration, éditeur de contenu, génération du
 site, CLI headless) et couvert par une suite de tests automatisés (`pytest`). Le suivi détaillé de
 l'avancement par version (V1 livrée, V1.1/V2 à venir) est tenu dans `docs/ROADMAP.md`.
+
+Deux éditeurs de contenu coexistent actuellement dans l’interface principale :
+
+- **Éditeur de contenu...** ouvre l’éditeur Tkinter historique, qui reste
+  l’éditeur principal et le fallback ;
+- **Éditeur Qt (expérimental)...** lance l’adaptateur Qt dans un processus
+  séparé. Son gros œuvre et ses outils courants disposent d’une couverture
+  automatisée, mais il reste en phase de recette et ne remplace pas encore
+  l’éditeur Tkinter.
+
+Les deux éditeurs lisent et écrivent le même modèle Mérope et les mêmes fichiers
+Markdown. Le détail utilisateur se trouve dans `docs/GUIDE_UI.md` et l’état de
+la migration Qt dans `docs/QT_MIGRATION.md`.
 
 ## Format Obligatoire Des Fichiers Markdown
 

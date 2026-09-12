@@ -64,6 +64,7 @@ from bloggen.ui.qt_editor.constants import (
     RAW_BLOCK_KIND_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
+    UNDERLINE_PROPERTY,
 )
 
 
@@ -402,11 +403,13 @@ def make_char_format(run: InlineRun, *, heading_level: int | None = None) -> QTe
     char_format.setProperty(ITALIC_PROPERTY, run.italic)
     char_format.setProperty(STRIKETHROUGH_PROPERTY, run.strikethrough)
     char_format.setProperty(SUPERSCRIPT_PROPERTY, run.superscript)
+    char_format.setProperty(UNDERLINE_PROPERTY, run.underline)
     char_format.setFontWeight(
         QFont.Weight.Bold.value if run.bold else QFont.Weight.Normal.value
     )
     char_format.setFontItalic(run.italic)
     char_format.setFontStrikeOut(run.strikethrough)
+    char_format.setFontUnderline(run.underline or run.link_href is not None)
     char_format.setVerticalAlignment(
         QTextCharFormat.VerticalAlignment.AlignSuperScript
         if run.superscript
@@ -418,7 +421,6 @@ def make_char_format(run: InlineRun, *, heading_level: int | None = None) -> QTe
     if run.link_href is not None:
         char_format.setAnchor(True)
         char_format.setAnchorHref(run.link_href)
-        char_format.setFontUnderline(True)
         char_format.setForeground(QColor("#1a5fb4"))
     return char_format
 
@@ -525,6 +527,7 @@ def footnote_run_from_format(
                 ITALIC_PROPERTY,
                 STRIKETHROUGH_PROPERTY,
                 SUPERSCRIPT_PROPERTY,
+                UNDERLINE_PROPERTY,
             )
         )
     ):
@@ -697,6 +700,7 @@ def _validate_raw_qt_block(block: QTextBlock) -> None:
                     ITALIC_PROPERTY,
                     STRIKETHROUGH_PROPERTY,
                     SUPERSCRIPT_PROPERTY,
+                    UNDERLINE_PROPERTY,
                 )
             ) or char_format.isAnchor():
                 raise UnsupportedBlockError(
@@ -761,6 +765,7 @@ def _validate_footnote_run(run: InlineRun) -> None:
     if (
         run.bold
         or run.italic
+        or run.underline
         or run.strikethrough
         or run.superscript
         or run.link_href is not None
@@ -797,6 +802,7 @@ def _validate_image_run(run: InlineRun) -> None:
     if (
         run.bold
         or run.italic
+        or run.underline
         or run.strikethrough
         or run.superscript
         or run.link_href is not None
@@ -1080,6 +1086,7 @@ def _extract_runs(block: QTextBlock) -> list[InlineRun]:
                 text=fragment.text(),
                 bold=inline_format_enabled(char_format, BOLD_PROPERTY),
                 italic=inline_format_enabled(char_format, ITALIC_PROPERTY),
+                underline=inline_format_enabled(char_format, UNDERLINE_PROPERTY),
                 strikethrough=inline_format_enabled(
                     char_format, STRIKETHROUGH_PROPERTY
                 ),
@@ -1097,6 +1104,7 @@ def _validate_image_char_format(char_format: QTextCharFormat) -> None:
         for property_id in (
             BOLD_PROPERTY,
             ITALIC_PROPERTY,
+            UNDERLINE_PROPERTY,
             STRIKETHROUGH_PROPERTY,
             SUPERSCRIPT_PROPERTY,
         )
@@ -1176,12 +1184,14 @@ def _same_inline_format(left: InlineRun, right: InlineRun) -> bool:
     return (
         left.bold,
         left.italic,
+        left.underline,
         left.strikethrough,
         left.superscript,
         left.link_href,
     ) == (
         right.bold,
         right.italic,
+        right.underline,
         right.strikethrough,
         right.superscript,
         right.link_href,
@@ -1197,6 +1207,10 @@ def inline_format_enabled(char_format: QTextCharFormat, property_id: int) -> boo
         return char_format.fontWeight() >= QFont.Weight.Bold.value
     if property_id == ITALIC_PROPERTY:
         return char_format.fontItalic()
+    if property_id == UNDERLINE_PROPERTY:
+        # Links and foreign Qt formats may be visually underlined. Only the
+        # dedicated UserProperty is persistent Merope semantics.
+        return False
     if property_id == STRIKETHROUGH_PROPERTY:
         return char_format.fontStrikeOut()
     if property_id == SUPERSCRIPT_PROPERTY:

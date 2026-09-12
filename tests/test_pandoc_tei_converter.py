@@ -235,3 +235,29 @@ def test_superscript_survives_real_pandoc_conversion_to_html():
     html = render_tei_file_to_html_fragment(output_path, parameters={"article_slug": "superscript"})
     assert "<sup>e</sup>" in html
     assert "<sup>exp</sup>" in html
+
+
+def test_underline_span_survives_real_pandoc_conversion_to_html():
+    if shutil.which("pandoc") is None:
+        pytest.skip("Pandoc non disponible dans l'environnement de test.")
+
+    markdown_source = RUNTIME_DIR / "pipeline_underline_source.md"
+    markdown_source.write_text(
+        "# Titre\n\n[Bossuet]{.underline} et "
+        "[[**Meaux**](https://example.org)]{.underline}.\n",
+        encoding="utf-8",
+    )
+
+    output_path = RUNTIME_DIR / "pipeline_underline_output.xml"
+    result = convert_markdown_file_to_tei(
+        markdown_source, output_path, pandoc_command="pandoc"
+    )
+
+    assert result.success is True
+    tei_content = output_path.read_text(encoding="utf-8")
+    assert 'rendition="simple:underline"' in tei_content
+    html = render_tei_file_to_html_fragment(
+        output_path, parameters={"article_slug": "underline"}
+    )
+    assert "<u>Bossuet</u>" in html
+    assert '<u><a href="https://example.org"><strong>Meaux</strong></a></u>' in html

@@ -36,6 +36,7 @@ from bloggen.ui.qt_editor.formatting import (
     toggle_italic,
     toggle_strikethrough,
     toggle_superscript,
+    toggle_underline,
 )
 
 
@@ -78,6 +79,43 @@ def _assert_no_heading_residue(editor: QTextEdit, block_index: int = 0) -> None:
     assert not block_format.hasProperty(HEADING_LEVEL_PROPERTY)
     assert block_format.headingLevel() == 0
     assert block.begin().fragment().charFormat().fontPointSize() == BODY_POINT_SIZE
+
+
+def test_underline_is_semantic_and_preserved_when_a_link_is_removed():
+    editor = _editor(
+        [Block(kind=PARAGRAPH, runs=[InlineRun(text="Bossuet", underline=True)])]
+    )
+    _select_document(editor)
+    assert extract_blocks(editor.document())[0].runs == [
+        InlineRun(text="Bossuet", underline=True)
+    ]
+
+    set_link(editor, "https://example.org")
+    assert extract_blocks(editor.document())[0].runs == [
+        InlineRun(
+            text="Bossuet",
+            underline=True,
+            link_href="https://example.org",
+        )
+    ]
+    set_link(editor, None)
+    assert extract_blocks(editor.document())[0].runs == [
+        InlineRun(text="Bossuet", underline=True)
+    ]
+
+    toggle_underline(editor)
+    assert extract_blocks(editor.document())[0].runs == [InlineRun(text="Bossuet")]
+
+
+def test_foreign_native_underline_does_not_invent_merope_semantics():
+    editor = QTextEdit()
+    char_format = QTextCharFormat()
+    char_format.setFontUnderline(True)
+    QTextCursor(editor.document()).insertText("Visuel", char_format)
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Visuel")])
+    ]
 
 
 def test_paragraph_heading_paragraph_clears_heading_state():
@@ -190,6 +228,7 @@ def test_switching_list_kind_replaces_old_list_semantics(source: str, target: st
     [
         (toggle_bold, "bold"),
         (toggle_italic, "italic"),
+        (toggle_underline, "underline"),
         (toggle_strikethrough, "strikethrough"),
         (toggle_superscript, "superscript"),
     ],
@@ -346,6 +385,7 @@ def test_two_paragraphs_can_become_headings_in_one_operation():
     ("command", "field"),
     [
         (toggle_bold, "bold"),
+        (toggle_underline, "underline"),
         (toggle_superscript, "superscript"),
     ],
 )
@@ -396,7 +436,9 @@ def test_link_across_image_only_changes_text_and_undoes_once():
     assert extract_blocks(editor.document()) == original
 
 
-@pytest.mark.parametrize("command", [toggle_bold, toggle_italic, set_link])
+@pytest.mark.parametrize(
+    "command", [toggle_bold, toggle_italic, toggle_underline, set_link]
+)
 def test_text_format_on_image_only_is_clean_noop(command):
     original = [
         Block(

@@ -552,6 +552,7 @@ class ContentEditorWindow(
         text.tag_configure("align_justify", justify="left")
         text.tag_configure("bold", font=("TkDefaultFont", 11, "bold"))
         text.tag_configure("italic", font=("TkDefaultFont", 11, "italic"))
+        text.tag_configure("underline", underline=True)
         text.tag_configure("strike", overstrike=True)
         text.tag_configure("superscript", offset=6, font=("TkDefaultFont", 8))
         text.tag_configure("link_style", foreground="#1a73e8", underline=True)
@@ -559,7 +560,7 @@ class ContentEditorWindow(
         text.tag_configure("image_center", justify="center")
         text.tag_configure("footnote_style", foreground="#1a73e8")
         text.tag_configure("search_match", background="#ffe08a")
-        for tag in ("bold", "italic", "strike", "superscript", "link_style", "image_style", "footnote_style"):
+        for tag in ("bold", "italic", "underline", "strike", "superscript", "link_style", "image_style", "footnote_style"):
             text.tag_raise(tag)
 
     # -- zoom (Ctrl+molette) -------------------------------------------------
