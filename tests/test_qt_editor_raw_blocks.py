@@ -34,6 +34,7 @@ from bloggen.ui.qt_editor.constants import (
     RAW_BLOCK_GROUP_PROPERTY,
     RAW_BLOCK_KIND_PROPERTY,
 )
+from bloggen.ui.qt_editor.clipboard_fragment import MEROPE_FRAGMENT_MIME
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedBlockError,
     UnsupportedInlineError,
@@ -42,6 +43,8 @@ from bloggen.ui.qt_editor.document_adapter import (
     insert_blocks,
     populate_document,
     renumber_footnote_references,
+    selection_block_identities,
+    selection_crosses_raw_boundary,
     validate_blocks,
 )
 from bloggen.ui.qt_editor.formatting import (
@@ -106,6 +109,19 @@ def _select_block_text(editor: MeropeTextEdit, block_number: int) -> QTextCursor
     cursor = QTextCursor(block)
     cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
     editor.setTextCursor(cursor)
+    return cursor
+
+
+def _select_separator(editor: MeropeTextEdit, left_block_number: int) -> QTextCursor:
+    left = editor.document().findBlockByNumber(left_block_number)
+    right = left.next()
+    separator = left.position() + left.length() - 1
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(separator)
+    cursor.setPosition(right.position(), QTextCursor.MoveMode.KeepAnchor)
+    editor.setTextCursor(cursor)
+    assert cursor.selectionEnd() == right.position()
+    assert "\u2029" in cursor.selectedText()
     return cursor
 
 
@@ -335,6 +351,167 @@ def test_delete_and_backspace_refuse_raw_normal_boundaries():
     assert extract_blocks(editor.document()) == [
         Block(kind=VERBATIM, raw_text="brut"),
         Block(kind=PARAGRAPH, runs=[InlineRun(text="normal")]),
+    ]
+
+
+@pytest.mark.parametrize("operation", ["delete", "type", "cut", "paste", "insert"])
+def test_selected_normal_to_raw_separator_is_protected(operation):
+    original = [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="normal")]),
+        Block(kind=VERBATIM, raw_text="brut"),
+    ]
+    editor = _editor(original)
+    cursor = _select_separator(editor, 0)
+    assert selection_crosses_raw_boundary(cursor)
+    identities = selection_block_identities(cursor)
+    assert None in identities
+    assert len(identities) == 2
+
+    if operation == "delete":
+        QTest.keyClick(editor, Qt.Key.Key_Delete)
+    elif operation == "type":
+        QTest.keyClicks(editor, "x")
+    elif operation == "cut":
+        refused = []
+        editor.clipboardRefused.connect(refused.append)
+        editor.cut()
+        assert refused
+    elif operation == "paste":
+        refused = []
+        editor.pasteRefused.connect(refused.append)
+        QApplication.clipboard().setText("collé")
+        editor.paste()
+        assert refused
+    else:
+        with pytest.raises(UnsupportedBlockError, match="frontière"):
+            insert_blocks(cursor, [_table()])
+
+    assert extract_blocks(editor.document()) == original
+    assert not editor.document().isUndoAvailable()
+
+
+@pytest.mark.parametrize("operation", ["delete", "cut", "paste"])
+def test_selected_raw_to_normal_separator_is_protected(operation):
+    original = [
+        Block(kind=VERBATIM, raw_text="brut"),
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="normal")]),
+    ]
+    editor = _editor(original)
+    cursor = _select_separator(editor, 0)
+    assert selection_crosses_raw_boundary(cursor)
+
+    if operation == "delete":
+        QTest.keyClick(editor, Qt.Key.Key_Delete)
+    elif operation == "cut":
+        refused = []
+        editor.clipboardRefused.connect(refused.append)
+        editor.cut()
+        assert refused
+    else:
+        refused = []
+        editor.pasteRefused.connect(refused.append)
+        QApplication.clipboard().setText("collé")
+        editor.paste()
+        assert refused
+
+    assert extract_blocks(editor.document()) == original
+    assert not editor.document().isUndoAvailable()
+
+
+@pytest.mark.parametrize("mime_kind", ["plain", "html", "merope", "image"])
+def test_every_paste_representation_is_refused_before_replacing_raw_boundary(
+    mime_kind,
+):
+    original = [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="normal")]),
+        Block(kind=VERBATIM, raw_text="brut"),
+    ]
+    editor = _editor(original)
+    _select_separator(editor, 0)
+    mime = QMimeData()
+    if mime_kind == "plain":
+        mime.setText("texte")
+    elif mime_kind == "html":
+        mime.setHtml("<p><strong>riche</strong></p>")
+        mime.setText("riche")
+    elif mime_kind == "merope":
+        mime.setData(MEROPE_FRAGMENT_MIME, b"**fragment**")
+    else:
+        mime.setImageData(QImage(2, 2, QImage.Format.Format_ARGB32))
+    refused = []
+    editor.pasteRefused.connect(refused.append)
+
+    editor.insertFromMimeData(mime)
+
+    assert refused
+    assert extract_blocks(editor.document()) == original
+    assert not editor.document().isUndoAvailable()
+
+
+@pytest.mark.parametrize("operation", ["delete", "type", "cut"])
+def test_selected_separator_between_distinct_raw_groups_is_protected(operation):
+    original = [
+        Block(kind=VERBATIM, raw_text="groupe A"),
+        Block(kind=VERBATIM, raw_text="groupe B"),
+    ]
+    editor = _editor(original)
+    cursor = _select_separator(editor, 0)
+    assert selection_crosses_raw_boundary(cursor)
+
+    if operation == "delete":
+        QTest.keyClick(editor, Qt.Key.Key_Delete)
+    elif operation == "type":
+        QTest.keyClicks(editor, '"')
+    else:
+        refused = []
+        editor.clipboardRefused.connect(refused.append)
+        editor.cut()
+        assert refused
+
+    assert extract_blocks(editor.document()) == original
+    assert not editor.document().isUndoAvailable()
+
+
+def test_selected_separator_inside_same_raw_group_can_merge_and_undo():
+    editor = _editor([Block(kind=VERBATIM, raw_text="ligne 1\nligne 2")])
+    first = editor.document().begin()
+    original_group = first.blockFormat().property(RAW_BLOCK_GROUP_PROPERTY)
+    cursor = _select_separator(editor, 0)
+    assert not selection_crosses_raw_boundary(cursor)
+    assert selection_block_identities(cursor) == {(VERBATIM, original_group)}
+
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    assert editor.document().blockCount() == 1
+    assert extract_blocks(editor.document()) == [
+        Block(kind=VERBATIM, raw_text="ligne 1ligne 2")
+    ]
+    assert editor.document().begin().blockFormat().property(
+        RAW_BLOCK_GROUP_PROPERTY
+    ) == original_group
+    editor.undo()
+    assert extract_blocks(editor.document()) == [
+        Block(kind=VERBATIM, raw_text="ligne 1\nligne 2")
+    ]
+    assert editor.document().begin().blockFormat().property(
+        RAW_BLOCK_GROUP_PROPERTY
+    ) == original_group
+
+
+def test_selected_separator_between_normal_blocks_keeps_native_qt_behavior():
+    editor = _editor(
+        [
+            Block(kind=PARAGRAPH, runs=[InlineRun(text="A")]),
+            Block(kind=PARAGRAPH, runs=[InlineRun(text="B")]),
+        ]
+    )
+    cursor = _select_separator(editor, 0)
+    assert not selection_crosses_raw_boundary(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="AB")])
     ]
 
 

@@ -79,6 +79,8 @@ from bloggen.ui.qt_editor.document_adapter import (
     make_raw_block_format,
     make_raw_char_format,
     raw_block_identity,
+    selection_block_identities,
+    selection_crosses_raw_boundary,
     selection_touches_raw_block,
 )
 from bloggen.ui.qt_editor.footnote_selection import (
@@ -347,8 +349,16 @@ class MeropeTextEdit(QTextEdit):
     def _handle_raw_block_key(self, event: QKeyEvent) -> bool:
         cursor = self.textCursor()
         key = event.key()
-        identities = self._selection_block_identities(cursor)
+        identities = selection_block_identities(cursor)
         raw_identities = {identity for identity in identities if identity is not None}
+        editing_key = key in {
+            Qt.Key.Key_Delete,
+            Qt.Key.Key_Backspace,
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+        } or bool(event.text())
+        if editing_key and selection_crosses_raw_boundary(cursor):
+            return True
         if not raw_identities:
             if not cursor.hasSelection() and key in {
                 Qt.Key.Key_Delete,
@@ -370,12 +380,6 @@ class MeropeTextEdit(QTextEdit):
                     return True
             return False
 
-        editing_key = key in {
-            Qt.Key.Key_Delete,
-            Qt.Key.Key_Backspace,
-            Qt.Key.Key_Return,
-            Qt.Key.Key_Enter,
-        } or bool(event.text())
         if not editing_key:
             return False
         if len(identities) != 1 or len(raw_identities) != 1:
@@ -427,18 +431,6 @@ class MeropeTextEdit(QTextEdit):
         self.setTextCursor(cursor)
         return True
 
-    def _selection_block_identities(
-        self, cursor: QTextCursor
-    ) -> set[tuple[str, str] | None]:
-        start = cursor.selectionStart()
-        end = cursor.selectionEnd()
-        block = self.document().findBlock(start)
-        identities: set[tuple[str, str] | None] = set()
-        while block.isValid() and (start == end or block.position() < end):
-            identities.add(raw_block_identity(block))
-            block = block.next()
-        return identities
-
     def _copy_merope_selection(self, *, cut: bool) -> bool:
         try:
             cursor, contains_note = expand_selection_to_footnotes(
@@ -451,7 +443,7 @@ class MeropeTextEdit(QTextEdit):
             return True
         if not cursor.hasSelection():
             return False
-        if cut and len(self._selection_block_identities(cursor)) > 1 and selection_touches_raw_block(cursor):
+        if cut and selection_crosses_raw_boundary(cursor):
             self.clipboardRefused.emit(
                 "La coupe ne peut pas traverser la frontière d’un bloc brut"
             )
@@ -637,7 +629,13 @@ class MeropeTextEdit(QTextEdit):
         document is touched.
         """
 
-        raw_identities = self._selection_block_identities(self.textCursor())
+        paste_cursor = self.textCursor()
+        if selection_crosses_raw_boundary(paste_cursor):
+            self.pasteRefused.emit(
+                "Le collage ne peut pas remplacer une frontière de bloc brut"
+            )
+            return
+        raw_identities = selection_block_identities(paste_cursor)
         if any(identity is not None for identity in raw_identities):
             if len(raw_identities) != 1 or None in raw_identities:
                 self.pasteRefused.emit(

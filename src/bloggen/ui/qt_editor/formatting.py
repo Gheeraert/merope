@@ -31,6 +31,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     is_raw_block,
     is_semantic_inline_object_format,
     refresh_block_visuals,
+    selection_touches_raw_block,
 )
 
 
@@ -96,9 +97,9 @@ def set_list(editor: QTextEdit, kind: str) -> None:
     if kind not in {BULLET_LIST, ORDERED_LIST}:
         raise ValueError(f"Type de liste non pris en charge : {kind}")
     cursor = editor.textCursor()
-    blocks = _selected_blocks(editor.document(), cursor)
-    if any(is_raw_block(block) for block in blocks):
+    if selection_touches_raw_block(cursor):
         return
+    blocks = _selected_blocks(editor.document(), cursor)
     cursor.beginEditBlock()
     for block in blocks:
         text_list = block.textList()
@@ -143,9 +144,9 @@ def set_alignment(editor: QTextEdit, alignment: str) -> None:
     if qt_alignment is None:
         raise ValueError(f"Alignement non pris en charge : {alignment}")
     cursor = editor.textCursor()
-    blocks = _selected_blocks(editor.document(), cursor)
-    if any(is_raw_block(block) for block in blocks):
+    if selection_touches_raw_block(cursor):
         return
+    blocks = _selected_blocks(editor.document(), cursor)
     if any(block.textList() is not None for block in blocks):
         raise ValueError("L'alignement des elements de liste n'est pas pris en charge")
     cursor.beginEditBlock()
@@ -179,9 +180,9 @@ def _toggle_inline(
 
 def _set_leaf_block_kind(editor: QTextEdit, kind: str, level: int | None = None) -> None:
     cursor = editor.textCursor()
-    blocks = _selected_blocks(editor.document(), cursor)
-    if any(is_raw_block(block) for block in blocks):
+    if selection_touches_raw_block(cursor):
         return
+    blocks = _selected_blocks(editor.document(), cursor)
     cursor.beginEditBlock()
     for block in blocks:
         text_list = block.textList()

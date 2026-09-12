@@ -117,6 +117,10 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
     insertion = QTextCursor(cursor)
     if not blocks:
         return insertion
+    if selection_crosses_raw_boundary(insertion):
+        raise UnsupportedBlockError(
+            "L’insertion ne peut pas remplacer une frontière de bloc brut"
+        )
     if selection_touches_raw_block(insertion):
         raise UnsupportedBlockError(
             "Les objets structurés ne peuvent pas être insérés dans un bloc brut"
@@ -1000,12 +1004,58 @@ def is_raw_block(block: QTextBlock) -> bool:
 def selection_touches_raw_block(cursor: QTextCursor) -> bool:
     """Report whether a caret/selection addresses at least one raw block."""
 
+    return any(
+        identity is not None for identity in selection_block_identities(cursor)
+    )
+
+
+def selection_block_identities(
+    cursor: QTextCursor,
+) -> set[tuple[str, str] | None]:
+    """Return identities touched by text or by a selected block separator.
+
+    A QTextBlock separator belongs to the left block, while the right block's
+    position equals the selection end in the boundary-only case.  The right
+    identity is therefore added explicitly whenever that separator is selected.
+    """
+
     start = cursor.selectionStart()
     end = cursor.selectionEnd()
     block = cursor.document().findBlock(start)
-    while block.isValid() and (start == end or block.position() < end):
-        if is_raw_block(block):
-            return True
+    identities: set[tuple[str, str] | None] = set()
+    if not cursor.hasSelection():
+        return {raw_block_identity(block)} if block.isValid() else set()
+
+    while block.isValid() and block.position() < end:
+        identities.add(raw_block_identity(block))
+        separator_position = block.position() + block.length() - 1
+        if start <= separator_position < end:
+            right = block.next()
+            if right.isValid():
+                identities.add(raw_block_identity(right))
+        block = block.next()
+    return identities
+
+
+def selection_crosses_raw_boundary(cursor: QTextCursor) -> bool:
+    """Return whether a selected paragraph separator crosses a protected edge."""
+
+    if not cursor.hasSelection():
+        return False
+    start = cursor.selectionStart()
+    end = cursor.selectionEnd()
+    block = cursor.document().findBlock(start)
+    while block.isValid() and block.position() < end:
+        separator_position = block.position() + block.length() - 1
+        if start <= separator_position < end:
+            right = block.next()
+            if right.isValid():
+                left_identity = raw_block_identity(block)
+                right_identity = raw_block_identity(right)
+                if left_identity != right_identity and (
+                    left_identity is not None or right_identity is not None
+                ):
+                    return True
         block = block.next()
     return False
 

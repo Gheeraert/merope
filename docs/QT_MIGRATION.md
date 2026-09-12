@@ -922,7 +922,9 @@ insérée ; sans texte, le collage est refusé. La typographie explicite refuse 
 sélection touchant un bloc brut. Les formats inline ignorent les portions brutes,
 et les commandes de bloc refusent atomiquement une sélection qui en contient.
 Delete, Backspace et Cut ne peuvent pas fusionner une frontière raw/normal ou
-deux groupes raw distincts.
+deux groupes raw distincts. Les caractères séparateurs de paragraphe eux-mêmes
+appartiennent à cette protection, même lorsque `selectionEnd()` coïncide avec
+la position du bloc situé à droite.
 
 Une table est validée comme `TABLE → TABLE_ROW → TABLE_CELL → InlineRun`. Sa
 source affichée provient toujours du sérialiseur canonique. Lors de l’extraction,
