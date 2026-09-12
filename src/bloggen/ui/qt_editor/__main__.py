@@ -7,7 +7,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from bloggen.ui.qt_editor_protocol import emit_event
+from bloggen.ui.qt_editor_protocol import configure_utf8_stdio, emit_event
 
 
 def main() -> int:
@@ -20,6 +20,8 @@ def main() -> int:
     parser.add_argument("--images-dir", type=Path)
     parser.add_argument("--slugify-mode", default="ascii")
     args = parser.parse_args()
+    if args.ipc:
+        configure_utf8_stdio()
     try:
         from bloggen.ui.qt_editor.window import run
     except ModuleNotFoundError as exc:

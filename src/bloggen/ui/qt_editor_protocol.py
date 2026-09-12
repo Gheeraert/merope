@@ -189,6 +189,24 @@ def encode_command(command: ProtocolCommand) -> str:
     return encoded
 
 
+def configure_utf8_stdio() -> None:
+    """Make the child's IPC pipes speak the protocol's UTF-8.
+
+    On Windows, piped standard streams default to the ANSI code page
+    (cp1252), while the Tk parent reads and writes UTF-8: every non-ASCII
+    character of the live config (site subtitle, titles...) and of event
+    paths would turn into mojibake.  Must run before any stream is used.
+    """
+
+    for stream, errors in (
+        (sys.stdin, "strict"),
+        (sys.stdout, "strict"),
+        (sys.stderr, "backslashreplace"),
+    ):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 def emit_event(
     event_type: str,
     *,

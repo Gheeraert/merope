@@ -294,6 +294,37 @@ def test_real_child_requests_and_reads_config_snapshot_from_stdin(tmp_path):
     assert launcher.returncode == 0
 
 
+def test_non_ascii_config_round_trips_through_real_pipes(tmp_path, monkeypatch):
+    """Regression: piped stdio defaulted to cp1252 in the child on Windows."""
+
+    # A developer shell may force UTF-8 globally and hide the bug.
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    subtitle = "Carnet académique « statique » — œuvre"
+    launcher = QtEditorLauncher(_context(tmp_path))
+    launcher.start(command=_fake_command("utf8-echo"))
+
+    deadline = time.monotonic() + 3.0
+    seen = []
+    while time.monotonic() < deadline and not any(
+        isinstance(item, ProtocolEvent) and item.type == "config_requested"
+        for item in seen
+    ):
+        seen.extend(launcher.drain_notifications())
+        time.sleep(0.01)
+    launcher.send_config_snapshot(3, {"site": {"subtitle": subtitle}})
+    notifications = seen + _wait_for_exit(launcher)
+
+    events = [item for item in notifications if isinstance(item, ProtocolEvent)]
+    # Tk -> Qt: what the child decoded from its stdin.
+    assert [e.message for e in events if e.type == "error"] == [ascii(subtitle)]
+    # Qt -> Tk: what the parent decoded from the child's stdout.
+    assert [e.path for e in events if e.type == "saved"] == [
+        "C:/projet/pages/créé — « œuvre ».md"
+    ]
+    assert launcher.returncode == 0
+
+
 def test_send_command_after_process_exit_is_controlled(tmp_path):
     launcher = QtEditorLauncher(_context(tmp_path))
     launcher.start(command=_fake_command("normal"))

@@ -45,5 +45,22 @@ elif mode == "config-request":
         print("invalid config response", file=sys.stderr, flush=True)
         raise SystemExit(9)
     emit("closed")
+elif mode == "utf8-echo":
+    # Real protocol helpers, as used by ``python -m bloggen.ui.qt_editor --ipc``.
+    from bloggen.ui.qt_editor_protocol import (
+        configure_utf8_stdio,
+        emit_event,
+        parse_command_line,
+    )
+
+    configure_utf8_stdio()
+    emit_event("ready")
+    emit_event("config_requested", request_id=3)
+    command = parse_command_line(sys.stdin.readline().rstrip("\r\n"))
+    # ascii() makes the Tk->Qt check independent of the Qt->Tk direction:
+    # a cp1252 child would otherwise re-encode its mojibake back to UTF-8.
+    emit_event("error", message=ascii(command.config["site"]["subtitle"]))
+    emit_event("saved", path="C:/projet/pages/créé — « œuvre ».md")
+    emit_event("closed")
 else:
     raise SystemExit(2)
