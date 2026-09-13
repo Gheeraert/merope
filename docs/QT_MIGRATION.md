@@ -199,9 +199,9 @@ Markdown, au vrai output ou au sidecar TEI utilisateur.
 - l’adaptateur explicite `Block`/`InlineRun ↔ QTextDocument` pour les
   paragraphes, titres H1 à H4, citations, listes simples à puces ou numérotées
   et alignements ;
-- les blocs TABLE et VERBATIM sous forme de source brute monospacée éditable,
-  avec regroupement transitoire et fallback sans perte d’une table invalide
-  vers VERBATIM ;
+- les TABLE simples sous forme de `QTextTable` graphique éditable, tandis que
+  les TABLE canoniques non éligibles et les VERBATIM restent en source brute
+  monospacée avec fallback sans perte ;
 - les formats inline gras, italique, souligné, barré, exposant et lien, y
   compris leurs combinaisons ; le soulignement est persisté par la syntaxe
   Pandoc `[texte]{.underline}` et rendu depuis le TEI `simple:underline` ;
@@ -891,10 +891,11 @@ valeur provenant d’un ancien brouillon Tk est conservée pendant la restaurati
 Au démarrage, un brouillon retrouvé est proposé à l’utilisateur. Un refus le
 supprime sans toucher au document normalement ouvert. Une acceptation commence
 par parser le Markdown, séparer corps et définitions, puis valider intégralement
-le sous-ensemble Qt ; la fenêtre n’est mutée qu’après ces contrôles. Les blocs
-`TABLE` et `VERBATIM` sont restaurés dans leur représentation source brute ; les
-autres structures encore refusées le restent aussi en récupération. Un brouillon
-incompatible laisse à la fois le document et le JSON intacts.
+le sous-ensemble Qt ; la fenêtre n’est mutée qu’après ces contrôles. Les TABLE
+simples sont restaurées comme tableaux graphiques ; les TABLE non éligibles et
+les `VERBATIM` retrouvent leur représentation source brute. Les autres structures
+encore refusées le restent aussi en récupération. Un brouillon incompatible
+laisse à la fois le document et le JSON intacts.
 
 Une restauration réussie replace les définitions dans `FootnoteStore`, jamais
 dans le `QTextDocument`, restaure métadonnées, images et `((notes différées))`,
@@ -1003,14 +1004,44 @@ effacer `.versions`. Supprimer le document courant passe aussi par la garde des
 changements puis installe une session vierge du même kind, sans conserver un
 chemin vers un fichier disparu.
 
-### Blocs bruts TABLE et VERBATIM
+### Tableaux graphiques et fallback brut
 
-Qt reprend le contrat historique de Tk : ces structures ne sont pas rendues en
-WYSIWYG. Elles restent des lignes de source Markdown monospacées dans l’unique
-`QTextDocument` du corps :
+Une table reste validée comme
+`TABLE → TABLE_ROW → TABLE_CELL → InlineRun`, avec la première ligne comme
+en-tête et un nombre identique de cellules sur chaque ligne. Une TABLE simple
+est représentée dans l’unique `QTextDocument` par un `QTextTable` marqué Mérope.
+Chaque cellule contient exactement un bloc aligné à gauche et accepte texte,
+NBSP, gras, italique, souligné, barré, exposant, lien et appel de note atomique.
+L’adaptateur extrait toujours ce frame vers le modèle canonique avant tout
+Markdown : le `QTextTable` n’est jamais une seconde source de vérité.
+
+La présentation est seulement Qt : largeur totale de 100 %, colonnes égales,
+bordure fine, padding, marges verticales et fond discret sur la ligne d’en-tête.
+Ces formats ne rendent pas les `InlineRun` du header gras et ne sont persistés
+ni dans le Markdown, ni dans le recovery, ni dans le clipboard canonique. Ils
+sont recalculés après ajout ou suppression de ligne/colonne et restaurés avec
+l’unique commande undo/redo structurelle.
+
+Dans une cellule, Entrée est refusé afin de conserver un bloc unique. Tab passe
+à la cellule suivante et, depuis la dernière cellule, ajoute une ligne de corps ;
+Maj+Tab revient à la cellule précédente. Le sous-menu contextuel « Tableau »
+ajoute ou supprime lignes et colonnes, refuse la suppression implicite de la
+dernière ligne/colonne et propose la suppression explicite du tableau. Le
+dialogue « Insérer un tableau… » accepte de 1 à 50 lignes et colonnes, en-tête
+inclus.
+
+« Copier le tableau » et « Couper le tableau » sérialisent le TABLE complet dans
+`application/x-merope-markdown-fragment` et en `text/plain` Markdown. La coupe
+n’enlève le frame qu’après écriture réussie du clipboard. Ce fragment se colle
+dans le corps par le pipeline canonique existant. La sélection rectangulaire ou
+multi-cellules, son export TSV et le collage d’un TABLE dans une cellule restent
+volontairement refusés ; le collage HTML externe `<table>` n’est pas interprété.
+
+Une TABLE canonique contenant une image ou une structure non représentable
+graphiquement conserve le fallback historique en source Markdown monospacée :
 
 ```text
-TABLE canonique
+TABLE canonique non éligible
   → blocks_to_markdown([table])
   → lignes Qt RAW_BLOCK_KIND_PROPERTY=table + groupe transitoire
   → parse_table_lines(lines)
@@ -1023,36 +1054,12 @@ VERBATIM canonique
 ```
 
 `RAW_BLOCK_GROUP_PROPERTY` distingue deux blocs bruts consécutifs du même type.
-Cette identité n’est ni exportée ni persistée. Les lignes utilisent une police
-monospace et un fond discret ; aucun `QTextTable`, `QTextFrame`, widget superposé
-ou parseur Markdown Qt n’est introduit.
-
-La frappe, Entrée et le collage dans un bloc brut restent littéraux. Entrée crée
-une nouvelle ligne portant le même groupe. Même si le presse-papiers contient du
-HTML, une image ou le MIME Mérope, seule sa représentation `text/plain` est
-insérée ; sans texte, le collage est refusé. La typographie explicite refuse une
-sélection touchant un bloc brut. Les formats inline ignorent les portions brutes,
-et les commandes de bloc refusent atomiquement une sélection qui en contient.
-Delete, Backspace et Cut ne peuvent pas fusionner une frontière raw/normal ou
-deux groupes raw distincts. Les caractères séparateurs de paragraphe eux-mêmes
-appartiennent à cette protection, même lorsque `selectionEnd()` coïncide avec
-la position du bloc situé à droite.
-
-Une table est validée comme `TABLE → TABLE_ROW → TABLE_CELL → InlineRun`. Sa
-source affichée provient toujours du sérialiseur canonique. Lors de l’extraction,
-`parse_table_lines()` reconstitue les cellules riches (gras, italique, liens et
-appels de note). Une table devenue invalide devient un `VERBATIM` contenant
-toutes les lignes, afin que l’enregistrement ne perde aucun caractère. La
-renumérotation de sauvegarde réécrit les appels contenus dans une TABLE après
-parsing du modèle, puis régénère son groupe source ; elle ne touche jamais les
-chaînes `[^n]` d’un VERBATIM.
-
-L’action « Tableau... » construit directement un modèle canonique avec au moins
-deux lignes (en-tête inclus) et une colonne, utilise « Colonne 1 », « Colonne 2 »,
-etc. pour l’en-tête, puis passe par `insert_blocks()`. Un paragraphe normal vide
-est laissé après le tableau pour poursuivre la saisie. Les blocs bruts suivent
-sans voie spéciale les chemins de fichier, recovery, autosave, aperçu ponctuel
-et MIME interne `application/x-merope-markdown-fragment`.
+Cette identité n’est ni exportée ni persistée. La frappe, Entrée et le collage
+dans un bloc brut restent littéraux. La typographie et les formats riches ne
+peuvent pas contaminer ces lignes ; Delete, Backspace et Cut ne fusionnent pas
+une frontière raw/normal ou deux groupes raw distincts, séparateur de paragraphe
+compris. La renumérotation met à jour les appels de note des TABLE canoniques et
+ne touche jamais les chaînes `[^n]` d’un VERBATIM.
 
 ### Outils quotidiens d’édition
 
@@ -1062,17 +1069,17 @@ la casse, reste dans chaque `QTextBlock` et boucle de la fin vers le début. Les
 occurrences qui recouvrent une image, un marqueur de note structuré ou plusieurs
 formats sémantiques sont ignorées pour le remplacement. Dans un fragment de
 format homogène, le texte substitué conserve gras, italique, barré, exposant et
-lien. Les blocs TABLE et VERBATIM sont recherchables et remplaçables comme source
-littérale sans perdre leur identité raw. « Tout remplacer » forme une seule
-opération undo ; une recherche seule et un remplacement identique ne modifient
-ni le dirty ni l’historique.
+lien. Les TABLE en fallback brut et les VERBATIM sont recherchables et
+remplaçables comme source littérale sans perdre leur identité raw. « Tout
+remplacer » forme une seule opération undo ; une recherche seule et un
+remplacement identique ne modifient ni le dirty ni l’historique.
 
 « Coller en texte brut » (`Ctrl+Shift+V`) lit exclusivement le `text/plain` du
 presse-papiers, même si HTML, image ou MIME Mérope sont aussi présents. Il
 réutilise les protections atomiques des notes et des frontières raw ; dans un
 bloc brut, les lignes collées restent dans le même groupe. « Espace insécable »
 (`Ctrl+Space` ou `Alt+Space`) insère exactement U+00A0 avec les mêmes protections,
-y compris comme caractère littéral dans TABLE/VERBATIM.
+y compris comme caractère littéral dans une TABLE en fallback ou un VERBATIM.
 
 `Ctrl` + molette règle seulement le zoom de rendu de 50 % à 300 %, par pas de
 10 %. Le filtre est installé sur le `viewport` du `QTextEdit`, récepteur réel
@@ -1166,8 +1173,9 @@ refusé n’est ni réécrit ni archivé.
 - édition riche des légendes et suppression physique des assets lors d’un undo ;
 - éventuelle commande explicite de conversion des `((note))` en notes
   structurées ;
-- tableaux WYSIWYG et tableaux Markdown complexes hors du sous-ensemble
-  canonique ;
+- tableaux Markdown complexes hors du sous-ensemble graphique, sélection
+  rectangulaire, largeurs persistantes, fusion de cellules et import HTML
+  Word/Excel ;
 - aperçu live automatique et « Enregistrer sous... » général ;
 - toute commande IPC supplémentaire au-delà des réponses de configuration
   `config_snapshot` / `config_error`.

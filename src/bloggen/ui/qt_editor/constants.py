@@ -68,3 +68,11 @@ CAPTION_POINT_SIZE = 9.5
 CAPTION_COLOR = "#5f6368"
 BODY_POINT_SIZE = 11.0
 BLOCKQUOTE_LEFT_MARGIN = 24.0
+
+# Présentation transitoire des tableaux graphiques. Ces valeurs restent dans
+# QTextDocument et ne participent jamais au modèle Block/InlineRun.
+TABLE_BORDER_WIDTH = 1.0
+TABLE_CELL_PADDING = 6.0
+TABLE_CELL_SPACING = 0.0
+TABLE_BLOCK_MARGINS = (12.0, 12.0)
+TABLE_HEADER_BACKGROUND = "#e8edf3"

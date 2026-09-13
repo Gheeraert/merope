@@ -33,7 +33,8 @@ from bloggen.ui.qt_editor.document_adapter import (
     selection_is_within_single_table_cell,
     validate_block_insertion,
 )
-from bloggen.ui.qt_editor.constants import BLOCK_KIND_PROPERTY, MEROPE_TABLE_PROPERTY
+from bloggen.ui.qt_editor.constants import BLOCK_KIND_PROPERTY
+from bloggen.ui.qt_editor.table_visuals import refresh_table_visuals
 
 
 def insert_empty_table(
@@ -260,10 +261,7 @@ def _empty_table_block(rows: int, columns: int) -> Block:
 
 
 def _restore_table_contract(table: QTextTable) -> None:
-    table_format = table.format()
-    table_format.setProperty(MEROPE_TABLE_PROPERTY, True)
-    table_format.setHeaderRowCount(1)
-    table.setFormat(table_format)
+    refresh_table_visuals(table)
 
 
 def _surrounding_text_blocks(

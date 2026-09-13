@@ -27,7 +27,6 @@ from PySide6.QtGui import (
     QTextListFormat,
     QTextTable,
     QTextTableCell,
-    QTextTableFormat,
 )
 
 from bloggen.content.footnotes import FootnoteDefinitions
@@ -89,6 +88,10 @@ from bloggen.ui.qt_editor.constants import (
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
     UNDERLINE_PROPERTY,
+)
+from bloggen.ui.qt_editor.table_visuals import (
+    make_table_format,
+    refresh_table_visuals,
 )
 
 
@@ -1864,12 +1867,7 @@ def _populate_table(cursor: QTextCursor, block: Block, first: bool) -> bool:
         # block inherit the semantic format of the suffix being split.
         cursor.setBlockFormat(QTextBlockFormat())
 
-    table_format = QTextTableFormat()
-    table_format.setProperty(MEROPE_TABLE_PROPERTY, True)
-    table_format.setHeaderRowCount(1)
-    table_format.setBorder(1.0)
-    table_format.setCellPadding(4.0)
-    table_format.setCellSpacing(0.0)
+    table_format = make_table_format(len(block.children[0].children))
     table = cursor.insertTable(
         len(block.children),
         len(block.children[0].children),
@@ -1881,6 +1879,7 @@ def _populate_table(cursor: QTextCursor, block: Block, first: bool) -> bool:
                 table.cellAt(row_index, column_index)
             )
             _insert_runs(cell_cursor, cell.runs)
+    refresh_table_visuals(table)
 
     after = table.lastCursorPosition()
     after.movePosition(QTextCursor.MoveOperation.NextBlock)
