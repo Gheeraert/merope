@@ -81,7 +81,13 @@ def test_collect_linked_assets_flags_paths_outside_the_project_as_unusable():
     confidential = outside_dir / "confidential.pdf"
     confidential.write_bytes(b"secret")
 
-    markdown = f"![Leak]({confidential.resolve()})\n"
+    # Use an explicit traversal rather than ``confidential.resolve()``.
+    # On POSIX, a leading slash in Markdown is a project-root-relative URL,
+    # while on Windows a drive-qualified path is an absolute filesystem path.
+    # Climbing from content/posts to the sibling fixture is unambiguously an
+    # out-of-project filesystem reference on both platforms.
+    outside_target = Path("../../..") / outside_dir.name / confidential.name
+    markdown = f"![Leak]({outside_target.as_posix()})\n"
     references = collect_linked_assets(source_file, markdown, project_root=project)
 
     assert len(references) == 1

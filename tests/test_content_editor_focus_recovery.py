@@ -11,7 +11,7 @@ the editor by hand.
 
 from __future__ import annotations
 
-import tkinter as tk
+from types import SimpleNamespace
 
 import pytest
 
@@ -38,20 +38,16 @@ def editor(root, tmp_path):
     window.destroy()
 
 
-def test_dialog_handing_focus_to_the_window_redirects_it_to_the_text_widget(root, editor):
-    other = tk.Entry(root)
-    other.pack()
-    other.focus_set()
-    root.update()
-
+def test_dialog_handing_focus_to_the_window_redirects_it_to_the_text_widget(editor, monkeypatch):
     # This is exactly what tkinter.simpledialog.Dialog.cancel() does when
     # any of this editor's dialogs (insert link/image/footnote, metadata,
     # an error popup...) closes: "put focus back to the parent window".
-    editor.focus_set()
-    root.update()
+    focus_calls = []
+    monkeypatch.setattr(editor.text, "focus_set", lambda: focus_calls.append(True))
 
-    assert editor.focus_get() is editor.text
-    other.destroy()
+    editor._on_toplevel_focus_in(SimpleNamespace(widget=editor))
+
+    assert focus_calls == [True]
 
 
 def test_note_link_dialog_returns_focus_to_the_note_editor_not_the_main_text(root, editor, monkeypatch):
