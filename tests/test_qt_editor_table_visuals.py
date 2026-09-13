@@ -35,6 +35,7 @@ from bloggen.ui.qt_editor.table_structure import (
     remove_table_column,
     remove_table_row,
 )
+from bloggen.ui.qt_editor.table_visuals import set_table_column_percentages
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 
 
@@ -166,27 +167,84 @@ def test_header_background_is_visual_only_and_preserves_explicit_bold():
 def test_column_insert_remove_recalculates_widths_with_exact_undo_redo():
     before = _table(2, 2)
     document = _document(before)
+    set_table_column_percentages(_only_table(document), (40.0, 60.0))
+    document.clearUndoRedoStacks()
+    document.setModified(False)
 
     insert_table_column(_cell_cursor(_only_table(document), 1, 0), before=False)
     after = extract_blocks(document)
-    _assert_equal_widths(_only_table(document), 3)
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 20.0, 60.0))
 
     document.undo()
     assert extract_blocks(document) == [before]
-    _assert_equal_widths(_only_table(document), 2)
+    assert _width_values(_only_table(document)) == pytest.approx((40.0, 60.0))
     document.redo()
     assert extract_blocks(document) == after
-    _assert_equal_widths(_only_table(document), 3)
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 20.0, 60.0))
 
     remove_table_column(_cell_cursor(_only_table(document), 1, 1))
     after_remove = extract_blocks(document)
-    _assert_equal_widths(_only_table(document), 2)
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 80.0))
     document.undo()
     assert extract_blocks(document) == after
-    _assert_equal_widths(_only_table(document), 3)
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 20.0, 60.0))
     document.redo()
     assert extract_blocks(document) == after_remove
-    _assert_equal_widths(_only_table(document), 2)
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 80.0))
+
+
+def test_row_insert_remove_preserves_custom_widths_through_undo_redo():
+    model = _table(3, 3)
+    document = _document(model)
+    set_table_column_percentages(_only_table(document), (20.0, 30.0, 50.0))
+    document.clearUndoRedoStacks()
+    document.setModified(False)
+
+    insert_table_row(_cell_cursor(_only_table(document), 1, 1), before=True)
+    inserted = extract_blocks(document)
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 30.0, 50.0))
+    document.undo()
+    assert extract_blocks(document) == [model]
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 30.0, 50.0))
+    document.redo()
+    assert extract_blocks(document) == inserted
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 30.0, 50.0))
+
+    remove_table_row(_cell_cursor(_only_table(document), 1, 1))
+    removed = extract_blocks(document)
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 30.0, 50.0))
+    document.undo()
+    assert extract_blocks(document) == inserted
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 30.0, 50.0))
+    document.redo()
+    assert extract_blocks(document) == removed
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 30.0, 50.0))
+
+
+@pytest.mark.parametrize(
+    ("removed_column", "expected"),
+    [(0, (50.0, 50.0)), (2, (20.0, 80.0))],
+)
+def test_column_remove_redistributes_to_right_or_previous_neighbor(
+    removed_column,
+    expected,
+):
+    model = _table(2, 3)
+    document = _document(model)
+    set_table_column_percentages(_only_table(document), (20.0, 30.0, 50.0))
+    document.clearUndoRedoStacks()
+    document.setModified(False)
+
+    remove_table_column(
+        _cell_cursor(_only_table(document), 1, removed_column)
+    )
+
+    assert _width_values(_only_table(document)) == pytest.approx(expected)
+    document.undo()
+    assert extract_blocks(document) == [model]
+    assert _width_values(_only_table(document)) == pytest.approx((20.0, 30.0, 50.0))
+    document.redo()
+    assert _width_values(_only_table(document)) == pytest.approx(expected)
 
 
 def test_header_visual_migrates_when_first_row_is_inserted_and_removed():

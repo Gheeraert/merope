@@ -34,7 +34,12 @@ from bloggen.ui.qt_editor.document_adapter import (
     validate_block_insertion,
 )
 from bloggen.ui.qt_editor.constants import BLOCK_KIND_PROPERTY
-from bloggen.ui.qt_editor.table_visuals import refresh_table_visuals
+from bloggen.ui.qt_editor.table_visuals import (
+    percentages_after_column_insert,
+    percentages_after_column_remove,
+    refresh_table_visuals,
+    table_column_percentages,
+)
 
 
 def insert_empty_table(
@@ -122,7 +127,18 @@ def insert_table_column(cursor: QTextCursor, *, before: bool) -> QTextCursor:
 
     table, cell = _require_single_merope_cell(cursor)
     row = cell.row()
-    column = cell.column() if before else cell.column() + 1
+    source_column = cell.column()
+    column = source_column if before else source_column + 1
+    try:
+        widths = percentages_after_column_insert(
+            table_column_percentages(table),
+            source_column,
+            column,
+        )
+    except ValueError as exc:
+        raise UnsupportedBlockError(
+            "Les largeurs actuelles du tableau ne peuvent pas être préservées"
+        ) from exc
 
     edit = QTextCursor(cursor)
     edit.beginEditBlock()
@@ -130,7 +146,7 @@ def insert_table_column(cursor: QTextCursor, *, before: bool) -> QTextCursor:
         table.insertColumns(column, 1)
         for row_index in range(table.rows()):
             initialize_table_cell(table.cellAt(row_index, column))
-        _restore_table_contract(table)
+        _restore_table_contract(table, column_percentages=widths)
     finally:
         edit.endEditBlock()
     return table.cellAt(row, column).firstCursorPosition()
@@ -167,12 +183,21 @@ def remove_table_column(cursor: QTextCursor) -> QTextCursor:
         )
     row = cell.row()
     column = cell.column()
+    try:
+        widths = percentages_after_column_remove(
+            table_column_percentages(table),
+            column,
+        )
+    except ValueError as exc:
+        raise UnsupportedBlockError(
+            "Les largeurs actuelles du tableau ne peuvent pas être préservées"
+        ) from exc
 
     edit = QTextCursor(cursor)
     edit.beginEditBlock()
     try:
         table.removeColumns(column, 1)
-        _restore_table_contract(table)
+        _restore_table_contract(table, column_percentages=widths)
     finally:
         edit.endEditBlock()
     return table.cellAt(row, min(column, table.columns() - 1)).firstCursorPosition()
@@ -260,8 +285,12 @@ def _empty_table_block(rows: int, columns: int) -> Block:
     )
 
 
-def _restore_table_contract(table: QTextTable) -> None:
-    refresh_table_visuals(table)
+def _restore_table_contract(
+    table: QTextTable,
+    *,
+    column_percentages: tuple[float, ...] | None = None,
+) -> None:
+    refresh_table_visuals(table, column_percentages=column_percentages)
 
 
 def _surrounding_text_blocks(

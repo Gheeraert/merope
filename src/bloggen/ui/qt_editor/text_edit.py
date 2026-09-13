@@ -13,6 +13,7 @@ from PySide6.QtCore import (
     QEvent,
     QMimeData,
     QPoint,
+    QPointF,
     QRect,
     QRectF,
     QSize,
@@ -130,6 +131,20 @@ from bloggen.ui.qt_editor.table_structure import (
     remove_table_row,
     table_structure_context,
 )
+from bloggen.ui.qt_editor.table_resize import (
+    TABLE_COLUMN_RESIZE_DRAG_THRESHOLD,
+    TableColumnBoundary,
+    TableColumnResizeState,
+    resized_column_percentages,
+    table_boundary_at,
+    table_column_boundaries,
+    table_for_object_index,
+    table_viewport_rect,
+)
+from bloggen.ui.qt_editor.table_visuals import (
+    set_table_column_percentages,
+    table_column_percentages,
+)
 from bloggen.content.image_size import (
     MENU_PERCENTS,
     ResizeOutcome,
@@ -242,6 +257,7 @@ class MeropeTextEdit(QTextEdit):
         body_font.setPointSizeF(BODY_POINT_SIZE)
         self.document().setDefaultFont(body_font)
         self._image_resize_state: _ImageResizeState | None = None
+        self._table_resize_state: TableColumnResizeState | None = None
         self._external_paste_context: ExternalPasteContext | None = None
         self._zoom_percent = 100
         self._applying_zoom_overlay = False
@@ -274,6 +290,11 @@ class MeropeTextEdit(QTextEdit):
         return self._external_paste_context
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._table_resize_state is not None:
+            if event.key() == Qt.Key.Key_Escape:
+                self.cancel_table_column_resize()
+            event.accept()
+            return
         if self._image_resize_state is not None and event.key() == Qt.Key.Key_Escape:
             self.cancel_image_resize()
             event.accept()
@@ -407,6 +428,12 @@ class MeropeTextEdit(QTextEdit):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            boundary = table_boundary_at(self, event.position().toPoint())
+            if boundary is not None:
+                self._start_table_column_resize(boundary)
+                event.accept()
+                return
+
             geometry = self.image_resize_geometry()
             handle = (
                 geometry.handle_at(event.position().toPoint())
@@ -1324,15 +1351,106 @@ class MeropeTextEdit(QTextEdit):
     def cancel_image_resize(self) -> None:
         self._finish_image_resize(commit=False)
 
+    def _start_table_column_resize(self, boundary: TableColumnBoundary) -> None:
+        table = table_for_object_index(
+            self.document(),
+            boundary.table_object_index,
+        )
+        if table is None:
+            return
+        try:
+            widths = table_column_percentages(table)
+        except ValueError:
+            return
+        self._table_resize_state = TableColumnResizeState(
+            table_object_index=boundary.table_object_index,
+            boundary_index=boundary.boundary_index,
+            origin_x=boundary.viewport_x,
+            original_widths=widths,
+            proposed_widths=widths,
+            document_was_modified=self.document().isModified(),
+        )
+        self.viewport().setCursor(Qt.CursorShape.SizeHorCursor)
+        self.viewport().update()
+
+    def _resize_table_columns_to(self, point: QPoint) -> None:
+        state = self._table_resize_state
+        if state is None:
+            return
+        table = table_for_object_index(self.document(), state.table_object_index)
+        if table is None:
+            self.cancel_table_column_resize()
+            return
+        if not state.activated:
+            if abs(point.x() - state.origin_x) < TABLE_COLUMN_RESIZE_DRAG_THRESHOLD:
+                return
+            state.activated = True
+        try:
+            state.proposed_widths = resized_column_percentages(
+                self,
+                table,
+                state.original_widths,
+                state.boundary_index,
+                point.x(),
+            )
+        except ValueError:
+            return
+        self.viewport().update()
+
+    def _finish_table_column_resize(self, *, commit: bool = True) -> bool:
+        state = self._table_resize_state
+        self._table_resize_state = None
+        changed = False
+        if commit and state is not None and state.activated and any(
+            abs(before - after) > 1e-6
+            for before, after in zip(
+                state.original_widths,
+                state.proposed_widths,
+                strict=True,
+            )
+        ):
+            table = table_for_object_index(self.document(), state.table_object_index)
+            if table is not None:
+                edit = QTextCursor(self.document())
+                edit.beginEditBlock()
+                try:
+                    set_table_column_percentages(table, state.proposed_widths)
+                finally:
+                    edit.endEditBlock()
+                self.document().setModified(state.document_was_modified)
+                changed = True
+        self._set_normal_viewport_cursor()
+        self.viewport().update()
+        return changed
+
+    def cancel_table_column_resize(self) -> None:
+        self._finish_table_column_resize(commit=False)
+
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._table_resize_state is not None:
+            self._resize_table_columns_to(event.position().toPoint())
+            event.accept()
+            return
         if self._image_resize_state is not None:
             self._resize_selected_image_to(event.position().toPoint(), event.modifiers())
+            event.accept()
+            return
+        if table_boundary_at(self, event.position().toPoint()) is not None:
+            self.viewport().setCursor(Qt.CursorShape.SizeHorCursor)
             event.accept()
             return
         self._update_resize_cursor(event.position().toPoint())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._table_resize_state is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._resize_table_columns_to(event.position().toPoint())
+            self._finish_table_column_resize()
+            event.accept()
+            return
         if (
             self._image_resize_state is not None
             and event.button() == Qt.MouseButton.LeftButton
@@ -1355,13 +1473,14 @@ class MeropeTextEdit(QTextEdit):
         super().mouseDoubleClickEvent(event)
 
     def leaveEvent(self, event) -> None:
-        if self._image_resize_state is None:
+        if self._image_resize_state is None and self._table_resize_state is None:
             self._set_normal_viewport_cursor()
         super().leaveEvent(event)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)
         self._paint_caption_placeholders()
+        self._paint_table_column_resize_ghost()
         geometry = self.image_resize_geometry()
         if geometry is None:
             return
@@ -1388,6 +1507,30 @@ class MeropeTextEdit(QTextEdit):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(ghost)
         self._paint_resize_label(painter, state)
+
+    def _paint_table_column_resize_ghost(self) -> None:
+        state = self._table_resize_state
+        if state is None:
+            return
+        table = table_for_object_index(self.document(), state.table_object_index)
+        if table is None:
+            return
+        boundaries = table_column_boundaries(
+            self,
+            table,
+            widths=state.proposed_widths,
+        )
+        if not 0 <= state.boundary_index < len(boundaries):
+            return
+        table_rect = table_viewport_rect(self, table)
+        x = boundaries[state.boundary_index]
+        painter = QPainter(self.viewport())
+        painter.setPen(QPen(_RESIZE_ACCENT, 1.5, Qt.PenStyle.DashLine))
+        painter.drawLine(
+            QPointF(x, table_rect.top()),
+            QPointF(x, table_rect.bottom()),
+        )
+        painter.end()
 
     def _paint_caption_placeholders(self) -> None:
         """Hint where an empty caption can be typed (visible blocks only)."""

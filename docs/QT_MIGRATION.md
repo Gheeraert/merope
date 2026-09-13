@@ -1015,12 +1015,20 @@ NBSP, gras, italique, souligné, barré, exposant, lien et appel de note atomiqu
 L’adaptateur extrait toujours ce frame vers le modèle canonique avant tout
 Markdown : le `QTextTable` n’est jamais une seconde source de vérité.
 
-La présentation est seulement Qt : largeur totale de 100 %, colonnes égales,
-bordure fine, padding, marges verticales et fond discret sur la ligne d’en-tête.
-Ces formats ne rendent pas les `InlineRun` du header gras et ne sont persistés
-ni dans le Markdown, ni dans le recovery, ni dans le clipboard canonique. Ils
-sont recalculés après ajout ou suppression de ligne/colonne et restaurés avec
-l’unique commande undo/redo structurelle.
+La présentation est seulement Qt : largeur totale de 100 %, colonnes initiales
+égales, bordure fine, padding, marges verticales et fond discret sur la ligne
+d’en-tête. Les séparateurs verticaux internes sont redimensionnables à la souris
+avec un curseur horizontal et une ligne de repère ; Échap annule le drag. Une
+colonne conserve normalement au moins 40 px visibles, seuil réduit seulement si
+la fenêtre est trop étroite pour loger les deux colonnes voisines.
+
+Les largeurs restent relatives et transitoires : ajouter ou supprimer une ligne
+les conserve, ajouter une colonne partage la largeur de sa voisine et supprimer
+une colonne redistribue sa largeur à la voisine de droite, ou à celle de gauche
+en fin de tableau. Elles ne sont enregistrées ni dans le Markdown, ni dans le
+recovery, ni dans le clipboard canonique ; une réouverture repart donc sur des
+colonnes égales. Le fond du header ne rend pas ses `InlineRun` gras. Tous ces
+formats visuels sont restaurés avec l’unique commande undo/redo concernée.
 
 Dans une cellule, Entrée est refusé afin de conserver un bloc unique. Tab passe
 à la cellule suivante et, depuis la dernière cellule, ajoute une ligne de corps ;
@@ -1174,8 +1182,8 @@ refusé n’est ni réécrit ni archivé.
 - éventuelle commande explicite de conversion des `((note))` en notes
   structurées ;
 - tableaux Markdown complexes hors du sous-ensemble graphique, sélection
-  rectangulaire, largeurs persistantes, fusion de cellules et import HTML
-  Word/Excel ;
+  rectangulaire, largeurs persistantes entre sessions, fusion de cellules et
+  import HTML Word/Excel ;
 - aperçu live automatique et « Enregistrer sous... » général ;
 - toute commande IPC supplémentaire au-delà des réponses de configuration
   `config_snapshot` / `config_error`.
