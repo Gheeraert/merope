@@ -37,7 +37,7 @@ from PySide6.QtGui import (
     QTextLayout,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QApplication, QMenu, QTextEdit
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QTextEdit
 
 from bloggen.markdown.html_paste_import import (
     UnsupportedHtmlStructureError,
@@ -120,7 +120,14 @@ from bloggen.ui.qt_editor.footnote_selection import (
     expand_selection_to_footnotes,
     merope_footnote_at_position,
 )
-from bloggen.ui.qt_editor.table_structure import insert_table_row
+from bloggen.ui.qt_editor.table_structure import (
+    insert_table_column,
+    insert_table_row,
+    remove_table,
+    remove_table_column,
+    remove_table_row,
+    table_structure_context,
+)
 from bloggen.content.image_size import (
     MENU_PERCENTS,
     ResizeOutcome,
@@ -463,8 +470,94 @@ class MeropeTextEdit(QTextEdit):
             for object_name, callback in replacements
         ):
             menu.deleteLater()
-            return self._create_safe_context_menu()
+            menu = self._create_safe_context_menu()
+        self._add_table_context_menu(menu)
         return menu
+
+    def _add_table_context_menu(self, menu: QMenu) -> None:
+        """Append table controls only for one validated Merope cell."""
+
+        context = table_structure_context(self.textCursor())
+        if context is None:
+            return
+        table, _cell = context
+        menu.addSeparator()
+        table_menu = menu.addMenu("Tableau")
+        table_menu.menuAction().setObjectName("merope-table-menu")
+
+        commands = (
+            (
+                "table-row-above",
+                "Ajouter une ligne au-dessus",
+                lambda cursor: insert_table_row(cursor, before=True),
+                True,
+            ),
+            (
+                "table-row-below",
+                "Ajouter une ligne en dessous",
+                lambda cursor: insert_table_row(cursor, before=False),
+                True,
+            ),
+            (
+                "table-column-left",
+                "Ajouter une colonne à gauche",
+                lambda cursor: insert_table_column(cursor, before=True),
+                True,
+            ),
+            (
+                "table-column-right",
+                "Ajouter une colonne à droite",
+                lambda cursor: insert_table_column(cursor, before=False),
+                True,
+            ),
+            (
+                "table-remove-row",
+                "Supprimer la ligne",
+                remove_table_row,
+                table.rows() > 1,
+            ),
+            (
+                "table-remove-column",
+                "Supprimer la colonne",
+                remove_table_column,
+                table.columns() > 1,
+            ),
+        )
+        for object_name, label, operation, enabled in commands:
+            action = table_menu.addAction(label)
+            action.setObjectName(object_name)
+            action.setEnabled(enabled)
+            action.triggered.connect(
+                lambda _checked=False, fn=operation: (
+                    self._run_table_structure_action(fn)
+                )
+            )
+
+        table_menu.addSeparator()
+        delete_table = table_menu.addAction("Supprimer le tableau")
+        delete_table.setObjectName("table-remove")
+        delete_table.triggered.connect(
+            lambda _checked=False: self._run_table_structure_action(remove_table)
+        )
+
+    def _run_table_structure_action(
+        self,
+        operation: Callable[[QTextCursor], QTextCursor],
+    ) -> bool:
+        """Run one structural command through its fail-closed primitive."""
+
+        try:
+            target = operation(self.textCursor())
+        except UnsupportedDocumentError as exc:
+            QMessageBox.warning(
+                self,
+                "Modification du tableau impossible",
+                str(exc),
+            )
+            return False
+        self.setTextCursor(target)
+        self.setFocus()
+        return True
 
     def _create_safe_context_menu(self) -> QMenu:
         """Build a fail-closed menu when Qt's standard menu is unexpected."""

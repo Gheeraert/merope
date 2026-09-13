@@ -691,17 +691,30 @@ def test_preview_snapshot_contains_raw_blocks_without_mutating_document(tmp_path
     window.deleteLater()
 
 
-def test_table_action_builds_model_and_leaves_normal_paragraph():
+def test_programmatic_table_action_builds_empty_graphical_table():
     window = QtEditorWindow()
 
-    table = window.insert_table(3, 2)
+    cursor = window.insert_table(3, 2)
 
     blocks = extract_blocks(window.editor.document())
-    assert blocks[0] == table
-    assert blocks[1] == Block(kind=PARAGRAPH, runs=[InlineRun(text="")])
-    assert window.editor.textCursor().block().blockFormat().property(
-        RAW_BLOCK_KIND_PROPERTY
-    ) in (None, "")
+    assert blocks == [
+        Block(
+            kind=TABLE,
+            children=[
+                Block(
+                    kind=TABLE_ROW,
+                    children=[
+                        Block(kind=TABLE_CELL, runs=[InlineRun(text="")]),
+                        Block(kind=TABLE_CELL, runs=[InlineRun(text="")]),
+                    ],
+                )
+                for _row in range(3)
+            ],
+        )
+    ]
+    assert cursor.currentTable() is not None
+    assert cursor.currentTable().cellAt(cursor).row() == 0
+    assert cursor.currentTable().cellAt(cursor).column() == 0
     window.autosave_timer.stop()
     window.deleteLater()
 

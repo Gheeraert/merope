@@ -22,6 +22,7 @@ from bloggen.markdown.rich_text_model import (
 )
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedBlockError,
+    UnsupportedDocumentError,
     cursor_table_context,
     extract_blocks,
     initialize_table_cell,
@@ -29,6 +30,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     is_merope_qtext_table,
     selection_crosses_qt_table_boundary,
     selection_is_within_single_table_cell,
+    validate_block_insertion,
 )
 from bloggen.ui.qt_editor.constants import BLOCK_KIND_PROPERTY, MEROPE_TABLE_PROPERTY
 
@@ -49,19 +51,7 @@ def insert_empty_table(
         for frame in document.rootFrame().childFrames()
         if isinstance(frame, QTextTable)
     }
-    table_block = Block(
-        kind=TABLE,
-        children=[
-            Block(
-                kind=TABLE_ROW,
-                children=[
-                    Block(kind=TABLE_CELL, runs=[InlineRun(text="")])
-                    for _column in range(columns)
-                ],
-            )
-            for _row in range(rows)
-        ],
-    )
+    table_block = _empty_table_block(rows, columns)
     insert_blocks(cursor, [table_block])
 
     created = [
@@ -76,6 +66,27 @@ def insert_empty_table(
             "Le tableau inséré ne peut pas être identifié sans ambiguïté"
         )
     return created[0].cellAt(0, 0).firstCursorPosition()
+
+
+def can_insert_empty_table(cursor: QTextCursor) -> bool:
+    """Whether an empty table can replace ``cursor`` without mutation."""
+
+    try:
+        validate_block_insertion(cursor, [_empty_table_block(1, 1)])
+    except UnsupportedDocumentError:
+        return False
+    return True
+
+
+def table_structure_context(
+    cursor: QTextCursor,
+) -> tuple[QTextTable, QTextTableCell] | None:
+    """Return a validated single-cell context for user-facing controls."""
+
+    try:
+        return _require_single_merope_cell(cursor)
+    except UnsupportedDocumentError:
+        return None
 
 
 def insert_table_row(cursor: QTextCursor, *, before: bool) -> QTextCursor:
@@ -222,6 +233,22 @@ def _require_single_merope_cell(
     # marker, cell shape, inline objects and foreign frames, before mutation.
     extract_blocks(cursor.document())
     return context
+
+
+def _empty_table_block(rows: int, columns: int) -> Block:
+    return Block(
+        kind=TABLE,
+        children=[
+            Block(
+                kind=TABLE_ROW,
+                children=[
+                    Block(kind=TABLE_CELL, runs=[InlineRun(text="")])
+                    for _column in range(columns)
+                ],
+            )
+            for _row in range(rows)
+        ],
+    )
 
 
 def _restore_table_contract(table: QTextTable) -> None:

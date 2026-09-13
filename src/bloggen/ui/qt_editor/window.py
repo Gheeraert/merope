@@ -66,9 +66,6 @@ from bloggen.markdown.rich_text_model import (
     BULLET_LIST,
     ORDERED_LIST,
     PARAGRAPH,
-    TABLE,
-    TABLE_CELL,
-    TABLE_ROW,
     Block,
     InlineRun,
 )
@@ -152,6 +149,11 @@ from bloggen.ui.qt_editor.recovery import (
     prepare_recovery_draft,
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
+from bloggen.ui.qt_editor.table_dialog import TableInsertDialog
+from bloggen.ui.qt_editor.table_structure import (
+    can_insert_empty_table,
+    insert_empty_table,
+)
 from bloggen.ui.qt_editor.toolbar_icons import toolbar_icon
 from bloggen.ui.qt_editor.wrapping_toolbar import WrappingButtonRow, WrappingToolBar
 from bloggen.ui.qt_editor.constants import (
@@ -691,6 +693,12 @@ class QtEditorWindow(QMainWindow):
             self._insert_image_from_dialog,
             icon_key="image",
         )
+        self.insert_table_action = self._add_action(
+            toolbar,
+            "Insérer un tableau…",
+            self._insert_table_from_dialog,
+            icon_key="table",
+        )
         self.image_action = self._add_action(
             toolbar,
             "Image...",
@@ -741,9 +749,6 @@ class QtEditorWindow(QMainWindow):
             lambda: set_list(self.editor, ORDERED_LIST),
             icon_key="numbered",
         )
-        self._add_action(
-            toolbar, "Tableau...", self._insert_table_from_dialog, icon_key="table"
-        )
         toolbar.add_separator()
         for label, alignment, icon_key in [
             ("Gauche", "left", "left"),
@@ -790,7 +795,13 @@ class QtEditorWindow(QMainWindow):
         self.editor.cursorPositionChanged.connect(self._sync_inline_format_actions)
         self.editor.selectionChanged.connect(self._sync_inline_format_actions)
         self.editor.document().contentsChanged.connect(self._sync_inline_format_actions)
+        self.editor.cursorPositionChanged.connect(self._update_insert_table_action)
+        self.editor.selectionChanged.connect(self._update_insert_table_action)
+        self.editor.document().contentsChanged.connect(
+            self._update_insert_table_action
+        )
         self._sync_inline_format_actions()
+        self._update_insert_table_action()
 
     def _sync_inline_format_actions(self) -> None:
         char_format = self.editor.textCursor().charFormat()
@@ -1282,34 +1293,18 @@ class QtEditorWindow(QMainWindow):
         self.footnote_panel.select_note(note_id)
         return note_id
 
-    def insert_table(self, rows: int, columns: int) -> Block:
-        """Insert a canonical table followed by an ordinary editing paragraph."""
+    def insert_table(self, rows: int, columns: int) -> QTextCursor:
+        """Insert an empty table exclusively through the structural API."""
 
-        if rows < 2 or columns < 1:
-            raise ValueError("Un tableau exige au moins 2 lignes et 1 colonne.")
-        table_rows = []
-        for row_index in range(rows):
-            cells = [
-                Block(
-                    kind=TABLE_CELL,
-                    runs=[
-                        InlineRun(
-                            text=f"Colonne {column_index + 1}"
-                            if row_index == 0
-                            else ""
-                        )
-                    ],
-                )
-                for column_index in range(columns)
-            ]
-            table_rows.append(Block(kind=TABLE_ROW, children=cells))
-        table = Block(kind=TABLE, children=table_rows)
-        cursor = insert_blocks(
-            self.editor.textCursor(),
-            [table, Block(kind=PARAGRAPH, runs=[InlineRun(text="")])],
-        )
+        cursor = insert_empty_table(self.editor.textCursor(), rows, columns)
         self.editor.setTextCursor(cursor)
-        return table
+        self.editor.setFocus()
+        return cursor
+
+    def _update_insert_table_action(self) -> None:
+        self.insert_table_action.setEnabled(
+            can_insert_empty_table(self.editor.textCursor())
+        )
 
     def _refuse_in_caption(self, what: str) -> bool:
         """Warn before any dialog when the caret sits in an image caption."""
@@ -1325,28 +1320,17 @@ class QtEditorWindow(QMainWindow):
         return True
 
     def _insert_table_from_dialog(self) -> bool:
-        if self._refuse_in_caption("un tableau"):
+        if not can_insert_empty_table(self.editor.textCursor()):
+            QMessageBox.warning(
+                self,
+                "Insertion impossible",
+                "Placez le curseur dans du texte ordinaire pour insérer un tableau.",
+            )
             return False
-        rows, accepted = QInputDialog.getInt(
-            self,
-            "Tableau",
-            "Nombre de lignes (en-tête inclus) :",
-            2,
-            2,
-            1000,
-        )
-        if not accepted:
+        dialog = TableInsertDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
-        columns, accepted = QInputDialog.getInt(
-            self,
-            "Tableau",
-            "Nombre de colonnes :",
-            2,
-            1,
-            100,
-        )
-        if not accepted:
-            return False
+        rows, columns = dialog.dimensions()
         try:
             self.insert_table(rows, columns)
         except (ValueError, UnsupportedDocumentError) as exc:
