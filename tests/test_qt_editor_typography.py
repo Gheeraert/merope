@@ -9,6 +9,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent, QTextCursor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from bloggen.markdown.rich_text_export import blocks_to_markdown
@@ -18,6 +19,7 @@ from bloggen.markdown.rich_text_model import (
     HEADING,
     LIST_ITEM,
     PARAGRAPH,
+    VERBATIM,
     Block,
     InlineRun,
 )
@@ -358,7 +360,7 @@ def test_quote_undo_redo_needs_no_external_parity_state():
     assert _document_text(editor) == closed
 
 
-def test_quote_choice_follows_document_at_moved_cursor():
+def test_quote_choice_follows_current_block_at_moved_cursor():
     editor = _editor()
     _type(editor, '"un"')
 
@@ -373,6 +375,123 @@ def test_quote_choice_follows_document_at_moved_cursor():
     editor.setTextCursor(cursor)
     _type(editor, '"')
     assert _document_text(editor)[4:6] == f"{NBSP}»"
+
+
+@pytest.mark.parametrize(
+    "preceding_block",
+    [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text='"')]),
+        Block(kind=HEADING, level=2, runs=[InlineRun(text='"')]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text='"')]),
+        Block(kind=VERBATIM, raw_text='"'),
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(image_src="missing.png", image_alt='"')],
+        ),
+    ],
+    ids=["paragraph", "heading", "blockquote", "verbatim", "caption"],
+)
+def test_unpaired_quote_in_previous_block_does_not_affect_current_block(
+    preceding_block,
+):
+    editor = _editor(
+        [preceding_block, Block(kind=PARAGRAPH, runs=[])]
+    )
+
+    QTest.keyClicks(editor, '"mot"')
+
+    assert editor.document().lastBlock().text() == f"«{NBSP}mot{NBSP}»"
+
+
+def test_balanced_quotes_in_previous_block_do_not_affect_current_block():
+    editor = _editor(
+        [
+            Block(kind=PARAGRAPH, runs=[InlineRun(text=f"«{NBSP}texte{NBSP}»")]),
+            Block(kind=PARAGRAPH, runs=[]),
+        ]
+    )
+
+    QTest.keyClicks(editor, '"mot"')
+
+    assert editor.document().lastBlock().text() == f"«{NBSP}mot{NBSP}»"
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="XVIIe siècle abc")]),
+        Block(kind=HEADING, level=2, runs=[InlineRun(text="XVIIe siècle abc")]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text="XVIIe siècle abc")]),
+    ],
+    ids=["paragraph", "heading", "blockquote"],
+)
+def test_real_backspace_after_century_deletes_instead_of_inserting_control(block):
+    editor = _editor([block])
+
+    QTest.keyClick(editor, Qt.Key.Key_Backspace)
+
+    text = editor.document().lastBlock().text()
+    assert text == "XVIIe siècle ab"
+    assert "\x08" not in text
+    assert "\x7f" not in text
+
+
+def test_real_backspace_replaces_selection_after_century_without_control_character():
+    editor = _editor(
+        [Block(kind=PARAGRAPH, runs=[InlineRun(text="XVIIe siècle abc")])]
+    )
+    cursor = editor.textCursor()
+    cursor.movePosition(
+        QTextCursor.MoveOperation.Left,
+        QTextCursor.MoveMode.KeepAnchor,
+        3,
+    )
+    editor.setTextCursor(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Backspace)
+
+    text = editor.document().lastBlock().text()
+    assert text == "XVIIe siècle "
+    assert "\x08" not in text
+    assert "\x7f" not in text
+
+
+def test_real_delete_after_century_deletes_next_character_without_control_character():
+    editor = _editor(
+        [Block(kind=PARAGRAPH, runs=[InlineRun(text="XVIIe siècle abc")])]
+    )
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Left)
+    editor.setTextCursor(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    text = editor.document().lastBlock().text()
+    assert text == "XVIIe siècle ab"
+    assert "\x08" not in text
+    assert "\x7f" not in text
+
+
+def test_delete_key_never_inserts_control_text_exposed_by_another_backend():
+    editor = _editor(
+        [Block(kind=PARAGRAPH, runs=[InlineRun(text="XVIIe siècle abc")])]
+    )
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Left)
+    editor.setTextCursor(cursor)
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_Delete,
+        Qt.KeyboardModifier.NoModifier,
+        "\x7f",
+    )
+
+    QApplication.sendEvent(editor, event)
+
+    text = editor.document().lastBlock().text()
+    assert text == "XVIIe siècle ab"
+    assert "\x08" not in text
+    assert "\x7f" not in text
 
 
 def test_quote_key_wraps_a_mixed_format_selection_without_flattening_it():

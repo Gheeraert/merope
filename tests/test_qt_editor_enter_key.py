@@ -55,6 +55,47 @@ def _typed_size(editor: MeropeTextEdit) -> float:
     return block.begin().fragment().charFormat().fontPointSize()
 
 
+def _scrollable_editor(last_block: Block) -> MeropeTextEdit:
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text=f"Paragraphe {index} " + "texte " * 8)],
+        )
+        for index in range(10)
+    ]
+    blocks.append(last_block)
+    editor = _editor(blocks)
+    editor.resize(360, 160)
+    editor.activateWindow()
+    editor.setFocus()
+    QApplication.processEvents()
+    assert editor.verticalScrollBar().maximum() > 0
+    return editor
+
+
+def _assert_caret_and_viewport_stable_after_enter(
+    editor: MeropeTextEdit,
+    *,
+    expected_position: int,
+    expected_block_number: int,
+) -> None:
+    cursor = editor.textCursor()
+    assert cursor.position() == expected_position
+    assert cursor.anchor() == expected_position
+    assert cursor.blockNumber() == expected_block_number
+    assert editor.hasFocus()
+    assert editor.verticalScrollBar().value() > 0
+
+    QApplication.processEvents()
+
+    cursor = editor.textCursor()
+    assert cursor.position() == expected_position
+    assert cursor.anchor() == expected_position
+    assert cursor.blockNumber() == expected_block_number
+    assert editor.hasFocus()
+    assert editor.verticalScrollBar().value() > 0
+
+
 def test_enter_after_a_heading_opens_a_body_paragraph():
     editor = _editor([Block(kind=HEADING, level=1, runs=[InlineRun(text="Titre")])])
     _caret(editor)
@@ -148,4 +189,62 @@ def test_unsized_text_is_zoomed_like_body_text():
     ]
     assert overlay and all(size == BODY_POINT_SIZE * 1.5 for size in overlay)
     assert editor.document().defaultFont().pointSizeF() == BODY_POINT_SIZE
+    editor.close()
+
+
+def test_enter_at_end_of_scrollable_document_keeps_caret_and_viewport_visible():
+    editor = _scrollable_editor(
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Dernier paragraphe.")])
+    )
+    last = editor.document().lastBlock()
+    cursor = QTextCursor(last)
+    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+    editor.setTextCursor(cursor)
+    editor.ensureCursorVisible()
+    editor.verticalScrollBar().setValue(editor.verticalScrollBar().maximum())
+    QApplication.processEvents()
+    before = editor.textCursor()
+    before_position = before.position()
+    before_block_number = before.blockNumber()
+    scroll_before = editor.verticalScrollBar().value()
+    assert scroll_before > 0
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+
+    _assert_caret_and_viewport_stable_after_enter(
+        editor,
+        expected_position=before_position + 1,
+        expected_block_number=before_block_number + 1,
+    )
+    assert editor.textCursor().block().text() == ""
+    editor.close()
+
+
+def test_enter_in_middle_of_rich_blockquote_keeps_caret_and_viewport_visible():
+    text = "Citation riche en bas du document."
+    editor = _scrollable_editor(
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text=text, bold=True)])
+    )
+    last = editor.document().lastBlock()
+    split_offset = len("Citation riche")
+    cursor = QTextCursor(last)
+    cursor.setPosition(last.position() + split_offset)
+    editor.setTextCursor(cursor)
+    editor.ensureCursorVisible()
+    editor.verticalScrollBar().setValue(editor.verticalScrollBar().maximum())
+    QApplication.processEvents()
+    before = editor.textCursor()
+    before_position = before.position()
+    before_block_number = before.blockNumber()
+    scroll_before = editor.verticalScrollBar().value()
+    assert scroll_before > 0
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+
+    _assert_caret_and_viewport_stable_after_enter(
+        editor,
+        expected_position=before_position + 1,
+        expected_block_number=before_block_number + 1,
+    )
+    assert editor.textCursor().block().text() == text[split_offset:]
     editor.close()

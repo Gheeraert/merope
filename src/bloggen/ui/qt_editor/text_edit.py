@@ -287,6 +287,13 @@ class MeropeTextEdit(QTextEdit):
             event.accept()
             return
 
+        # On Windows Backspace may carry U+0008 in ``event.text()`` (and
+        # another backend may similarly expose U+007F for Delete).  These are
+        # editing keys, never text to feed through the typography pipeline.
+        if event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
+            super().keyPressEvent(event)
+            return
+
         char = event.text()
         if char == '"' and self.textCursor().hasSelection():
             self._wrap_selection_in_guillemets()
@@ -693,11 +700,18 @@ class MeropeTextEdit(QTextEdit):
 
         edit = QTextCursor(self.document())
         edit.beginEditBlock()
+        entered_cursor: QTextCursor | None = None
         try:
             super().keyPressEvent(event)
             repair_block_after_enter(self.textCursor().block())
+            entered_cursor = self.textCursor()
         finally:
             edit.endEditBlock()
+        # Closing an edit block through a detached cursor can make Qt scroll
+        # to that cursor instead of the QTextEdit caret.  Reinstalling the
+        # actual post-Enter cursor keeps the edited block visible.
+        if entered_cursor is not None:
+            self.setTextCursor(entered_cursor)
         # The caret caches its own character format: realign its size with
         # the repaired block so the next typed letters are not tiny.
         current = self.currentCharFormat()
@@ -1788,20 +1802,20 @@ class MeropeTextEdit(QTextEdit):
 
     def _opening_quote_at_position(self, position: int) -> bool:
         opening_next = True
-        block = self.document().begin()
-        while block.isValid() and block.position() < position:
-            length = _python_index_for_utf16_offset(
-                block.text(),
-                max(0, position - block.position()),
-            )
-            for char in block.text()[:length]:
-                if char in (OPENING_GUILLEMET, CURLY_OPENING_QUOTE):
-                    opening_next = False
-                elif char in (CLOSING_GUILLEMET, CURLY_CLOSING_QUOTE):
-                    opening_next = True
-                elif char == '"':
-                    opening_next = not opening_next
-            block = block.next()
+        block = self.document().findBlock(position)
+        if not block.isValid():
+            return opening_next
+        length = _python_index_for_utf16_offset(
+            block.text(),
+            max(0, position - block.position()),
+        )
+        for char in block.text()[:length]:
+            if char in (OPENING_GUILLEMET, CURLY_OPENING_QUOTE):
+                opening_next = False
+            elif char in (CLOSING_GUILLEMET, CURLY_CLOSING_QUOTE):
+                opening_next = True
+            elif char == '"':
+                opening_next = not opening_next
         return opening_next
 
     def _current_block_prefix(self):

@@ -263,6 +263,20 @@ def test_selection_straddling_a_caption_edge_is_refused():
     editor.close()
 
 
+def test_real_backspace_inside_caption_after_century_deletes_without_control():
+    editor = _editor(_blocks_with_figure("XVIIe siècle abc"))
+    caption = _caption(editor.document())
+    _caret(editor, caption.position() + caption.length() - 1)
+
+    QTest.keyClick(editor, Qt.Key.Key_Backspace)
+    _settle()
+
+    assert _alt(editor.document()) == "XVIIe siècle ab"
+    assert "\x08" not in caption.text()
+    assert "\x7f" not in caption.text()
+    editor.close()
+
+
 @pytest.mark.parametrize("reverse_selection", [False, True])
 def test_ctrl_space_refuses_caption_paragraph_boundary_without_undo(
     reverse_selection,
