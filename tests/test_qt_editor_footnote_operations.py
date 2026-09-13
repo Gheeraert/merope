@@ -446,7 +446,21 @@ def test_save_renumbers_duplicates_missing_definition_and_orphan(tmp_path):
         "2": [InlineRun(text="Huit")],
         "4": [InlineRun(text="Orpheline")],
     }
+    live_body = extract_blocks(window.editor.document())
+    assert [run.footnote_ref for run in live_body[0].runs if run.footnote_ref] == [
+        "1",
+        "2",
+        "1",
+        "3",
+    ]
+    assert window.footnote_definitions == definitions
     assert not window.document_has_unsaved_changes
+
+    reopened = QtEditorWindow(path)
+    assert extract_blocks(reopened.editor.document()) == live_body
+    assert reopened.footnote_definitions == definitions
+    reopened.close()
+    window.close()
 
 
 @pytest.mark.parametrize("prior_dirty", [False, True])
@@ -483,6 +497,187 @@ def test_failed_save_restores_body_store_and_prior_modified_states(
     assert window.editor.document().isModified() is prior_dirty
     assert window.footnote_store.modified is prior_dirty
     assert window.document_has_unsaved_changes is prior_dirty
+
+
+def test_failed_renumber_save_preserves_prior_undo_cursor_and_store(tmp_path, monkeypatch):
+    path = write_content_file(
+        tmp_path,
+        "undo-failure.md",
+        {"title": "Échec undo"},
+        "Corps[^3].\n\n[^3]: Note.\n",
+    )
+    window = QtEditorWindow(path)
+    original_body = extract_blocks(window.editor.document())
+    cursor = QTextCursor(window.editor.document())
+    cursor.setPosition(0)
+    cursor.insertText("X")
+    window.editor.setTextCursor(cursor)
+    cursor.setPosition(4)
+    cursor.setPosition(2, QTextCursor.MoveMode.KeepAnchor)
+    window.editor.setTextCursor(cursor)
+    before_body = extract_blocks(window.editor.document())
+    before_store = window.footnote_store.snapshot()
+    before_modified = window.editor.document().isModified()
+    before_position = cursor.position()
+    before_anchor = cursor.anchor()
+    store_changes = []
+    window.footnote_store.changed.connect(lambda: store_changes.append(True))
+    monkeypatch.setattr(
+        window_module,
+        "save_content_document",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("échec simulé")),
+    )
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: None)
+
+    assert not window.save_document()
+
+    current = window.editor.textCursor()
+    assert extract_blocks(window.editor.document()) == before_body
+    assert window.footnote_store.snapshot() == before_store
+    assert window.editor.document().isModified() is before_modified
+    assert (current.position(), current.anchor()) == (before_position, before_anchor)
+    assert window.editor.document().isUndoAvailable()
+    assert not window.editor.document().isRedoAvailable()
+    assert store_changes == []
+
+    window.editor.undo()
+    assert extract_blocks(window.editor.document()) == original_body
+    window.editor.redo()
+    assert extract_blocks(window.editor.document()) == before_body
+    window.editor.document().setModified(False)
+    window.close()
+
+
+def test_failed_renumber_save_preserves_preexisting_redo(tmp_path, monkeypatch):
+    path = write_content_file(
+        tmp_path,
+        "redo-failure.md",
+        {"title": "Échec redo"},
+        "Corps[^3].\n\n[^3]: Note.\n",
+    )
+    window = QtEditorWindow(path)
+    cursor = QTextCursor(window.editor.document())
+    cursor.setPosition(0)
+    cursor.insertText("X")
+    window.editor.setTextCursor(cursor)
+    changed_body = extract_blocks(window.editor.document())
+    window.editor.undo()
+    before_body = extract_blocks(window.editor.document())
+    before_store = window.footnote_store.snapshot()
+    before_modified = window.editor.document().isModified()
+    before_cursor = window.editor.textCursor()
+    assert window.editor.document().isRedoAvailable()
+    store_changes = []
+    window.footnote_store.changed.connect(lambda: store_changes.append(True))
+    monkeypatch.setattr(
+        window_module,
+        "save_content_document",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("échec simulé")),
+    )
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: None)
+
+    assert not window.save_document()
+
+    current = window.editor.textCursor()
+    assert extract_blocks(window.editor.document()) == before_body
+    assert window.footnote_store.snapshot() == before_store
+    assert window.editor.document().isModified() is before_modified
+    assert (current.position(), current.anchor()) == (
+        before_cursor.position(),
+        before_cursor.anchor(),
+    )
+    assert window.editor.document().isRedoAvailable()
+    assert store_changes == []
+    window.editor.redo()
+    assert extract_blocks(window.editor.document()) == changed_body
+    window.editor.document().setModified(False)
+    window.close()
+
+
+def test_failed_save_without_renumbering_preserves_body_undo_and_store(
+    tmp_path,
+    monkeypatch,
+):
+    path = write_content_file(
+        tmp_path,
+        "plain-failure.md",
+        {"title": "Échec simple"},
+        "Corps[^1].\n\n[^1]: Note.\n",
+    )
+    window = QtEditorWindow(path)
+    original_body = extract_blocks(window.editor.document())
+    cursor = QTextCursor(window.editor.document())
+    cursor.setPosition(0)
+    cursor.insertText("X")
+    window.editor.setTextCursor(cursor)
+    before_body = extract_blocks(window.editor.document())
+    before_store = window.footnote_store.snapshot()
+    monkeypatch.setattr(
+        window_module,
+        "save_content_document",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("échec simulé")),
+    )
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: None)
+
+    assert not window.save_document()
+
+    assert extract_blocks(window.editor.document()) == before_body
+    assert window.footnote_store.snapshot() == before_store
+    assert window.editor.document().isUndoAvailable()
+    window.editor.undo()
+    assert extract_blocks(window.editor.document()) == original_body
+    window.editor.document().setModified(False)
+    window.close()
+
+
+def test_failed_temporary_renumbering_never_mutates_live_session(tmp_path, monkeypatch):
+    path = write_content_file(
+        tmp_path,
+        "prepare-failure.md",
+        {"title": "Échec préparation"},
+        "Corps[^3].\n\n[^3]: Note.\n",
+    )
+    window = QtEditorWindow(path)
+    cursor = QTextCursor(window.editor.document())
+    cursor.setPosition(0)
+    cursor.insertText("X")
+    window.editor.setTextCursor(cursor)
+    before_body = extract_blocks(window.editor.document())
+    before_store = window.footnote_store.snapshot()
+    before_cursor = window.editor.textCursor()
+
+    def fail_on_temporary_document(document, _mapping):
+        assert document is not window.editor.document()
+        raise ValueError("échec de préparation")
+
+    monkeypatch.setattr(
+        window_module,
+        "renumber_footnote_references",
+        fail_on_temporary_document,
+    )
+    monkeypatch.setattr(
+        window_module,
+        "save_content_document",
+        lambda *args, **kwargs: pytest.fail("L’écriture ne doit pas commencer"),
+    )
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: None)
+
+    assert not window.save_document()
+
+    current = window.editor.textCursor()
+    assert extract_blocks(window.editor.document()) == before_body
+    assert window.footnote_store.snapshot() == before_store
+    assert (current.position(), current.anchor()) == (
+        before_cursor.position(),
+        before_cursor.anchor(),
+    )
+    assert window.editor.document().isUndoAvailable()
+    assert not window.editor.document().isRedoAvailable()
+    window.editor.undo()
+    window.editor.redo()
+    assert extract_blocks(window.editor.document()) == before_body
+    window.editor.document().setModified(False)
+    window.close()
 
 
 def test_reference_renumbering_is_one_native_body_undo_operation():

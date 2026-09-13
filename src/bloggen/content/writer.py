@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from bloggen.content.atomic_write import atomic_write_text
 from bloggen.content.slugify import ensure_unique_slug, slugify
 from bloggen.markdown.front_matter import format_front_matter, parse_front_matter
 
@@ -112,7 +113,7 @@ def write_content_file(
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / filename
     text = format_front_matter(metadata) + "\n" + markdown_body
-    path.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text, encoding="utf-8")
     return path
 
 

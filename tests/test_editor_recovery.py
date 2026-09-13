@@ -6,6 +6,9 @@ from __future__ import annotations
 from pathlib import Path
 import uuid
 
+import pytest
+
+import bloggen.content.atomic_write as atomic_write_module
 from bloggen.ui.editor_recovery import (
     RecoveryDraft,
     clear_draft,
@@ -40,6 +43,7 @@ def test_save_and_load_round_trip():
 
     loaded = load_draft(project)
     assert loaded == draft
+    assert list(recovery_file_path(project).parent.glob(".draft.json.tmp-*")) == []
 
 
 def test_save_creates_the_recovery_directory():
@@ -114,3 +118,54 @@ def test_save_overwrites_a_previous_draft():
     loaded = load_draft(project)
     assert loaded.metadata == {"title": "Second"}
     assert loaded.body_markdown == "B"
+
+
+def test_failed_recovery_replace_preserves_previous_valid_draft(monkeypatch):
+    project = _project()
+    old = RecoveryDraft(
+        current_path="content/pages/ancien.md",
+        current_kind="page",
+        metadata={"title": "Ancien"},
+        body_markdown="Corps ancien.",
+    )
+    new = RecoveryDraft(
+        current_path="content/pages/nouveau.md",
+        current_kind="page",
+        metadata={"title": "Nouveau"},
+        body_markdown="Corps nouveau.",
+    )
+    save_draft(project, old)
+
+    def fail_replace(_source, _target):
+        raise OSError("replace failure")
+
+    monkeypatch.setattr(atomic_write_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failure"):
+        save_draft(project, new)
+
+    assert load_draft(project) == old
+    path = recovery_file_path(project)
+    assert list(path.parent.glob(".draft.json.tmp-*")) == []
+
+
+def test_failed_first_recovery_write_leaves_no_partial_draft(monkeypatch):
+    project = _project()
+    draft = RecoveryDraft(
+        current_path=None,
+        current_kind="page",
+        metadata={"title": "Nouveau"},
+        body_markdown="Corps.",
+    )
+
+    def fail_replace(_source, _target):
+        raise OSError("replace failure")
+
+    monkeypatch.setattr(atomic_write_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failure"):
+        save_draft(project, draft)
+
+    path = recovery_file_path(project)
+    assert not path.exists()
+    assert list(path.parent.glob(".draft.json.tmp-*")) == []

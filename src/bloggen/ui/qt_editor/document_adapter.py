@@ -146,25 +146,10 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
     so its block kinds do not leak into the surrounding document.
     """
 
-    validate_blocks(blocks)
+    validate_block_insertion(cursor, blocks)
     insertion = QTextCursor(cursor)
     if not blocks:
         return insertion
-    if selection_crosses_raw_boundary(insertion):
-        raise UnsupportedBlockError(
-            "L’insertion ne peut pas remplacer une frontière de bloc brut"
-        )
-    if selection_touches_raw_block(insertion):
-        raise UnsupportedBlockError(
-            "Les objets structurés ne peuvent pas être insérés dans un bloc brut"
-        )
-    if (
-        selection_crosses_caption_boundary(insertion)
-        or caption_block_for_selection(insertion) is not None
-    ):
-        raise UnsupportedBlockError(
-            "Une légende d’image ne peut contenir que du texte"
-        )
 
     insertion.beginEditBlock()
     first_position = insertion.selectionStart()
@@ -201,6 +186,30 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
     finally:
         insertion.endEditBlock()
     return insertion
+
+
+def validate_block_insertion(cursor: QTextCursor, blocks: list[Block]) -> None:
+    """Validate blocks and the semantic boundary they would replace."""
+
+    validate_blocks(blocks)
+    insertion = QTextCursor(cursor)
+    if not blocks:
+        return
+    if selection_crosses_raw_boundary(insertion):
+        raise UnsupportedBlockError(
+            "L’insertion ne peut pas remplacer une frontière de bloc brut"
+        )
+    if selection_touches_raw_block(insertion):
+        raise UnsupportedBlockError(
+            "Les objets structurés ne peuvent pas être insérés dans un bloc brut"
+        )
+    if (
+        selection_crosses_caption_boundary(insertion)
+        or caption_block_for_selection(insertion) is not None
+    ):
+        raise UnsupportedBlockError(
+            "Une légende d’image ne peut contenir que du texte"
+        )
 
 
 def _normalize_after_insertion(insertion: QTextCursor, first_position: int) -> None:

@@ -21,6 +21,7 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
+    QAction,
     QColor,
     QContextMenuEvent,
     QFont,
@@ -36,7 +37,7 @@ from PySide6.QtGui import (
     QTextLayout,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QApplication, QTextEdit
+from PySide6.QtWidgets import QApplication, QMenu, QTextEdit
 
 from bloggen.markdown.html_paste_import import (
     UnsupportedHtmlStructureError,
@@ -86,6 +87,7 @@ from bloggen.ui.qt_editor.constants import (
     ITALIC_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
+    UNDERLINE_PROPERTY,
 )
 from bloggen.markdown.caption import flatten_caption_text
 from bloggen.ui.qt_editor.document_adapter import (
@@ -285,6 +287,13 @@ class MeropeTextEdit(QTextEdit):
             event.accept()
             return
 
+        # On Windows Backspace may carry U+0008 in ``event.text()`` (and
+        # another backend may similarly expose U+007F for Delete).  These are
+        # editing keys, never text to feed through the typography pipeline.
+        if event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
+            super().keyPressEvent(event)
+            return
+
         char = event.text()
         if char == '"' and self.textCursor().hasSelection():
             self._wrap_selection_in_guillemets()
@@ -333,24 +342,130 @@ class MeropeTextEdit(QTextEdit):
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         target = self._image_at_viewport_point(event.pos())
-        if target is None:
-            super().contextMenuEvent(event)
-            return
-        self.setTextCursor(target.cursor(self.document()))
-        self.viewport().update()
-        menu = self.createStandardContextMenu(event.pos())
-        menu.addSeparator()
-        caption_action = menu.addAction("Légende...")
-        if figure_caption_block(self.document().findBlock(target.start)) is not None:
-            # A figure's caption is typed right below it.
-            caption_action.triggered.connect(
-                lambda _checked=False, start=target.start: self.edit_figure_caption(start)
-            )
-        else:
-            caption_action.triggered.connect(self.imageMetadataRequested.emit)
-        self._add_image_size_menu(menu, target)
+        if target is not None:
+            self.setTextCursor(target.cursor(self.document()))
+            self.viewport().update()
+        menu = self._create_merope_context_menu(event.pos())
+        if target is not None:
+            menu.addSeparator()
+            caption_action = menu.addAction("Légende...")
+            if figure_caption_block(self.document().findBlock(target.start)) is not None:
+                # A figure's caption is typed right below it.
+                caption_action.triggered.connect(
+                    lambda _checked=False, start=target.start: (
+                        self.edit_figure_caption(start)
+                    )
+                )
+            else:
+                caption_action.triggered.connect(self.imageMetadataRequested.emit)
+            self._add_image_size_menu(menu, target)
         menu.exec(event.globalPos())
         menu.deleteLater()
+
+    def _create_merope_context_menu(self, position: QPoint | None = None) -> QMenu:
+        """Return the standard menu with every unsafe editor action replaced."""
+
+        menu = self.createStandardContextMenu(
+            position if position is not None else QPoint()
+        )
+        replacements = (
+            ("edit-copy", self.copy),
+            ("edit-cut", self.cut),
+            ("edit-paste", self.paste),
+            ("edit-delete", self._delete_from_context_menu),
+        )
+        if not all(
+            self._replace_context_action(menu, object_name, callback)
+            for object_name, callback in replacements
+        ):
+            menu.deleteLater()
+            return self._create_safe_context_menu()
+        return menu
+
+    def _create_safe_context_menu(self) -> QMenu:
+        """Build a fail-closed menu when Qt's standard menu is unexpected."""
+
+        menu = QMenu(self)
+        cursor = self.textCursor()
+        document = self.document()
+        clipboard_mime = QApplication.clipboard().mimeData()
+        actions = (
+            ("edit-undo", "Annuler", self.undo, document.isUndoAvailable()),
+            ("edit-redo", "Rétablir", self.redo, document.isRedoAvailable()),
+            (None, None, None, None),
+            (
+                "edit-cut",
+                "Couper",
+                self.cut,
+                cursor.hasSelection() and not self.isReadOnly(),
+            ),
+            ("edit-copy", "Copier", self.copy, cursor.hasSelection()),
+            (
+                "edit-paste",
+                "Coller",
+                self.paste,
+                not self.isReadOnly()
+                and clipboard_mime is not None
+                and self.canInsertFromMimeData(clipboard_mime),
+            ),
+            (
+                "edit-delete",
+                "Supprimer",
+                self._delete_from_context_menu,
+                cursor.hasSelection() and not self.isReadOnly(),
+            ),
+            (None, None, None, None),
+            (
+                "select-all",
+                "Tout sélectionner",
+                self.selectAll,
+                not document.isEmpty(),
+            ),
+        )
+        for object_name, label, callback, enabled in actions:
+            if object_name is None:
+                menu.addSeparator()
+                continue
+            action = menu.addAction(label)
+            action.setObjectName(object_name)
+            action.setEnabled(bool(enabled))
+            action.triggered.connect(lambda _checked=False, fn=callback: fn())
+        return menu
+
+    @staticmethod
+    def _replace_context_action(
+        menu: QMenu,
+        object_name: str,
+        callback: Callable[[], None],
+    ) -> bool:
+        """Replace a native QTextEdit action without changing the menu layout."""
+
+        native = next(
+            (action for action in menu.actions() if action.objectName() == object_name),
+            None,
+        )
+        if native is None:
+            return False
+        replacement = QAction(native.icon(), native.text(), menu)
+        replacement.setObjectName(object_name)
+        replacement.setEnabled(native.isEnabled())
+        replacement.setIconVisibleInMenu(native.isIconVisibleInMenu())
+        replacement.setStatusTip(native.statusTip())
+        replacement.setToolTip(native.toolTip())
+        replacement.triggered.connect(lambda _checked=False: callback())
+        menu.insertAction(native, replacement)
+        menu.removeAction(native)
+        return True
+
+    def _delete_from_context_menu(self) -> None:
+        """Route contextual deletion through the protected keyboard path."""
+
+        event = QKeyEvent(
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_Delete,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(self, event)
 
     def _add_image_size_menu(self, menu, target: ImageTarget) -> None:
         size_menu = menu.addMenu("Taille")
@@ -564,6 +679,9 @@ class MeropeTextEdit(QTextEdit):
         if event.key() not in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             return False
         cursor = self.textCursor()
+        caret_rect = self.cursorRect()
+        caret_was_visible = self.viewport().rect().intersects(caret_rect)
+        previous_caret_top = caret_rect.top()
         block = cursor.block()
         at_end = (
             not cursor.hasSelection()
@@ -580,16 +698,28 @@ class MeropeTextEdit(QTextEdit):
                 paragraph = insert_paragraph_after(block)
             finally:
                 edit.endEditBlock()
-            self.setTextCursor(paragraph)
+            self._restore_enter_cursor(
+                paragraph,
+                previous_top=previous_caret_top,
+                was_visible=caret_was_visible,
+            )
             return True
 
         edit = QTextCursor(self.document())
         edit.beginEditBlock()
+        entered_cursor: QTextCursor | None = None
         try:
             super().keyPressEvent(event)
             repair_block_after_enter(self.textCursor().block())
+            entered_cursor = self.textCursor()
         finally:
             edit.endEditBlock()
+        if entered_cursor is not None:
+            self._restore_enter_cursor(
+                entered_cursor,
+                previous_top=previous_caret_top,
+                was_visible=caret_was_visible,
+            )
         # The caret caches its own character format: realign its size with
         # the repaired block so the next typed letters are not tiny.
         current = self.currentCharFormat()
@@ -598,6 +728,23 @@ class MeropeTextEdit(QTextEdit):
             current.setFontPointSize(block_size or BODY_POINT_SIZE)
             self.setCurrentCharFormat(current)
         return True
+
+    def _restore_enter_cursor(
+        self,
+        cursor: QTextCursor,
+        *,
+        previous_top: int,
+        was_visible: bool,
+    ) -> None:
+        """Restore Enter's caret without letting Qt pin it to a viewport edge."""
+
+        self.setTextCursor(cursor)
+        if not was_visible:
+            return
+        vertical_shift = self.cursorRect().top() - previous_top
+        if vertical_shift:
+            scroll = self.verticalScrollBar()
+            scroll.setValue(scroll.value() + vertical_shift)
 
     def _open_paragraph_after(self, caption, cursor: QTextCursor) -> None:
         edit = QTextCursor(self.document())
@@ -1335,10 +1482,14 @@ class MeropeTextEdit(QTextEdit):
         """Insert one literal U+00A0 while preserving semantic boundaries."""
 
         cursor = self.textCursor()
-        if selection_crosses_raw_boundary(cursor) or self._selection_contains_image(
-            cursor
+        if (
+            selection_crosses_raw_boundary(cursor)
+            or selection_crosses_caption_boundary(cursor)
+            or self._selection_contains_image(cursor)
         ):
             return False
+        if caption_block_for_selection(cursor) is not None:
+            return self._insert_plain_text_in_caption(NBSP)
         identities = selection_block_identities(cursor)
         raw_identities = {identity for identity in identities if identity is not None}
         if raw_identities:
@@ -1676,20 +1827,20 @@ class MeropeTextEdit(QTextEdit):
 
     def _opening_quote_at_position(self, position: int) -> bool:
         opening_next = True
-        block = self.document().begin()
-        while block.isValid() and block.position() < position:
-            length = _python_index_for_utf16_offset(
-                block.text(),
-                max(0, position - block.position()),
-            )
-            for char in block.text()[:length]:
-                if char in (OPENING_GUILLEMET, CURLY_OPENING_QUOTE):
-                    opening_next = False
-                elif char in (CLOSING_GUILLEMET, CURLY_CLOSING_QUOTE):
-                    opening_next = True
-                elif char == '"':
-                    opening_next = not opening_next
-            block = block.next()
+        block = self.document().findBlock(position)
+        if not block.isValid():
+            return opening_next
+        length = _python_index_for_utf16_offset(
+            block.text(),
+            max(0, position - block.position()),
+        )
+        for char in block.text()[:length]:
+            if char in (OPENING_GUILLEMET, CURLY_OPENING_QUOTE):
+                opening_next = False
+            elif char in (CLOSING_GUILLEMET, CURLY_CLOSING_QUOTE):
+                opening_next = True
+            elif char == '"':
+                opening_next = not opening_next
         return opening_next
 
     def _current_block_prefix(self):
@@ -1745,11 +1896,16 @@ class MeropeTextEdit(QTextEdit):
 
     @staticmethod
     def _plain_wrapper_format(source: QTextCharFormat) -> QTextCharFormat:
-        char_format = QTextCharFormat(source)
+        char_format = (
+            QTextCharFormat()
+            if is_semantic_inline_object_format(source)
+            else QTextCharFormat(source)
+        )
         char_format.setProperty(BOLD_PROPERTY, False)
         char_format.setProperty(ITALIC_PROPERTY, False)
         char_format.setProperty(STRIKETHROUGH_PROPERTY, False)
         char_format.setProperty(SUPERSCRIPT_PROPERTY, False)
+        char_format.setProperty(UNDERLINE_PROPERTY, False)
         char_format.setFontWeight(QFont.Weight.Normal.value)
         char_format.setFontItalic(False)
         char_format.setFontStrikeOut(False)

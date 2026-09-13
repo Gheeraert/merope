@@ -13,12 +13,15 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
+import bloggen.content.atomic_write as atomic_write_module
 from bloggen.content.writer import read_content_file, write_content_file
 from bloggen.markdown.rich_text_import import markdown_to_blocks
-from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
+from bloggen.markdown.rich_text_model import PARAGRAPH, VERBATIM, Block, InlineRun
 from bloggen.ui.qt_editor.document_adapter import (
+    UnsupportedDocumentError,
     caption_block_for_selection,
     extract_blocks,
+    populate_document,
 )
 from bloggen.ui.qt_editor.file_io import (
     load_content_document,
@@ -115,6 +118,31 @@ def test_disk_open_edit_save_reopen_roundtrip(tmp_path):
     reopened = QTextDocument()
     load_content_document(path, reopened)
     assert extract_blocks(reopened) == extract_blocks(document)
+
+
+def test_save_content_document_replace_failure_preserves_previous_markdown(
+    tmp_path,
+    monkeypatch,
+):
+    path = write_content_file(tmp_path, "document.md", _metadata(), "Corps initial.\n")
+    previous_bytes = path.read_bytes()
+    document = QTextDocument()
+    loaded = load_content_document(path, document)
+    cursor = QTextCursor(document)
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    cursor.insertText(" Modification non enregistrée.")
+
+    def fail_replace(_source, _target):
+        raise OSError("replace failure")
+
+    monkeypatch.setattr(atomic_write_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failure"):
+        save_content_document(path, loaded.metadata, document)
+
+    assert path.read_bytes() == previous_bytes
+    assert document.isModified()
+    assert list(tmp_path.glob(f".{path.name}.tmp-*")) == []
 
 
 def test_image_file_open_save_reopen_preserves_semantics_and_base_url(tmp_path):
@@ -415,6 +443,12 @@ def test_insert_image_file_uses_shared_copy_service_and_native_undo_redo(tmp_pat
     assert (images_dir / "photo.png").is_file()
     window.editor.redo()
     assert extract_blocks(window.editor.document()) == pasted
+    assert window.save_document()
+    window.close()
+
+    reopened = QtEditorWindow(path, images_dir=images_dir)
+    assert extract_blocks(reopened.editor.document()) == pasted
+    reopened.close()
 
 
 def test_insert_image_file_uses_collision_free_name(tmp_path):
@@ -432,6 +466,179 @@ def test_insert_image_file_uses_collision_free_name(tmp_path):
 
     assert inserted.image_src == "../../assets/images/photo-2.png"
     assert (images_dir / "photo-2.png").is_file()
+    window.editor.document().setModified(False)
+    window.close()
+
+
+def test_insert_image_file_rejects_unreadable_bitmap_before_copy(tmp_path):
+    doc_dir = tmp_path / "content" / "pages"
+    images_dir = tmp_path / "assets" / "images"
+    path = write_content_file(doc_dir, "article.md", _metadata(), "Intact\n")
+    source = tmp_path / "incoming" / "fake.png"
+    source.parent.mkdir()
+    source.write_text("pas une image", encoding="utf-8")
+    window = QtEditorWindow(path, images_dir=images_dir)
+    before = extract_blocks(window.editor.document())
+
+    with pytest.raises(ValueError, match="image lisible par Qt"):
+        window.insert_image_file(source)
+
+    assert not images_dir.exists()
+    assert extract_blocks(window.editor.document()) == before
+    assert not window.editor.document().isModified()
+    assert not window.editor.document().isUndoAvailable()
+    window.close()
+
+
+@pytest.mark.parametrize(
+    "placement",
+    ["raw", "raw-boundary", "caption", "caption-boundary"],
+)
+def test_insert_image_file_refuses_semantic_boundaries_before_staging(
+    tmp_path,
+    placement,
+):
+    doc_dir = tmp_path / placement / "content" / "pages"
+    images_dir = tmp_path / placement / "assets" / "images"
+    path = write_content_file(doc_dir, "article.md", _metadata(), "Intact\n")
+    source = tmp_path / placement / "incoming" / "photo.png"
+    source.parent.mkdir()
+    Image.new("RGB", (4, 3), color="green").save(source)
+    window = QtEditorWindow(path, images_dir=images_dir)
+
+    if placement.startswith("raw"):
+        blocks = [
+            Block(kind=PARAGRAPH, runs=[InlineRun(text="Normal")]),
+            Block(kind=VERBATIM, raw_text="brut"),
+        ]
+        populate_document(window.editor.document(), blocks)
+        raw = window.editor.document().begin().next()
+        cursor = QTextCursor(window.editor.document())
+        if placement == "raw":
+            cursor.setPosition(raw.position() + 1)
+        else:
+            cursor.setPosition(raw.previous().position() + raw.previous().length() - 1)
+            cursor.setPosition(raw.position(), QTextCursor.MoveMode.KeepAnchor)
+    else:
+        blocks = [
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(image_src="missing.png", image_alt="Légende")],
+            ),
+            Block(kind=PARAGRAPH, runs=[InlineRun(text="Après")]),
+        ]
+        populate_document(window.editor.document(), blocks)
+        caption = window.editor.document().begin().next()
+        cursor = QTextCursor(window.editor.document())
+        if placement == "caption":
+            cursor.setPosition(caption.position() + 1)
+        else:
+            cursor.setPosition(caption.position() + caption.length() - 1)
+            cursor.setPosition(caption.next().position(), QTextCursor.MoveMode.KeepAnchor)
+    window.editor.setTextCursor(cursor)
+    window.editor.document().setModified(False)
+    before = extract_blocks(window.editor.document())
+
+    with pytest.raises(UnsupportedDocumentError):
+        window.insert_image_file(source)
+
+    assert not images_dir.exists()
+    assert extract_blocks(window.editor.document()) == before
+    assert not window.editor.document().isModified()
+    assert not window.editor.document().isUndoAvailable()
+    window.close()
+
+
+def test_insert_image_file_rolls_back_collision_asset_after_injected_failure(
+    tmp_path,
+    monkeypatch,
+):
+    doc_dir = tmp_path / "content" / "pages"
+    images_dir = tmp_path / "assets" / "images"
+    images_dir.mkdir(parents=True)
+    existing = images_dir / "image.png"
+    Image.new("RGB", (3, 3), color="blue").save(existing)
+    existing_bytes = existing.read_bytes()
+    source = tmp_path / "incoming" / "image.png"
+    source.parent.mkdir()
+    Image.new("RGB", (4, 4), color="red").save(source)
+    path = write_content_file(doc_dir, "article.md", _metadata(), "Intact\n")
+    window = QtEditorWindow(path, images_dir=images_dir)
+    before = extract_blocks(window.editor.document())
+
+    def fail_after_commit(_cursor, _blocks):
+        assert (images_dir / "image-2.png").is_file()
+        raise RuntimeError("échec injecté après commit")
+
+    monkeypatch.setattr(qt_window_module, "insert_blocks", fail_after_commit)
+
+    with pytest.raises(RuntimeError, match="échec injecté"):
+        window.insert_image_file(source)
+
+    assert existing.read_bytes() == existing_bytes
+    assert not (images_dir / "image-2.png").exists()
+    assert not list(images_dir.glob(".merope-paste-*"))
+    assert extract_blocks(window.editor.document()) == before
+    assert not window.editor.document().isModified()
+    assert not window.editor.document().isUndoAvailable()
+    window.close()
+
+
+def test_failed_insert_never_deletes_source_already_in_images_dir(
+    tmp_path,
+    monkeypatch,
+):
+    doc_dir = tmp_path / "content" / "pages"
+    images_dir = tmp_path / "assets" / "images"
+    source = images_dir / "image.png"
+    source.parent.mkdir(parents=True)
+    Image.new("RGB", (4, 4), color="purple").save(source)
+    source_bytes = source.read_bytes()
+    path = write_content_file(doc_dir, "article.md", _metadata(), "Intact\n")
+    window = QtEditorWindow(path, images_dir=images_dir)
+    before = extract_blocks(window.editor.document())
+    monkeypatch.setattr(
+        qt_window_module,
+        "insert_blocks",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("échec injecté")),
+    )
+
+    with pytest.raises(RuntimeError, match="échec injecté"):
+        window.insert_image_file(source)
+
+    assert source.read_bytes() == source_bytes
+    assert sorted(path.name for path in images_dir.iterdir()) == ["image.png"]
+    assert extract_blocks(window.editor.document()) == before
+    assert not window.editor.document().isModified()
+    assert not window.editor.document().isUndoAvailable()
+    window.close()
+
+
+def test_failed_insert_removes_new_images_directory_and_staging(
+    tmp_path,
+    monkeypatch,
+):
+    doc_dir = tmp_path / "content" / "pages"
+    images_dir = tmp_path / "assets" / "images"
+    source = tmp_path / "incoming" / "photo.png"
+    source.parent.mkdir()
+    Image.new("RGB", (4, 4), color="orange").save(source)
+    path = write_content_file(doc_dir, "article.md", _metadata(), "Intact\n")
+    window = QtEditorWindow(path, images_dir=images_dir)
+
+    def fail_after_commit(_cursor, _blocks):
+        assert (images_dir / "photo.png").is_file()
+        raise RuntimeError("échec injecté")
+
+    monkeypatch.setattr(qt_window_module, "insert_blocks", fail_after_commit)
+
+    with pytest.raises(RuntimeError, match="échec injecté"):
+        window.insert_image_file(source)
+
+    assert not images_dir.exists()
+    assert not window.editor.document().isModified()
+    assert not window.editor.document().isUndoAvailable()
+    window.close()
 
 
 def test_insert_image_dialog_requires_an_open_document(tmp_path, monkeypatch):

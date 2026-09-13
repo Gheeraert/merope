@@ -9,6 +9,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent, QTextCursor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from bloggen.markdown.rich_text_export import blocks_to_markdown
@@ -18,12 +19,24 @@ from bloggen.markdown.rich_text_model import (
     HEADING,
     LIST_ITEM,
     PARAGRAPH,
+    VERBATIM,
     Block,
     InlineRun,
 )
 from bloggen.markdown.typography import NBSP, apply_french_typography
 from bloggen.ui.content_editor.typography import TypographyMixin
-from bloggen.ui.qt_editor.document_adapter import extract_blocks, populate_document
+from bloggen.ui.qt_editor.constants import (
+    BOLD_PROPERTY,
+    ITALIC_PROPERTY,
+    STRIKETHROUGH_PROPERTY,
+    SUPERSCRIPT_PROPERTY,
+    UNDERLINE_PROPERTY,
+)
+from bloggen.ui.qt_editor.document_adapter import (
+    extract_blocks,
+    inline_format_enabled,
+    populate_document,
+)
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 
 
@@ -63,6 +76,33 @@ def _leaf_text(block: Block) -> str:
 def _document_text(editor: MeropeTextEdit) -> str:
     blocks = extract_blocks(editor.document())
     return "\n".join(_leaf_text(block) for block in blocks)
+
+
+def _select_document(editor: MeropeTextEdit) -> None:
+    cursor = editor.textCursor()
+    cursor.select(QTextCursor.SelectionType.Document)
+    editor.setTextCursor(cursor)
+
+
+def _char_format(editor: MeropeTextEdit, start: int):
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(start)
+    cursor.setPosition(start + 1, QTextCursor.MoveMode.KeepAnchor)
+    return cursor.charFormat()
+
+
+def _assert_neutral_wrapper_format(editor: MeropeTextEdit, position: int) -> None:
+    char_format = _char_format(editor, position)
+    assert not char_format.fontUnderline()
+    assert not char_format.isAnchor()
+    for property_id in (
+        BOLD_PROPERTY,
+        ITALIC_PROPERTY,
+        STRIKETHROUGH_PROPERTY,
+        SUPERSCRIPT_PROPERTY,
+        UNDERLINE_PROPERTY,
+    ):
+        assert not inline_format_enabled(char_format, property_id)
 
 
 def test_straight_quote_opens_then_closes_with_internal_nbsp():
@@ -320,7 +360,7 @@ def test_quote_undo_redo_needs_no_external_parity_state():
     assert _document_text(editor) == closed
 
 
-def test_quote_choice_follows_document_at_moved_cursor():
+def test_quote_choice_follows_current_block_at_moved_cursor():
     editor = _editor()
     _type(editor, '"un"')
 
@@ -335,6 +375,123 @@ def test_quote_choice_follows_document_at_moved_cursor():
     editor.setTextCursor(cursor)
     _type(editor, '"')
     assert _document_text(editor)[4:6] == f"{NBSP}»"
+
+
+@pytest.mark.parametrize(
+    "preceding_block",
+    [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text='"')]),
+        Block(kind=HEADING, level=2, runs=[InlineRun(text='"')]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text='"')]),
+        Block(kind=VERBATIM, raw_text='"'),
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(image_src="missing.png", image_alt='"')],
+        ),
+    ],
+    ids=["paragraph", "heading", "blockquote", "verbatim", "caption"],
+)
+def test_unpaired_quote_in_previous_block_does_not_affect_current_block(
+    preceding_block,
+):
+    editor = _editor(
+        [preceding_block, Block(kind=PARAGRAPH, runs=[])]
+    )
+
+    QTest.keyClicks(editor, '"mot"')
+
+    assert editor.document().lastBlock().text() == f"«{NBSP}mot{NBSP}»"
+
+
+def test_balanced_quotes_in_previous_block_do_not_affect_current_block():
+    editor = _editor(
+        [
+            Block(kind=PARAGRAPH, runs=[InlineRun(text=f"«{NBSP}texte{NBSP}»")]),
+            Block(kind=PARAGRAPH, runs=[]),
+        ]
+    )
+
+    QTest.keyClicks(editor, '"mot"')
+
+    assert editor.document().lastBlock().text() == f"«{NBSP}mot{NBSP}»"
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="XVIIe siècle abc")]),
+        Block(kind=HEADING, level=2, runs=[InlineRun(text="XVIIe siècle abc")]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text="XVIIe siècle abc")]),
+    ],
+    ids=["paragraph", "heading", "blockquote"],
+)
+def test_real_backspace_after_century_deletes_instead_of_inserting_control(block):
+    editor = _editor([block])
+
+    QTest.keyClick(editor, Qt.Key.Key_Backspace)
+
+    text = editor.document().lastBlock().text()
+    assert text == "XVIIe siècle ab"
+    assert "\x08" not in text
+    assert "\x7f" not in text
+
+
+def test_real_backspace_replaces_selection_after_century_without_control_character():
+    editor = _editor(
+        [Block(kind=PARAGRAPH, runs=[InlineRun(text="XVIIe siècle abc")])]
+    )
+    cursor = editor.textCursor()
+    cursor.movePosition(
+        QTextCursor.MoveOperation.Left,
+        QTextCursor.MoveMode.KeepAnchor,
+        3,
+    )
+    editor.setTextCursor(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Backspace)
+
+    text = editor.document().lastBlock().text()
+    assert text == "XVIIe siècle "
+    assert "\x08" not in text
+    assert "\x7f" not in text
+
+
+def test_real_delete_after_century_deletes_next_character_without_control_character():
+    editor = _editor(
+        [Block(kind=PARAGRAPH, runs=[InlineRun(text="XVIIe siècle abc")])]
+    )
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Left)
+    editor.setTextCursor(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    text = editor.document().lastBlock().text()
+    assert text == "XVIIe siècle ab"
+    assert "\x08" not in text
+    assert "\x7f" not in text
+
+
+def test_delete_key_never_inserts_control_text_exposed_by_another_backend():
+    editor = _editor(
+        [Block(kind=PARAGRAPH, runs=[InlineRun(text="XVIIe siècle abc")])]
+    )
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Left)
+    editor.setTextCursor(cursor)
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_Delete,
+        Qt.KeyboardModifier.NoModifier,
+        "\x7f",
+    )
+
+    QApplication.sendEvent(editor, event)
+
+    text = editor.document().lastBlock().text()
+    assert text == "XVIIe siècle ab"
+    assert "\x08" not in text
+    assert "\x7f" not in text
 
 
 def test_quote_key_wraps_a_mixed_format_selection_without_flattening_it():
@@ -361,6 +518,93 @@ def test_quote_key_wraps_a_mixed_format_selection_without_flattening_it():
         InlineRun(text="mot "),
         InlineRun(text="fort", bold=True),
     ]
+
+
+def test_quote_wrappers_are_visually_and_canonically_not_underlined():
+    original = [InlineRun(text="mot", underline=True)]
+    editor = _editor([Block(kind=PARAGRAPH, runs=original)])
+    _select_document(editor)
+
+    _type(editor, '"')
+
+    expected = [
+        InlineRun(text=f"«{NBSP}"),
+        InlineRun(text="mot", underline=True),
+        InlineRun(text=f"{NBSP}»"),
+    ]
+    assert extract_blocks(editor.document())[0].runs == expected
+    _assert_neutral_wrapper_format(editor, 0)
+    _assert_neutral_wrapper_format(editor, len(f"«{NBSP}mot"))
+    editor.undo()
+    assert extract_blocks(editor.document())[0].runs == original
+    editor.redo()
+    assert extract_blocks(editor.document())[0].runs == expected
+
+
+def test_quote_wrappers_are_neutral_around_bold_italic_underlined_text():
+    editor = _editor(
+        [
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(text="mot", bold=True, italic=True, underline=True)],
+            )
+        ]
+    )
+    _select_document(editor)
+
+    _type(editor, '"')
+
+    assert extract_blocks(editor.document())[0].runs == [
+        InlineRun(text=f"«{NBSP}"),
+        InlineRun(text="mot", bold=True, italic=True, underline=True),
+        InlineRun(text=f"{NBSP}»"),
+    ]
+    _assert_neutral_wrapper_format(editor, 0)
+    _assert_neutral_wrapper_format(editor, len(f"«{NBSP}mot"))
+
+
+def test_quote_wrappers_do_not_inherit_underlined_link_semantics():
+    href = "https://example.org"
+    editor = _editor(
+        [
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(text="mot", underline=True, link_href=href)],
+            )
+        ]
+    )
+    _select_document(editor)
+
+    _type(editor, '"')
+
+    assert extract_blocks(editor.document())[0].runs == [
+        InlineRun(text=f"«{NBSP}"),
+        InlineRun(text="mot", underline=True, link_href=href),
+        InlineRun(text=f"{NBSP}»"),
+    ]
+    _assert_neutral_wrapper_format(editor, 0)
+    _assert_neutral_wrapper_format(editor, len(f"«{NBSP}mot"))
+
+
+def test_quote_on_partial_footnote_selection_uses_atomic_replacement_guard():
+    original = [
+        InlineRun(text="A"),
+        InlineRun(footnote_ref="12"),
+        InlineRun(text="B"),
+    ]
+    editor = _editor([Block(kind=PARAGRAPH, runs=original)])
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(2)
+    cursor.setPosition(3, QTextCursor.MoveMode.KeepAnchor)
+    editor.setTextCursor(cursor)
+
+    _type(editor, '"')
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text=f"A«{NBSP}B")])
+    ]
+    editor.undo()
+    assert extract_blocks(editor.document())[0].runs == original
 
 
 def test_apply_typography_to_selection_crosses_fragments_and_is_one_undo_step():

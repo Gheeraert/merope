@@ -8,7 +8,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QMimeData, Qt
+from PySide6.QtCore import QByteArray, QMimeData, Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -20,6 +20,7 @@ from bloggen.markdown.rich_text_model import (
     Block,
     InlineRun,
 )
+from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.typography import NBSP
 from bloggen.ui.qt_editor.clipboard_fragment import (
     MEROPE_FRAGMENT_MIME,
@@ -118,6 +119,32 @@ def test_real_clipboard_copy_paste_of_one_reference_preserves_semantics():
             runs=[InlineRun(footnote_ref="1"), InlineRun(footnote_ref="1")],
         )
     ]
+
+
+def test_internal_fragment_reopens_exported_brackets_and_parenthesized_targets():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[
+                InlineRun(
+                    text="a]b",
+                    underline=True,
+                    link_href="https://example.org/a_(b)",
+                ),
+                InlineRun(text=" "),
+                InlineRun(
+                    image_src="assets/image_(1).png",
+                    image_alt="a]b",
+                ),
+            ],
+        )
+    ]
+
+    decoded = decode_markdown_fragment(
+        QByteArray(blocks_to_markdown(blocks).encode("utf-8"))
+    )
+
+    assert decoded == blocks
 
 
 def test_keyboard_shortcuts_use_internal_copy_and_paste_path():

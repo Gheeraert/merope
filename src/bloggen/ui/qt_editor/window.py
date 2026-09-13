@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QImageReader,
     QKeySequence,
     QTextCursor,
+    QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -80,6 +81,11 @@ from bloggen.ui.qt_editor.document_adapter import (
     insert_blocks,
     populate_document,
     renumber_footnote_references,
+    validate_block_insertion,
+)
+from bloggen.ui.qt_editor.clipboard_images import (
+    ExternalPasteContext,
+    prepare_local_image_insert,
 )
 from bloggen.ui.qt_editor.content_browser import ContentBrowser
 from bloggen.ui.qt_editor.file_io import (
@@ -116,10 +122,7 @@ from bloggen.ui.qt_editor.footnote_editor import (
     validate_footnote_runs,
 )
 from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
-from bloggen.ui.qt_editor.footnote_store import (
-    FootnoteStore,
-    FootnoteStoreSnapshot,
-)
+from bloggen.ui.qt_editor.footnote_store import FootnoteStore
 from bloggen.ui.qt_editor.image_crop import validate_source_box
 from bloggen.ui.qt_editor.image_crop_dialog import CropImageDialog
 from bloggen.ui.qt_editor.image_dialog import ImageMetadataDialog
@@ -139,7 +142,10 @@ from bloggen.ui.qt_editor.preview import (
     pywebview_available,
     remove_preview_artifact,
 )
-from bloggen.ui.qt_editor.preview_startup import PreviewStartupMonitor
+from bloggen.ui.qt_editor.preview_startup import (
+    PreviewStartupMonitor,
+    stop_preview_process,
+)
 from bloggen.ui.qt_editor.recovery import (
     AUTOSAVE_INTERVAL_MS,
     build_recovery_draft,
@@ -159,12 +165,10 @@ from bloggen.ui.qt_editor_protocol import emit_event
 
 
 @dataclass(frozen=True, slots=True)
-class _RenumberSaveSnapshot:
-    body_blocks: list[Block]
-    store: FootnoteStoreSnapshot
-    body_modified: bool
-    cursor_position: int
-    cursor_anchor: int
+class _PreparedRenumberedSave:
+    document: QTextDocument
+    definitions: FootnoteDefinitions
+    mapping: dict[str, str]
 
 
 CONTENT_DOCK_WIDTH = 230
@@ -359,26 +363,38 @@ class QtEditorWindow(QMainWindow):
                     f"Le fichier cible existe déjà :\n{target_path}",
                 )
                 return False
-        renumber_snapshot: _RenumberSaveSnapshot | None = None
+        prepared_renumbering: _PreparedRenumberedSave | None = None
         try:
-            renumber_snapshot = self._renumber_footnotes_for_save()
+            prepared_renumbering = self._prepare_renumbered_save()
             result = save_content_document(
                 target_path,
                 self.metadata,
-                self.editor.document(),
-                self.footnote_store.definitions,
+                (
+                    prepared_renumbering.document
+                    if prepared_renumbering is not None
+                    else self.editor.document()
+                ),
+                (
+                    prepared_renumbering.definitions
+                    if prepared_renumbering is not None
+                    else self.footnote_store.definitions
+                ),
             )
         except (OSError, ValueError) as exc:
-            if renumber_snapshot is not None:
-                self._restore_renumber_save_snapshot(renumber_snapshot)
             self._emit("error", message=f"Enregistrement impossible : {exc}")
             QMessageBox.critical(self, "Enregistrement impossible", str(exc))
             return False
 
+        if prepared_renumbering is not None:
+            renumber_footnote_references(
+                self.editor.document(),
+                prepared_renumbering.mapping,
+            )
+            self.footnote_store.replace_all(prepared_renumbering.definitions)
         self.current_path = result.path
         self.editor.document().setBaseUrl(directory_base_url(result.path.parent))
         self._update_external_paste_context()
-        if renumber_snapshot is not None:
+        if prepared_renumbering is not None:
             self.editor.document().clearUndoRedoStacks()
             self.editor.document().setModified(False)
         self.footnote_store.mark_clean()
@@ -1440,17 +1456,36 @@ class QtEditorWindow(QMainWindow):
             raise ValueError("Ouvrez d’abord un fichier Mérope.")
         if self.images_dir is None:
             raise ValueError("Le répertoire d’images du projet n’est pas configuré.")
-        src = copy_into_images_dir(
-            Path(source),
-            self.images_dir,
-            self.current_path.parent,
+        source = Path(source)
+        try:
+            source_is_file = source.is_file()
+        except OSError as exc:
+            raise ValueError("Le fichier choisi n’est pas lisible.") from exc
+        if not source_is_file:
+            raise ValueError("Le fichier choisi n’existe pas ou n’est pas un fichier.")
+        if not QImageReader(str(source)).canRead():
+            raise ValueError("Le fichier choisi n’est pas une image lisible par Qt.")
+
+        provisional = Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(image_src=source.name, image_alt=image_alt)],
         )
-        run = InlineRun(image_src=src, image_alt=image_alt)
-        cursor = insert_blocks(
-            self.editor.textCursor(),
-            [Block(kind=PARAGRAPH, runs=[run])],
+        validate_block_insertion(self.editor.textCursor(), [provisional])
+
+        prepared = prepare_local_image_insert(
+            source,
+            ExternalPasteContext(self.images_dir, self.current_path.parent),
+            image_alt=image_alt,
         )
+        try:
+            blocks = prepared.commit_assets()
+            cursor = insert_blocks(self.editor.textCursor(), blocks)
+        except Exception:
+            prepared.rollback()
+            raise
+        prepared.accept()
         self.editor.setTextCursor(cursor)
+        run = blocks[0].runs[0]
         return run
 
     def _insert_image_from_dialog(self) -> None:
@@ -1702,7 +1737,9 @@ class QtEditorWindow(QMainWindow):
         if path:
             self.open_document(Path(path))
 
-    def _renumber_footnotes_for_save(self) -> _RenumberSaveSnapshot | None:
+    def _prepare_renumbered_save(self) -> _PreparedRenumberedSave | None:
+        """Build a renumbered serialization document without touching the session."""
+
         body_blocks = extract_blocks(self.editor.document())
         renumbering = plan_footnote_renumbering(
             self.footnote_store.definitions,
@@ -1711,41 +1748,15 @@ class QtEditorWindow(QMainWindow):
         if not renumbering.changed:
             return None
 
-        cursor = self.editor.textCursor()
-        snapshot = _RenumberSaveSnapshot(
-            body_blocks=body_blocks,
-            store=self.footnote_store.snapshot(),
-            body_modified=self.editor.document().isModified(),
-            cursor_position=cursor.position(),
-            cursor_anchor=cursor.anchor(),
+        document = QTextDocument()
+        document.setBaseUrl(self.editor.document().baseUrl())
+        populate_document(document, body_blocks)
+        renumber_footnote_references(document, renumbering.mapping)
+        return _PreparedRenumberedSave(
+            document=document,
+            definitions=renumbering.definitions,
+            mapping=renumbering.mapping,
         )
-        try:
-            renumber_footnote_references(
-                self.editor.document(),
-                renumbering.mapping,
-            )
-            self.footnote_store.replace_all(renumbering.definitions)
-        except Exception:
-            self._restore_renumber_save_snapshot(snapshot)
-            raise
-        return snapshot
-
-    def _restore_renumber_save_snapshot(
-        self,
-        snapshot: _RenumberSaveSnapshot,
-    ) -> None:
-        populate_document(self.editor.document(), snapshot.body_blocks)
-        self.editor.document().setModified(snapshot.body_modified)
-        self.footnote_store.restore(snapshot.store)
-        document_end = max(0, self.editor.document().characterCount() - 1)
-        cursor = QTextCursor(self.editor.document())
-        cursor.setPosition(min(snapshot.cursor_anchor, document_end))
-        cursor.setPosition(
-            min(snapshot.cursor_position, document_end),
-            QTextCursor.MoveMode.KeepAnchor,
-        )
-        self.editor.setTextCursor(cursor)
-        self._update_window_title()
 
     def _confirm_unsaved_changes(self) -> bool:
         if not self.document_has_unsaved_changes:
@@ -1967,16 +1978,10 @@ class QtEditorWindow(QMainWindow):
         try:
             monitor.start()
         except Exception as exc:  # pragma: no cover - defensive thread startup
-            monitor.cancel()
             self._preview_candidate_process = None
             self._preview_candidate_artifact = None
             self._preview_candidate_monitor = None
-            try:
-                if new_process.poll() is None:
-                    new_process.terminate()
-            except OSError:
-                pass
-            remove_preview_artifact(artifact)
+            self._stop_preview_lifecycle(new_process, monitor, artifact)
             raise PreviewBuildError(
                 f"Impossible de surveiller le démarrage de l’aperçu : {exc}"
             ) from exc
@@ -2006,14 +2011,7 @@ class QtEditorWindow(QMainWindow):
         self._preview_monitor = monitor
         self.preview_action.setEnabled(True)
 
-        if old_monitor is not None:
-            old_monitor.cancel()
-        if old_process is not None and old_process.poll() is None:
-            try:
-                old_process.terminate()
-            except OSError:
-                pass
-        remove_preview_artifact(old_artifact)
+        self._stop_preview_lifecycle(old_process, old_monitor, old_artifact)
 
     def _on_preview_process_failed(
         self,
@@ -2028,11 +2026,10 @@ class QtEditorWindow(QMainWindow):
         ):
             return
         artifact = self._preview_candidate_artifact
-        monitor.cancel()
         self._preview_candidate_process = None
         self._preview_candidate_artifact = None
         self._preview_candidate_monitor = None
-        remove_preview_artifact(artifact)
+        self._stop_preview_lifecycle(process, monitor, artifact)
         self.preview_action.setEnabled(True)
         message = "Impossible d’ouvrir la fenêtre d’aperçu."
         if diagnostic:
@@ -2052,11 +2049,10 @@ class QtEditorWindow(QMainWindow):
         ):
             return
         artifact = self._preview_candidate_artifact
-        monitor.cancel()
         self._preview_candidate_process = None
         self._preview_candidate_artifact = None
         self._preview_candidate_monitor = None
-        remove_preview_artifact(artifact)
+        self._stop_preview_lifecycle(process, monitor, artifact)
         self.preview_action.setEnabled(True)
         self._show_preview_error(
             "Impossible d’ouvrir la fenêtre d’aperçu : elle n’a pas démarré "
@@ -2072,40 +2068,51 @@ class QtEditorWindow(QMainWindow):
         if monitor is not self._preview_monitor or process is not self._preview_process:
             return
         artifact = self._preview_artifact
-        monitor.cancel()
         self._preview_process = None
         self._preview_artifact = None
         self._preview_monitor = None
-        remove_preview_artifact(artifact)
+        self._stop_preview_lifecycle(process, monitor, artifact)
+
+    def _stop_preview_lifecycle(
+        self,
+        process: subprocess.Popen | None,
+        monitor: PreviewStartupMonitor | None,
+        artifact: PreviewArtifact | None,
+    ) -> None:
+        """Stop/reap one preview asynchronously, then remove its scratch."""
+
+        if process is None:
+            remove_preview_artifact(artifact)
+            return
+        lifecycle_monitor = monitor or PreviewStartupMonitor(process, parent=self)
+        lifecycle = stop_preview_process(
+            process,
+            monitor=lifecycle_monitor,
+            parent=self,
+            on_reaped=lambda _process: remove_preview_artifact(artifact),
+        )
+        lifecycle.when_reaped(lambda _process, item=lifecycle: item.deleteLater())
 
     def _close_html_preview(self) -> None:
         candidate_monitor = self._preview_candidate_monitor
         candidate_process = self._preview_candidate_process
         candidate_artifact = self._preview_candidate_artifact
-        if candidate_monitor is not None:
-            candidate_monitor.cancel()
-        if candidate_process is not None and candidate_process.poll() is None:
-            try:
-                candidate_process.terminate()
-            except OSError:
-                pass
         self._preview_candidate_monitor = None
         self._preview_candidate_process = None
         self._preview_candidate_artifact = None
-        remove_preview_artifact(candidate_artifact)
+        self._stop_preview_lifecycle(
+            candidate_process,
+            candidate_monitor,
+            candidate_artifact,
+        )
 
-        if self._preview_monitor is not None:
-            self._preview_monitor.cancel()
         process = self._preview_process
-        if process is not None and process.poll() is None:
-            try:
-                process.terminate()
-            except OSError:
-                pass
+        monitor = self._preview_monitor
+        artifact = self._preview_artifact
         self._preview_process = None
         self._preview_monitor = None
-        remove_preview_artifact(self._preview_artifact)
         self._preview_artifact = None
+        self._stop_preview_lifecycle(process, monitor, artifact)
 
     def _show_preview_error(self, message: str) -> None:
         QMessageBox.critical(self, "Aperçu HTML", message)

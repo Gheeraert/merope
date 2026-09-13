@@ -263,6 +263,57 @@ def test_selection_straddling_a_caption_edge_is_refused():
     editor.close()
 
 
+def test_real_backspace_inside_caption_after_century_deletes_without_control():
+    editor = _editor(_blocks_with_figure("XVIIe siècle abc"))
+    caption = _caption(editor.document())
+    _caret(editor, caption.position() + caption.length() - 1)
+
+    QTest.keyClick(editor, Qt.Key.Key_Backspace)
+    _settle()
+
+    assert _alt(editor.document()) == "XVIIe siècle ab"
+    assert "\x08" not in caption.text()
+    assert "\x7f" not in caption.text()
+    editor.close()
+
+
+@pytest.mark.parametrize("reverse_selection", [False, True])
+def test_ctrl_space_refuses_caption_paragraph_boundary_without_undo(
+    reverse_selection,
+):
+    window = QtEditorWindow()
+    populate_document(window.editor.document(), _blocks_with_figure("Légende"))
+    document = window.editor.document()
+    document.setModified(False)
+    caption = _caption(document)
+    after = caption.next()
+    separator = after.position() - 1
+    start, end = (
+        (after.position(), separator)
+        if reverse_selection
+        else (separator, after.position())
+    )
+    _caret(window.editor, end, anchor=start)
+    before = extract_blocks(document)
+    assert window.editor.textCursor().selectedText() == "\u2029"
+    assert selection_crosses_caption_boundary(window.editor.textCursor())
+    window.show()
+    window.editor.setFocus()
+    _settle()
+
+    QTest.keyClick(
+        window.editor,
+        Qt.Key.Key_Space,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    _settle()
+
+    assert extract_blocks(document) == before
+    assert not document.isModified()
+    assert not document.isUndoAvailable()
+    window.close()
+
+
 def test_selection_covering_whole_figure_can_be_deleted():
     editor = _editor(_blocks_with_figure("Portrait"))
     document = editor.document()
@@ -509,6 +560,44 @@ def test_edited_caption_is_saved_as_alt_text_and_reopened(tmp_path):
     assert "![Portrait de **Bossuet**](../../assets/images/p.png)" in body
     reopened = QtEditorWindow(path)
     assert _caption(reopened.editor.document()).text() == "Portrait de Bossuet"
+    reopened.close()
+    window.close()
+
+
+def test_ctrl_space_inside_caption_round_trips_and_undoes(tmp_path):
+    path = write_content_file(
+        tmp_path / "content" / "pages",
+        "article.md",
+        {"title": "Article"},
+        "![Portrait de Bossuet](../../assets/images/p.png)\n",
+    )
+    window = QtEditorWindow(path)
+    window.show()
+    _settle()
+    caption = _caption(window.editor.document())
+    space = caption.position() + len("Portrait")
+    _caret(window.editor, space + 1, anchor=space)
+    window.editor.setFocus()
+
+    QTest.keyClick(
+        window.editor,
+        Qt.Key.Key_Space,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    _settle()
+
+    expected_alt = f"Portrait\u00a0de Bossuet"
+    assert _alt(window.editor.document()) == expected_alt
+    assert is_caption_block(_caption(window.editor.document()))
+    window.editor.undo()
+    assert _alt(window.editor.document()) == "Portrait de Bossuet"
+    window.editor.redo()
+    assert _alt(window.editor.document()) == expected_alt
+    assert window.save_document()
+
+    reopened = QtEditorWindow(path)
+    assert _alt(reopened.editor.document()) == expected_alt
+    assert _caption(reopened.editor.document()).text() == expected_alt
     reopened.close()
     window.close()
 
