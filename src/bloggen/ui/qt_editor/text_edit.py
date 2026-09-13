@@ -679,6 +679,9 @@ class MeropeTextEdit(QTextEdit):
         if event.key() not in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             return False
         cursor = self.textCursor()
+        caret_rect = self.cursorRect()
+        caret_was_visible = self.viewport().rect().intersects(caret_rect)
+        previous_caret_top = caret_rect.top()
         block = cursor.block()
         at_end = (
             not cursor.hasSelection()
@@ -695,7 +698,11 @@ class MeropeTextEdit(QTextEdit):
                 paragraph = insert_paragraph_after(block)
             finally:
                 edit.endEditBlock()
-            self.setTextCursor(paragraph)
+            self._restore_enter_cursor(
+                paragraph,
+                previous_top=previous_caret_top,
+                was_visible=caret_was_visible,
+            )
             return True
 
         edit = QTextCursor(self.document())
@@ -707,11 +714,12 @@ class MeropeTextEdit(QTextEdit):
             entered_cursor = self.textCursor()
         finally:
             edit.endEditBlock()
-        # Closing an edit block through a detached cursor can make Qt scroll
-        # to that cursor instead of the QTextEdit caret.  Reinstalling the
-        # actual post-Enter cursor keeps the edited block visible.
         if entered_cursor is not None:
-            self.setTextCursor(entered_cursor)
+            self._restore_enter_cursor(
+                entered_cursor,
+                previous_top=previous_caret_top,
+                was_visible=caret_was_visible,
+            )
         # The caret caches its own character format: realign its size with
         # the repaired block so the next typed letters are not tiny.
         current = self.currentCharFormat()
@@ -720,6 +728,23 @@ class MeropeTextEdit(QTextEdit):
             current.setFontPointSize(block_size or BODY_POINT_SIZE)
             self.setCurrentCharFormat(current)
         return True
+
+    def _restore_enter_cursor(
+        self,
+        cursor: QTextCursor,
+        *,
+        previous_top: int,
+        was_visible: bool,
+    ) -> None:
+        """Restore Enter's caret without letting Qt pin it to a viewport edge."""
+
+        self.setTextCursor(cursor)
+        if not was_visible:
+            return
+        vertical_shift = self.cursorRect().top() - previous_top
+        if vertical_shift:
+            scroll = self.verticalScrollBar()
+            scroll.setValue(scroll.value() + vertical_shift)
 
     def _open_paragraph_after(self, caption, cursor: QTextCursor) -> None:
         edit = QTextCursor(self.document())
