@@ -183,6 +183,21 @@ def test_invalid_edited_table_falls_back_to_verbatim_without_text_loss():
     assert blocks_to_markdown(extract_blocks(editor.document())).rstrip("\n") == expected
 
 
+def test_irregular_edited_table_falls_back_to_verbatim_without_padding():
+    editor = _editor([_table()])
+    body_row = _select_block_text(editor, 2)
+    body_row.insertText("| C |")
+    expected = "\n".join(
+        editor.document().findBlockByNumber(index).text()
+        for index in range(editor.document().blockCount())
+    )
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=VERBATIM, raw_text=expected)
+    ]
+    assert blocks_to_markdown(extract_blocks(editor.document())) == expected + "\n"
+
+
 def test_structural_table_insertion_splits_surrounding_paragraph_once():
     editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text="AvantAprès")])])
     cursor = editor.textCursor()

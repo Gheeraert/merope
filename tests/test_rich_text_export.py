@@ -1,3 +1,5 @@
+import pytest
+
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
@@ -191,6 +193,33 @@ def test_table():
 def test_table_cell_pipe_escaping():
     table = Block(kind=TABLE, children=[Block(kind=TABLE_ROW, children=[_cell("a|b")])])
     assert blocks_to_markdown([table]) == "| a\\|b |\n| --- |\n"
+
+
+@pytest.mark.parametrize(
+    "row_widths",
+    [
+        (2, 1),
+        (1, 2),
+        (2, 2, 1, 2),
+    ],
+)
+def test_irregular_table_is_rejected_instead_of_padded(row_widths):
+    table = Block(
+        kind=TABLE,
+        children=[
+            Block(
+                kind=TABLE_ROW,
+                children=[
+                    _cell(f"{row_index}-{cell_index}")
+                    for cell_index in range(width)
+                ],
+            )
+            for row_index, width in enumerate(row_widths)
+        ],
+    )
+
+    with pytest.raises(ValueError, match="même nombre de cellules"):
+        blocks_to_markdown([table])
 
 
 def test_footnote_definition():

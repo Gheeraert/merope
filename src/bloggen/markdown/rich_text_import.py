@@ -289,10 +289,15 @@ def parse_table_lines(lines: list[str]) -> Block | None:
     if not _TABLE_SEPARATOR_RE.match(lines[1].strip()):
         return None
 
-    rows = [lines[0], *lines[2:]]
+    rows = [_split_table_row(line) for line in [lines[0], *lines[2:]]]
+    column_count = len(rows[0])
+    if len(_split_table_row(lines[1])) != column_count or any(
+        len(cells) != column_count for cells in rows[1:]
+    ):
+        return None
+
     row_blocks = []
-    for row_line in rows:
-        cells = _split_table_row(row_line)
+    for cells in rows:
         if not all(_inline_is_losslessly_representable(cell) for cell in cells):
             return None
         cell_blocks = [Block(kind=TABLE_CELL, runs=_parse_inline(cell)) for cell in cells]

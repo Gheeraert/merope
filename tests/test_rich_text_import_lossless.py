@@ -93,6 +93,41 @@ def test_existing_structured_multiline_forms_remain_supported():
     ]
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "| A | B |\n| --- | --- |\n| C |\n",
+        "| A |\n| --- |\n| C | D |\n",
+        "| A | B |\n| --- | --- |\n| C | D |\n| E |\n| F | G |\n",
+        "| A | B |\n| --- |\n| C | D |\n",
+    ],
+)
+def test_irregular_markdown_table_is_preserved_verbatim(source):
+    blocks = markdown_to_blocks(source)
+
+    assert blocks == [
+        Block(kind=VERBATIM, raw_text=source.removesuffix("\n"))
+    ]
+    assert blocks_to_markdown(blocks) == source
+
+
+@pytest.mark.parametrize(
+    ("source", "column_count"),
+    [
+        ("| A |\n| --- |\n| C |\n", 1),
+        ("| A |  | C |\n| --- | --- | --- |\n|  | B |  |\n", 3),
+        ("| A\\|B | C |\n| --- | --- |\n| D | E\\|F |\n", 2),
+    ],
+)
+def test_regular_markdown_table_keeps_its_exact_column_count(source, column_count):
+    blocks = markdown_to_blocks(source)
+
+    assert len(blocks) == 1
+    assert blocks[0].kind == TABLE
+    assert all(len(row.children) == column_count for row in blocks[0].children)
+    assert blocks_to_markdown(blocks) == source
+
+
 def test_noncanonical_ordered_list_numbering_is_preserved_verbatim():
     source = "3. troisième\n4. quatrième\n"
 

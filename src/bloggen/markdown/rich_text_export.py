@@ -82,8 +82,11 @@ def _table_to_md(table: Block) -> str:
     rows = [[_runs_to_md(cell.runs) for cell in row.children] for row in table.children]
     if not rows:
         return ""
-    column_count = max(len(row) for row in rows)
-    rows = [row + [""] * (column_count - len(row)) for row in rows]
+    column_count = len(rows[0])
+    if any(len(row) != column_count for row in rows[1:]):
+        raise ValueError(
+            "Un tableau Markdown doit avoir le même nombre de cellules sur chaque ligne"
+        )
 
     lines = [_table_row_line(rows[0])]
     lines.append(_table_row_line(["---"] * column_count))

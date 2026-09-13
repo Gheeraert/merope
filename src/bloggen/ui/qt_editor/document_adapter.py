@@ -1317,6 +1317,7 @@ def _validate_table_block(block: Block) -> None:
         )
     if not block.children:
         raise UnsupportedBlockError("Un tableau vide n’est pas représentable")
+    column_count: int | None = None
     for row in block.children:
         if row.kind != TABLE_ROW or row.runs or row.raw_text is not None:
             raise UnsupportedBlockError(
@@ -1324,6 +1325,12 @@ def _validate_table_block(block: Block) -> None:
             )
         if not row.children:
             raise UnsupportedBlockError("Une ligne de tableau vide n’est pas représentable")
+        if column_count is None:
+            column_count = len(row.children)
+        elif len(row.children) != column_count:
+            raise UnsupportedBlockError(
+                "Un tableau Markdown doit avoir le même nombre de cellules sur chaque ligne"
+            )
         for cell in row.children:
             if cell.kind != TABLE_CELL or cell.children or cell.raw_text is not None:
                 raise UnsupportedBlockError(

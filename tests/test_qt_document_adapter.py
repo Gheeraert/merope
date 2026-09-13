@@ -19,6 +19,8 @@ from bloggen.markdown.rich_text_model import (
     ORDERED_LIST,
     PARAGRAPH,
     TABLE,
+    TABLE_CELL,
+    TABLE_ROW,
     VERBATIM,
     Block,
     InlineRun,
@@ -399,6 +401,33 @@ def test_invalid_or_unknown_block_is_never_silently_lost(unsupported: Block):
         populate_document(document, [unsupported])
 
     assert extract_blocks(document) == original
+
+
+@pytest.mark.parametrize("row_widths", [(2, 1), (1, 2)])
+def test_irregular_table_is_rejected_before_populate_mutates_document(row_widths):
+    document = QTextDocument()
+    original = [Block(kind=PARAGRAPH, runs=[InlineRun(text="Document intact")])]
+    populate_document(document, original)
+    irregular = Block(
+        kind=TABLE,
+        children=[
+            Block(
+                kind=TABLE_ROW,
+                children=[
+                    Block(kind=TABLE_CELL, runs=[InlineRun(text=str(cell_index))])
+                    for cell_index in range(width)
+                ],
+            )
+            for width in row_widths
+        ],
+    )
+
+    with pytest.raises(UnsupportedBlockError, match="même nombre de cellules"):
+        populate_document(document, [irregular])
+
+    assert extract_blocks(document) == original
+    assert document.isModified() is False
+    assert document.isUndoAvailable() is False
 
 
 @pytest.mark.parametrize(
