@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -34,7 +35,10 @@ from bloggen.ui.qt_editor.preview import (
     launch_preview_process,
     remove_preview_artifact,
 )
-from bloggen.ui.qt_editor.preview_startup import PreviewStartupMonitor
+from bloggen.ui.qt_editor.preview_startup import (
+    PreviewStartupMonitor,
+    stop_preview_process,
+)
 from bloggen.ui.qt_editor.window import QtEditorWindow
 from bloggen.ui.editor_recovery import recovery_file_path
 
@@ -470,6 +474,119 @@ def test_startup_monitor_times_out_and_terminates_process():
     assert process.terminated
 
 
+def test_startup_timeout_kills_recalcitrant_process_and_reaps_once():
+    released = threading.Event()
+
+    class RecalcitrantProcess:
+        stdout = io.StringIO("")
+        stderr = io.StringIO("")
+
+        def __init__(self):
+            self.returncode = None
+            self.terminate_calls = 0
+            self.kill_calls = 0
+            self.wait_calls = 0
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminate_calls += 1
+
+        def kill(self):
+            self.kill_calls += 1
+            self.returncode = -9
+            released.set()
+
+        def wait(self):
+            self.wait_calls += 1
+            released.wait(timeout=1.0)
+            return self.returncode
+
+    process = RecalcitrantProcess()
+    timeouts = []
+    failures = []
+    closed = []
+    monitor = PreviewStartupMonitor(
+        process,
+        timeout_ms=20,
+        terminate_grace_ms=20,
+    )
+    monitor.timedOut.connect(timeouts.append)
+    monitor.failed.connect(lambda *args: failures.append(args))
+    monitor.closed.connect(lambda *args: closed.append(args))
+
+    monitor.start()
+    _wait_for(lambda: bool(timeouts))
+    assert monitor.wait_until_reaped(1.0)
+    QTest.qWait(20)
+
+    assert timeouts == [process]
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 1
+    assert process.wait_calls == 1
+    assert failures == []
+    assert closed == []
+    assert monitor._stdout_thread is not None
+    assert not monitor._stdout_thread.is_alive()
+    assert monitor._stderr_thread is not None
+    assert not monitor._stderr_thread.is_alive()
+
+
+def test_stop_already_exited_process_waits_without_terminate_or_kill():
+    class ExitedProcess:
+        stdout = io.StringIO("")
+        stderr = io.StringIO("")
+
+        def __init__(self):
+            self.wait_calls = 0
+            self.terminate_calls = 0
+            self.kill_calls = 0
+
+        @staticmethod
+        def poll():
+            return 0
+
+        def wait(self):
+            self.wait_calls += 1
+            return 0
+
+        def terminate(self):
+            self.terminate_calls += 1
+
+        def kill(self):
+            self.kill_calls += 1
+
+    process = ExitedProcess()
+    monitor = stop_preview_process(process)
+
+    assert monitor.wait_until_reaped(1.0)
+    assert process.wait_calls == 1
+    assert process.terminate_calls == 0
+    assert process.kill_calls == 0
+
+
+def test_stop_preview_process_reaps_real_python_subprocess():
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    monitor = PreviewStartupMonitor(process, terminate_grace_ms=100)
+    try:
+        monitor.start()
+        monitor.stop()
+        assert monitor.wait_until_reaped(3.0)
+        assert process.poll() is not None
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=3)
+
+
 def _dispose(window: QtEditorWindow) -> None:
     window.autosave_timer.stop()
     window._close_html_preview()
@@ -712,8 +829,11 @@ class _ManualPreviewStartupMonitor:
         self.failed = _ManualSignal()
         self.timedOut = _ManualSignal()
         self.closed = _ManualSignal()
+        self.reaped = _ManualSignal()
         self.started = False
         self.cancelled = False
+        self.stopped = False
+        self._reap_callbacks = []
 
     def start(self):
         self.started = True
@@ -721,10 +841,50 @@ class _ManualPreviewStartupMonitor:
     def cancel(self):
         self.cancelled = True
 
+    def when_reaped(self, callback):
+        self._reap_callbacks.append(callback)
+
+    def stop(self):
+        self.cancel()
+        self.stopped = True
+        if self.process.poll() is None:
+            self.process.terminate()
+        for callback in self._reap_callbacks:
+            callback(self.process)
+        self._reap_callbacks.clear()
+        self.reaped.emit(self.process)
+
     def emit_timeout(self):
         if self.process.poll() is None:
             self.process.terminate()
         self.timedOut.emit(self.process)
+
+
+class _RecalcitrantPreviewProcess:
+    def __init__(self):
+        self.stdout = io.StringIO("")
+        self.stderr = io.StringIO("")
+        self.returncode = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self.wait_calls = 0
+        self._released = threading.Event()
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminate_calls += 1
+
+    def kill(self):
+        self.kill_calls += 1
+        self.returncode = -9
+        self._released.set()
+
+    def wait(self):
+        self.wait_calls += 1
+        self._released.wait(timeout=2.0)
+        return self.returncode
 
 
 def test_preview_process_and_scratch_are_replaced_then_closed(
@@ -779,6 +939,81 @@ def test_preview_process_and_scratch_are_replaced_then_closed(
     window._close_html_preview()
     assert new_process.terminated
     assert not new_scratch.exists()
+    _dispose(window)
+
+
+def test_ready_swap_installs_new_preview_before_reaping_and_cleaning_old(
+    monkeypatch,
+    tmp_path,
+):
+    window = QtEditorWindow()
+    events = []
+
+    class Process:
+        def __init__(self, name):
+            self.name = name
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            if self.name == "old":
+                assert window._preview_process is new_process
+            events.append(f"terminate:{self.name}")
+            self.returncode = -15
+
+    old_process = Process("old")
+    new_process = Process("new")
+    old_scratch = tmp_path / "ordered-old"
+    new_scratch = tmp_path / "ordered-new"
+    old_scratch.mkdir()
+    new_scratch.mkdir()
+    old_artifact = PreviewArtifact(
+        old_scratch,
+        old_scratch / "index.html",
+        old_scratch / "pointer",
+    )
+    new_artifact = PreviewArtifact(
+        new_scratch,
+        new_scratch / "index.html",
+        new_scratch / "pointer",
+    )
+    old_monitor = _ManualPreviewStartupMonitor(old_process, parent=window)
+    real_remove = window_module.remove_preview_artifact
+
+    def record_remove(artifact):
+        if artifact is old_artifact:
+            assert window._preview_process is new_process
+            events.append("cleanup:old")
+        real_remove(artifact)
+
+    window._preview_process = old_process
+    window._preview_artifact = old_artifact
+    window._preview_monitor = old_monitor
+    monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
+    monkeypatch.setattr(
+        window_module,
+        "launch_preview_process",
+        lambda _artifact: new_process,
+    )
+    monkeypatch.setattr(
+        window_module,
+        "PreviewStartupMonitor",
+        _ManualPreviewStartupMonitor,
+    )
+    monkeypatch.setattr(window_module, "remove_preview_artifact", record_remove)
+
+    window._activate_preview_artifact(new_artifact)
+    candidate_monitor = window._preview_candidate_monitor
+    assert candidate_monitor is not None
+    candidate_monitor.ready.emit(new_process)
+
+    assert events == ["terminate:old", "cleanup:old"]
+    assert window._preview_process is new_process
+    assert window._preview_artifact is new_artifact
+    assert not old_scratch.exists()
+    assert new_scratch.exists()
     _dispose(window)
 
 
@@ -919,6 +1154,191 @@ def test_preview_startup_timeout_cleans_candidate_and_reenables_action(
     _dispose(window)
 
 
+def test_recalcitrant_candidate_is_killed_reaped_and_does_not_replace_old_preview(
+    monkeypatch,
+    tmp_path,
+):
+    window = QtEditorWindow()
+
+    class StableProcess:
+        def __init__(self):
+            self.returncode = None
+            self.terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+    old_process = StableProcess()
+    candidate_process = _RecalcitrantPreviewProcess()
+    old_scratch = tmp_path / "stubborn-old"
+    candidate_scratch = tmp_path / "stubborn-candidate"
+    old_scratch.mkdir()
+    candidate_scratch.mkdir()
+    old_artifact = PreviewArtifact(
+        old_scratch,
+        old_scratch / "index.html",
+        old_scratch / "pointer",
+    )
+    candidate_artifact = PreviewArtifact(
+        candidate_scratch,
+        candidate_scratch / "index.html",
+        candidate_scratch / "pointer",
+    )
+    old_monitor = _ManualPreviewStartupMonitor(old_process, parent=window)
+    window._preview_process = old_process
+    window._preview_artifact = old_artifact
+    window._preview_monitor = old_monitor
+    errors = []
+    monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
+    monkeypatch.setattr(
+        window_module,
+        "launch_preview_process",
+        lambda _artifact: candidate_process,
+    )
+    monkeypatch.setattr(
+        window_module,
+        "PreviewStartupMonitor",
+        lambda process, parent=None: PreviewStartupMonitor(
+            process,
+            timeout_ms=20,
+            terminate_grace_ms=20,
+            parent=parent,
+        ),
+    )
+    monkeypatch.setattr(window, "_show_preview_error", errors.append)
+
+    window._activate_preview_artifact(candidate_artifact)
+    _wait_for(
+        lambda: (
+            window._preview_candidate_process is None
+            and candidate_process.kill_calls == 1
+            and not candidate_scratch.exists()
+        )
+    )
+
+    assert candidate_process.terminate_calls == 1
+    assert candidate_process.wait_calls == 1
+    assert window._preview_process is old_process
+    assert window._preview_artifact is old_artifact
+    assert not old_process.terminated
+    assert old_scratch.exists()
+    assert errors and "délai attendu de 5 secondes" in errors[0]
+    _dispose(window)
+
+
+def test_monitor_start_failure_still_stops_reaps_and_cleans_candidate(
+    monkeypatch,
+    tmp_path,
+):
+    window = QtEditorWindow()
+    process = _RecalcitrantPreviewProcess()
+    scratch = tmp_path / "monitor-start-failure"
+    scratch.mkdir()
+    artifact = PreviewArtifact(
+        scratch,
+        scratch / "index.html",
+        scratch / "pointer",
+    )
+    monitors = []
+
+    class FailingStartMonitor(PreviewStartupMonitor):
+        def start(self):
+            raise RuntimeError("thread startup failure")
+
+    def make_monitor(candidate, parent=None):
+        monitor = FailingStartMonitor(
+            candidate,
+            terminate_grace_ms=20,
+            parent=parent,
+        )
+        monitors.append(monitor)
+        return monitor
+
+    monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
+    monkeypatch.setattr(
+        window_module,
+        "launch_preview_process",
+        lambda _artifact: process,
+    )
+    monkeypatch.setattr(window_module, "PreviewStartupMonitor", make_monitor)
+
+    with pytest.raises(PreviewBuildError, match="surveiller le démarrage"):
+        window._activate_preview_artifact(artifact)
+
+    assert len(monitors) == 1
+    assert monitors[0].wait_until_reaped(1.0)
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 1
+    assert process.wait_calls == 1
+    assert not scratch.exists()
+    assert window._preview_candidate_process is None
+    _dispose(window)
+
+
+def test_close_preview_stops_and_reaps_active_and_candidate_without_blocking(
+    monkeypatch,
+    tmp_path,
+):
+    window = QtEditorWindow()
+    active_process = _RecalcitrantPreviewProcess()
+    candidate_process = _RecalcitrantPreviewProcess()
+    active_monitor = PreviewStartupMonitor(
+        active_process,
+        timeout_ms=5_000,
+        terminate_grace_ms=20,
+        parent=window,
+    )
+    candidate_monitor = PreviewStartupMonitor(
+        candidate_process,
+        timeout_ms=5_000,
+        terminate_grace_ms=20,
+        parent=window,
+    )
+    active_monitor.start()
+    candidate_monitor.start()
+    active_scratch = tmp_path / "close-active"
+    candidate_scratch = tmp_path / "close-candidate"
+    active_scratch.mkdir()
+    candidate_scratch.mkdir()
+    window._preview_process = active_process
+    window._preview_monitor = active_monitor
+    window._preview_artifact = PreviewArtifact(
+        active_scratch,
+        active_scratch / "index.html",
+        active_scratch / "pointer",
+    )
+    window._preview_candidate_process = candidate_process
+    window._preview_candidate_monitor = candidate_monitor
+    window._preview_candidate_artifact = PreviewArtifact(
+        candidate_scratch,
+        candidate_scratch / "index.html",
+        candidate_scratch / "pointer",
+    )
+
+    window.show()
+    started = time.monotonic()
+    assert window.close()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.5
+    assert active_monitor.wait_until_reaped(1.0)
+    assert candidate_monitor.wait_until_reaped(1.0)
+    assert active_process.terminate_calls == 1
+    assert active_process.kill_calls == 1
+    assert active_process.wait_calls == 1
+    assert candidate_process.terminate_calls == 1
+    assert candidate_process.kill_calls == 1
+    assert candidate_process.wait_calls == 1
+    assert window._preview_process is None
+    assert window._preview_candidate_process is None
+    assert not active_scratch.exists()
+    assert not candidate_scratch.exists()
+
+
 def test_exit_after_ready_is_normal_and_cleans_active_preview(monkeypatch, tmp_path):
     window = QtEditorWindow()
 
@@ -983,6 +1403,7 @@ def test_failed_new_build_keeps_existing_preview(project, monkeypatch, tmp_path)
     )
     window._preview_process = old_process
     window._preview_artifact = old_artifact
+    window._preview_monitor = _ManualPreviewStartupMonitor(old_process, parent=window)
     monkeypatch.setattr(window, "request_live_config", lambda: 31)
     monkeypatch.setattr(
         window_module,
@@ -1032,6 +1453,7 @@ def test_failed_new_preview_launch_keeps_existing_preview(monkeypatch, tmp_path)
     )
     window._preview_process = old_process
     window._preview_artifact = old_artifact
+    window._preview_monitor = _ManualPreviewStartupMonitor(old_process, parent=window)
     monkeypatch.setattr(window_module, "pywebview_available", lambda: True)
 
     def fail_to_launch(_artifact):

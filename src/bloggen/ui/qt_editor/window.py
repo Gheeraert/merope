@@ -142,7 +142,10 @@ from bloggen.ui.qt_editor.preview import (
     pywebview_available,
     remove_preview_artifact,
 )
-from bloggen.ui.qt_editor.preview_startup import PreviewStartupMonitor
+from bloggen.ui.qt_editor.preview_startup import (
+    PreviewStartupMonitor,
+    stop_preview_process,
+)
 from bloggen.ui.qt_editor.recovery import (
     AUTOSAVE_INTERVAL_MS,
     build_recovery_draft,
@@ -1975,16 +1978,10 @@ class QtEditorWindow(QMainWindow):
         try:
             monitor.start()
         except Exception as exc:  # pragma: no cover - defensive thread startup
-            monitor.cancel()
             self._preview_candidate_process = None
             self._preview_candidate_artifact = None
             self._preview_candidate_monitor = None
-            try:
-                if new_process.poll() is None:
-                    new_process.terminate()
-            except OSError:
-                pass
-            remove_preview_artifact(artifact)
+            self._stop_preview_lifecycle(new_process, monitor, artifact)
             raise PreviewBuildError(
                 f"Impossible de surveiller le démarrage de l’aperçu : {exc}"
             ) from exc
@@ -2014,14 +2011,7 @@ class QtEditorWindow(QMainWindow):
         self._preview_monitor = monitor
         self.preview_action.setEnabled(True)
 
-        if old_monitor is not None:
-            old_monitor.cancel()
-        if old_process is not None and old_process.poll() is None:
-            try:
-                old_process.terminate()
-            except OSError:
-                pass
-        remove_preview_artifact(old_artifact)
+        self._stop_preview_lifecycle(old_process, old_monitor, old_artifact)
 
     def _on_preview_process_failed(
         self,
@@ -2036,11 +2026,10 @@ class QtEditorWindow(QMainWindow):
         ):
             return
         artifact = self._preview_candidate_artifact
-        monitor.cancel()
         self._preview_candidate_process = None
         self._preview_candidate_artifact = None
         self._preview_candidate_monitor = None
-        remove_preview_artifact(artifact)
+        self._stop_preview_lifecycle(process, monitor, artifact)
         self.preview_action.setEnabled(True)
         message = "Impossible d’ouvrir la fenêtre d’aperçu."
         if diagnostic:
@@ -2060,11 +2049,10 @@ class QtEditorWindow(QMainWindow):
         ):
             return
         artifact = self._preview_candidate_artifact
-        monitor.cancel()
         self._preview_candidate_process = None
         self._preview_candidate_artifact = None
         self._preview_candidate_monitor = None
-        remove_preview_artifact(artifact)
+        self._stop_preview_lifecycle(process, monitor, artifact)
         self.preview_action.setEnabled(True)
         self._show_preview_error(
             "Impossible d’ouvrir la fenêtre d’aperçu : elle n’a pas démarré "
@@ -2080,40 +2068,51 @@ class QtEditorWindow(QMainWindow):
         if monitor is not self._preview_monitor or process is not self._preview_process:
             return
         artifact = self._preview_artifact
-        monitor.cancel()
         self._preview_process = None
         self._preview_artifact = None
         self._preview_monitor = None
-        remove_preview_artifact(artifact)
+        self._stop_preview_lifecycle(process, monitor, artifact)
+
+    def _stop_preview_lifecycle(
+        self,
+        process: subprocess.Popen | None,
+        monitor: PreviewStartupMonitor | None,
+        artifact: PreviewArtifact | None,
+    ) -> None:
+        """Stop/reap one preview asynchronously, then remove its scratch."""
+
+        if process is None:
+            remove_preview_artifact(artifact)
+            return
+        lifecycle_monitor = monitor or PreviewStartupMonitor(process, parent=self)
+        lifecycle = stop_preview_process(
+            process,
+            monitor=lifecycle_monitor,
+            parent=self,
+            on_reaped=lambda _process: remove_preview_artifact(artifact),
+        )
+        lifecycle.when_reaped(lambda _process, item=lifecycle: item.deleteLater())
 
     def _close_html_preview(self) -> None:
         candidate_monitor = self._preview_candidate_monitor
         candidate_process = self._preview_candidate_process
         candidate_artifact = self._preview_candidate_artifact
-        if candidate_monitor is not None:
-            candidate_monitor.cancel()
-        if candidate_process is not None and candidate_process.poll() is None:
-            try:
-                candidate_process.terminate()
-            except OSError:
-                pass
         self._preview_candidate_monitor = None
         self._preview_candidate_process = None
         self._preview_candidate_artifact = None
-        remove_preview_artifact(candidate_artifact)
+        self._stop_preview_lifecycle(
+            candidate_process,
+            candidate_monitor,
+            candidate_artifact,
+        )
 
-        if self._preview_monitor is not None:
-            self._preview_monitor.cancel()
         process = self._preview_process
-        if process is not None and process.poll() is None:
-            try:
-                process.terminate()
-            except OSError:
-                pass
+        monitor = self._preview_monitor
+        artifact = self._preview_artifact
         self._preview_process = None
         self._preview_monitor = None
-        remove_preview_artifact(self._preview_artifact)
         self._preview_artifact = None
+        self._stop_preview_lifecycle(process, monitor, artifact)
 
     def _show_preview_error(self, message: str) -> None:
         QMessageBox.critical(self, "Aperçu HTML", message)
