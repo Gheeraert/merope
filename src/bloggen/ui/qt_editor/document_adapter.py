@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QTextLength,
     QTextListFormat,
     QTextTable,
+    QTextTableCell,
     QTextTableFormat,
 )
 
@@ -204,6 +205,17 @@ def validate_block_insertion(cursor: QTextCursor, blocks: list[Block]) -> None:
     insertion = QTextCursor(cursor)
     if not blocks:
         return
+    if selection_crosses_qt_table_boundary(insertion):
+        raise UnsupportedBlockError(
+            "L’insertion ne peut pas traverser une frontière de tableau"
+        )
+    if selection_touches_qt_table(insertion) and (
+        not selection_is_within_single_table_cell(insertion)
+        or not blocks_fit_qt_table_cell(blocks)
+    ):
+        raise UnsupportedBlockError(
+            "Une cellule de tableau ne peut recevoir qu’un paragraphe simple sans image"
+        )
     if selection_crosses_raw_boundary(insertion):
         raise UnsupportedBlockError(
             "L’insertion ne peut pas remplacer une frontière de bloc brut"
@@ -1537,6 +1549,86 @@ def table_is_qt_editable(block: Block) -> bool:
         for row in block.children
         for cell in row.children
         for run in cell.runs
+    )
+
+
+def is_merope_qtext_table(table: QTextTable | None) -> bool:
+    """Whether ``table`` is a graphical table owned by this adapter."""
+
+    return table is not None and bool(
+        table.format().property(MEROPE_TABLE_PROPERTY)
+    )
+
+
+def cursor_table_context(
+    cursor: QTextCursor,
+) -> tuple[QTextTable, QTextTableCell] | None:
+    """Return the marked table and cell containing a collapsed caret."""
+
+    table = cursor.currentTable()
+    if not is_merope_qtext_table(table):
+        return None
+    cell = table.cellAt(cursor)
+    if not cell.isValid():
+        return None
+    return table, cell
+
+
+def selection_touches_qt_table(cursor: QTextCursor) -> bool:
+    """Whether a caret/selection touches any top-level QTextTable boundary."""
+
+    if not cursor.hasSelection():
+        return cursor.currentTable() is not None
+    start = cursor.selectionStart()
+    end = cursor.selectionEnd()
+    for item in _top_level_document_items(cursor.document()):
+        if not isinstance(item, QTextTable):
+            continue
+        # The frame delimiters immediately outside firstPosition/lastPosition
+        # are structural too: deleting either can remove the whole table.
+        protected_start = max(0, item.firstPosition() - 1)
+        protected_end = item.lastPosition() + 1
+        if start < protected_end and end > protected_start:
+            return True
+    return False
+
+
+def selection_is_within_single_table_cell(cursor: QTextCursor) -> bool:
+    """Whether the caret/selection is wholly inside one marked table cell."""
+
+    context = cursor_table_context(cursor)
+    if context is None:
+        return False
+    if not cursor.hasSelection():
+        return True
+    _table, cell = context
+    return (
+        cursor.selectionStart() >= cell.firstPosition()
+        and cursor.selectionEnd() <= cell.lastPosition()
+    )
+
+
+def selection_crosses_qt_table_boundary(cursor: QTextCursor) -> bool:
+    """Whether a selection mixes cells, a table and text, or a foreign table."""
+
+    return selection_touches_qt_table(
+        cursor
+    ) and not selection_is_within_single_table_cell(cursor)
+
+
+def blocks_fit_qt_table_cell(blocks: list[Block]) -> bool:
+    """Whether blocks can be inserted inline without creating cell structure."""
+
+    return (
+        len(blocks) == 1
+        and blocks[0].kind == PARAGRAPH
+        and not blocks[0].children
+        and blocks[0].raw_text is None
+        and all(
+            run.image_src is None
+            and not any(separator in run.text for separator in "\r\n\u2028\u2029")
+            for run in blocks[0].runs
+        )
     )
 
 

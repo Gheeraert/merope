@@ -92,6 +92,7 @@ from bloggen.ui.qt_editor.constants import (
 from bloggen.markdown.caption import flatten_caption_text
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
+    blocks_fit_qt_table_cell,
     caption_block_for_selection,
     caption_normalization_needed,
     figure_caption_block,
@@ -107,9 +108,13 @@ from bloggen.ui.qt_editor.document_adapter import (
     make_raw_block_format,
     make_raw_char_format,
     raw_block_identity,
+    cursor_table_context,
     selection_block_identities,
     selection_crosses_raw_boundary,
+    selection_crosses_qt_table_boundary,
+    selection_is_within_single_table_cell,
     selection_touches_raw_block,
+    selection_touches_qt_table,
 )
 from bloggen.ui.qt_editor.footnote_selection import (
     expand_selection_to_footnotes,
@@ -275,6 +280,9 @@ class MeropeTextEdit(QTextEdit):
             self.paste()
             event.accept()
             return
+        if self._handle_table_key(event):
+            event.accept()
+            return
         if self._handle_raw_block_key(event):
             event.accept()
             return
@@ -311,6 +319,72 @@ class MeropeTextEdit(QTextEdit):
             return
 
         super().keyPressEvent(event)
+
+    def _handle_table_key(self, event: QKeyEvent) -> bool:
+        """Keep native keyboard edits inside one representable table cell."""
+
+        cursor = self.textCursor()
+        key = event.key()
+        enter = key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        erase = key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete)
+        tab = key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+        typing = bool(event.text()) and not event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        )
+        mutating = enter or erase or tab or typing
+
+        if cursor.hasSelection() and selection_crosses_qt_table_boundary(cursor):
+            return mutating
+
+        context = cursor_table_context(cursor)
+        if context is None:
+            if selection_touches_qt_table(cursor):
+                return mutating
+            if not cursor.hasSelection() and erase:
+                probe = QTextCursor(cursor)
+                if key == Qt.Key.Key_Backspace and probe.position() > 0:
+                    probe.setPosition(
+                        probe.position() - 1,
+                        QTextCursor.MoveMode.KeepAnchor,
+                    )
+                elif (
+                    key == Qt.Key.Key_Delete
+                    and probe.position() < self.document().characterCount() - 1
+                ):
+                    probe.setPosition(
+                        probe.position() + 1,
+                        QTextCursor.MoveMode.KeepAnchor,
+                    )
+                if probe.hasSelection() and selection_touches_qt_table(probe):
+                    return True
+            return False
+
+        table, cell = context
+        if enter:
+            return True
+        if tab:
+            backwards = key == Qt.Key.Key_Backtab or bool(
+                event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+            )
+            current = cell.row() * table.columns() + cell.column()
+            target_index = current + (-1 if backwards else 1)
+            if 0 <= target_index < table.rows() * table.columns():
+                target = table.cellAt(
+                    target_index // table.columns(),
+                    target_index % table.columns(),
+                ).firstCursorPosition()
+                self.setTextCursor(target)
+            return True
+        if erase and not cursor.hasSelection():
+            at_start = cursor.position() == cell.firstPosition()
+            at_end = cursor.position() == cell.lastPosition()
+            if (key == Qt.Key.Key_Backspace and at_start) or (
+                key == Qt.Key.Key_Delete and at_end
+            ):
+                return True
+        return False
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -835,6 +909,12 @@ class MeropeTextEdit(QTextEdit):
         if self.isReadOnly():
             self.copy()
             return
+        cursor = self.textCursor()
+        if selection_crosses_qt_table_boundary(cursor):
+            self.clipboardRefused.emit(
+                "La coupe ne peut pas traverser une frontière de tableau"
+            )
+            return
         if self._copy_merope_selection(cut=True):
             return
         super().cut()
@@ -1323,6 +1403,9 @@ class MeropeTextEdit(QTextEdit):
         document is touched.
         """
 
+        if self._insert_table_mime_data(source):
+            return
+
         paste_cursor = self.textCursor()
         if selection_crosses_raw_boundary(paste_cursor):
             self.pasteRefused.emit(
@@ -1426,6 +1509,62 @@ class MeropeTextEdit(QTextEdit):
             "Ce format de presse-papiers n’est pas encore pris en charge par l’éditeur Qt"
         )
 
+    def _insert_table_mime_data(self, source: QMimeData) -> bool:
+        """Handle or refuse paste whenever its target touches a QTextTable."""
+
+        cursor = self.textCursor()
+        if selection_crosses_qt_table_boundary(cursor):
+            self.pasteRefused.emit(
+                "Le collage ne peut pas traverser une frontière de tableau"
+            )
+            return True
+        if cursor_table_context(cursor) is None:
+            if selection_touches_qt_table(cursor):
+                self.pasteRefused.emit(
+                    "Le collage ne peut pas modifier ce tableau Qt"
+                )
+                return True
+            return False
+
+        if source.hasFormat(MEROPE_FRAGMENT_MIME) or (
+            source.hasHtml() and source.html().strip()
+        ):
+            try:
+                blocks = blocks_from_rich_mime_data(source)
+                if not blocks or not blocks_fit_qt_table_cell(blocks):
+                    self.pasteRefused.emit(
+                        "Une cellule de tableau ne peut recevoir qu’un paragraphe simple sans image"
+                    )
+                    return True
+                atomic, contains_note = expand_selection_to_footnotes(cursor)
+                if contains_note:
+                    self.setTextCursor(atomic)
+                inserted = insert_blocks(self.textCursor(), blocks)
+                self.setTextCursor(inserted)
+            except (InvalidMeropeClipboardFragment, UnsupportedDocumentError) as exc:
+                self.pasteRefused.emit(f"Fragment de tableau invalide : {exc}")
+            except Exception as exc:
+                self.pasteRefused.emit(
+                    f"Le collage dans la cellule n’a pas pu être analysé : {exc}"
+                )
+            return True
+
+        if source.hasImage() or source.hasUrls():
+            self.pasteRefused.emit(
+                "Les images et fichiers ne peuvent pas être collés dans une cellule"
+            )
+            return True
+        if source.hasText():
+            if not self._insert_plain_text(source.text()):
+                self.pasteRefused.emit(
+                    "Une cellule de tableau ne peut recevoir qu’une seule ligne de texte"
+                )
+            return True
+        self.pasteRefused.emit(
+            "Ce format ne peut pas être collé dans une cellule de tableau"
+        )
+        return True
+
     def paste_plain_text(self, text: str | None = None) -> bool:
         """Paste only clipboard text, ignoring every rich MIME representation."""
 
@@ -1436,6 +1575,19 @@ class MeropeTextEdit(QTextEdit):
 
     def _insert_plain_text(self, text: str) -> bool:
         cursor = self.textCursor()
+        if selection_crosses_qt_table_boundary(cursor):
+            self.pasteRefused.emit(
+                "Le collage ne peut pas traverser une frontière de tableau"
+            )
+            return False
+        if selection_touches_qt_table(cursor):
+            if not selection_is_within_single_table_cell(cursor):
+                self.pasteRefused.emit(
+                    "Le collage ne peut pas modifier plusieurs cellules"
+                )
+                return False
+            if any(separator in text for separator in "\r\n\u2028\u2029"):
+                return False
         if selection_crosses_raw_boundary(cursor):
             self.pasteRefused.emit(
                 "Le collage ne peut pas remplacer une frontière de bloc brut"
@@ -1485,6 +1637,11 @@ class MeropeTextEdit(QTextEdit):
         if (
             selection_crosses_raw_boundary(cursor)
             or selection_crosses_caption_boundary(cursor)
+            or selection_crosses_qt_table_boundary(cursor)
+            or (
+                selection_touches_qt_table(cursor)
+                and not selection_is_within_single_table_cell(cursor)
+            )
             or self._selection_contains_image(cursor)
         ):
             return False
@@ -1569,6 +1726,8 @@ class MeropeTextEdit(QTextEdit):
 
         selection = self.textCursor()
         if not selection.hasSelection():
+            return False
+        if selection_crosses_qt_table_boundary(selection):
             return False
         if selection_touches_raw_block(selection):
             return False

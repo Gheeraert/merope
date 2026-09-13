@@ -33,7 +33,9 @@ from bloggen.ui.qt_editor.document_adapter import (
     is_raw_block,
     is_semantic_inline_object_format,
     refresh_block_visuals,
+    selection_is_within_single_table_cell,
     selection_touches_raw_block,
+    selection_touches_qt_table,
 )
 
 # An image caption only carries bold and italic (``**``/``*`` in its alt text).
@@ -78,6 +80,10 @@ def set_link(editor: QTextEdit, href: str | None) -> None:
     """Apply a native Qt anchor, or remove it when ``href`` is ``None``."""
 
     selection = editor.textCursor()
+    if selection_touches_qt_table(
+        selection
+    ) and not selection_is_within_single_table_cell(selection):
+        return
     ranges = (
         _selected_text_ranges(selection, include_captions=False)
         if selection.hasSelection()
@@ -148,7 +154,11 @@ def clear_formatting(editor: QTextEdit) -> None:
     """Strip inline styling from the selection and reset it to a plain paragraph."""
 
     cursor = editor.textCursor()
-    if not cursor.hasSelection() or selection_touches_raw_block(cursor):
+    if (
+        not cursor.hasSelection()
+        or selection_touches_raw_block(cursor)
+        or selection_touches_qt_table(cursor)
+    ):
         return
     ranges = _selected_text_ranges(cursor)
     outer = QTextCursor(cursor.document())
@@ -180,7 +190,7 @@ def set_list(editor: QTextEdit, kind: str) -> None:
     if kind not in {BULLET_LIST, ORDERED_LIST}:
         raise ValueError(f"Type de liste non pris en charge : {kind}")
     cursor = editor.textCursor()
-    if selection_touches_raw_block(cursor):
+    if selection_touches_raw_block(cursor) or selection_touches_qt_table(cursor):
         return
     blocks = [
         block
@@ -233,7 +243,7 @@ def set_alignment(editor: QTextEdit, alignment: str) -> None:
     if qt_alignment is None:
         raise ValueError(f"Alignement non pris en charge : {alignment}")
     cursor = editor.textCursor()
-    if selection_touches_raw_block(cursor):
+    if selection_touches_raw_block(cursor) or selection_touches_qt_table(cursor):
         return
     # A caption follows its image's alignment on its own.
     blocks = [
@@ -263,6 +273,7 @@ def toggle_justify(editor: QTextEdit) -> None:
         or is_raw_block(block)
         or is_caption_block(block)
         or block.textList() is not None
+        or selection_touches_qt_table(selection)
     ):
         return
     block_format = block.blockFormat()
@@ -292,6 +303,10 @@ def _toggle_inline(
     apply_visual: Callable[[QTextCharFormat, bool], None],
 ) -> None:
     cursor = editor.textCursor()
+    if selection_touches_qt_table(
+        cursor
+    ) and not selection_is_within_single_table_cell(cursor):
+        return
     in_captions = property_id in _CAPTION_PROPERTIES
     text_ranges = (
         _selected_text_ranges(cursor, include_captions=in_captions)
@@ -315,7 +330,7 @@ def _toggle_inline(
 
 def _set_leaf_block_kind(editor: QTextEdit, kind: str, level: int | None = None) -> None:
     cursor = editor.textCursor()
-    if selection_touches_raw_block(cursor):
+    if selection_touches_raw_block(cursor) or selection_touches_qt_table(cursor):
         return
     blocks = _selected_blocks(editor.document(), cursor)
     cursor.beginEditBlock()
