@@ -207,10 +207,14 @@ def test_replace_all_normal_and_raw_is_one_undo_step():
         Block(kind=VERBATIM, raw_text="**Fénelon**"),
         _table("Fénelon"),
     ]
-    raw_formats = [
-        editor.document().findBlockByNumber(number).blockFormat()
-        for number in range(1, editor.document().blockCount())
-    ]
+    raw_formats = []
+    block = editor.document().begin()
+    while block.isValid():
+        block_format = block.blockFormat()
+        if block_format.hasProperty(RAW_BLOCK_KIND_PROPERTY):
+            raw_formats.append(block_format)
+        block = block.next()
+    assert len(raw_formats) == 1
     assert all(fmt.hasProperty(RAW_BLOCK_KIND_PROPERTY) for fmt in raw_formats)
     assert all(fmt.hasProperty(RAW_BLOCK_GROUP_PROPERTY) for fmt in raw_formats)
 

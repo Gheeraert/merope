@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QMimeData, Qt
-from PySide6.QtGui import QImage, QTextCursor, QTextDocument
+from PySide6.QtGui import QImage, QTextCursor, QTextDocument, QTextTable
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -99,6 +99,41 @@ def _table(*, note_id: str | None = None) -> Block:
     )
 
 
+def _raw_table() -> Block:
+    """A canonical table deliberately outside the graphical V1 subset."""
+
+    return Block(
+        kind=TABLE,
+        children=[
+            Block(
+                kind=TABLE_ROW,
+                children=[
+                    Block(
+                        kind=TABLE_CELL,
+                        runs=[InlineRun(image_src="assets/image.png", image_alt="Image")],
+                    ),
+                    Block(kind=TABLE_CELL, runs=[InlineRun(text="B")]),
+                ],
+            ),
+            Block(
+                kind=TABLE_ROW,
+                children=[
+                    Block(kind=TABLE_CELL, runs=[InlineRun(text="C")]),
+                    Block(kind=TABLE_CELL, runs=[InlineRun(text="D")]),
+                ],
+            ),
+        ],
+    )
+
+
+def _qtext_tables(document: QTextDocument) -> list[QTextTable]:
+    return [
+        frame
+        for frame in document.rootFrame().childFrames()
+        if isinstance(frame, QTextTable)
+    ]
+
+
 def _editor(blocks: list[Block]) -> MeropeTextEdit:
     editor = MeropeTextEdit()
     populate_document(editor.document(), blocks)
@@ -153,9 +188,17 @@ def test_table_and_verbatim_roundtrip_as_grouped_raw_blocks():
     assert all(block.blockFormat().property(RAW_BLOCK_GROUP_PROPERTY) for block in raw_blocks)
 
 
-def test_two_adjacent_tables_have_distinct_transient_groups():
+def test_two_adjacent_eligible_tables_are_distinct_qtexttables():
     document = QTextDocument()
     populate_document(document, [_table(), _table()])
+
+    assert len(_qtext_tables(document)) == 2
+    assert extract_blocks(document) == [_table(), _table()]
+
+
+def test_two_adjacent_raw_fallback_tables_have_distinct_transient_groups():
+    document = QTextDocument()
+    populate_document(document, [_raw_table(), _raw_table()])
     groups = []
     block = document.begin()
     while block.isValid():
@@ -165,11 +208,11 @@ def test_two_adjacent_tables_have_distinct_transient_groups():
         block = block.next()
 
     assert len(groups) == 2
-    assert extract_blocks(document) == [_table(), _table()]
+    assert extract_blocks(document) == [_raw_table(), _raw_table()]
 
 
 def test_invalid_edited_table_falls_back_to_verbatim_without_text_loss():
-    editor = _editor([_table()])
+    editor = _editor([_raw_table()])
     separator = _select_block_text(editor, 1)
     separator.insertText("séparateur cassé")
     expected = "\n".join(
@@ -184,7 +227,7 @@ def test_invalid_edited_table_falls_back_to_verbatim_without_text_loss():
 
 
 def test_irregular_edited_table_falls_back_to_verbatim_without_padding():
-    editor = _editor([_table()])
+    editor = _editor([_raw_table()])
     body_row = _select_block_text(editor, 2)
     body_row.insertText("| C |")
     expected = "\n".join(
@@ -548,14 +591,14 @@ def test_renumbering_updates_parsed_table_notes_but_not_verbatim_text():
 
 
 def test_internal_clipboard_preserves_full_table_and_partial_table_text():
-    source = _editor([_table()])
+    source = _editor([_raw_table()])
     cursor = QTextCursor(source.document())
     cursor.select(QTextCursor.SelectionType.Document)
     source.setTextCursor(cursor)
     source.copy()
     target = _editor([])
     target.paste()
-    assert extract_blocks(target.document()) == [_table()]
+    assert extract_blocks(target.document()) == [_raw_table()]
 
     _select_block_text(source, 0)
     source.copy()
@@ -697,11 +740,13 @@ def test_valid_table_edit_save_and_reopen(tmp_path):
         blocks_to_markdown([_table()]),
     )
     window = QtEditorWindow(path)
-    last_row = window.editor.document().findBlockByNumber(2)
-    cursor = QTextCursor(last_row)
-    position = last_row.text().rfind("D")
-    cursor.setPosition(last_row.position() + position)
-    cursor.setPosition(cursor.position() + 1, QTextCursor.MoveMode.KeepAnchor)
+    table = _qtext_tables(window.editor.document())[0]
+    cursor = table.cellAt(1, 1).firstCursorPosition()
+    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+    cursor.movePosition(
+        QTextCursor.MoveOperation.PreviousCharacter,
+        QTextCursor.MoveMode.KeepAnchor,
+    )
     cursor.insertText("E")
 
     assert window.save_document()
@@ -719,7 +764,7 @@ def test_invalid_table_save_preserves_every_source_character(tmp_path):
         tmp_path,
         "broken-table.md",
         {"title": "Table", "slug": "broken-table", "type": "page"},
-        blocks_to_markdown([_table()]),
+        blocks_to_markdown([_raw_table()]),
     )
     window = QtEditorWindow(path)
     separator = _select_block_text(window.editor, 1)

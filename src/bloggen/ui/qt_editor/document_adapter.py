@@ -20,9 +20,13 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
+    QTextFormat,
+    QTextFrame,
     QTextImageFormat,
     QTextLength,
     QTextListFormat,
+    QTextTable,
+    QTextTableFormat,
 )
 
 from bloggen.content.footnotes import FootnoteDefinitions
@@ -77,6 +81,7 @@ from bloggen.ui.qt_editor.constants import (
     ITALIC_PROPERTY,
     LIST_ITEM_MARGINS,
     LIST_KIND_PROPERTY,
+    MEROPE_TABLE_PROPERTY,
     PARAGRAPH_MARGINS,
     RAW_BLOCK_GROUP_PROPERTY,
     RAW_BLOCK_KIND_PROPERTY,
@@ -176,10 +181,14 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
         elif original_list is not None:
             original_list.remove(insertion.block())
 
-        _write_blocks(insertion, blocks, first=True)
+        current_block_available = _write_blocks(insertion, blocks, first=True)
 
         if has_suffix:
-            _insert_new_block(insertion, original_block_format, original_char_format)
+            if current_block_available:
+                insertion.setBlockFormat(original_block_format)
+                insertion.setBlockCharFormat(original_char_format)
+            else:
+                _insert_new_block(insertion, original_block_format, original_char_format)
             if original_list is not None:
                 original_list.add(insertion.block())
         _normalize_after_insertion(insertion, first_position)
@@ -351,14 +360,10 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
     non-breaking spaces in that convenience representation.
     """
 
-    if document.rootFrame().childFrames():
-        raise UnsupportedBlockError(
-            "Les cadres et tableaux QTextDocument ne sont pas encore pris en charge"
-        )
-
-    first_block = document.begin()
+    items = _top_level_document_items(document)
+    first_block = items[0] if len(items) == 1 and isinstance(items[0], QTextBlock) else None
     if (
-        document.blockCount() == 1
+        first_block is not None
         and first_block.isValid()
         and first_block.textList() is None
         and not _block_has_content(first_block)
@@ -369,8 +374,21 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
 
     result: list[Block] = []
     seen_raw_groups: set[str] = set()
-    block = document.begin()
-    while block.isValid():
+    index = 0
+    while index < len(items):
+        item = items[index]
+        if isinstance(item, QTextTable):
+            result.append(_extract_table(item))
+            index += 1
+            continue
+        if isinstance(item, QTextFrame):
+            raise UnsupportedBlockError("Cadre QTextDocument étranger non pris en charge")
+
+        block = item
+        if _is_implicit_table_boundary_block(items, index):
+            index += 1
+            continue
+
         raw_identity = raw_block_identity(block)
         if raw_identity is not None:
             kind, group = raw_identity
@@ -380,10 +398,15 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
                 )
             seen_raw_groups.add(group)
             lines: list[str] = []
-            while block.isValid() and raw_block_identity(block) == (kind, group):
-                _validate_raw_qt_block(block)
-                lines.append(block.text())
-                block = block.next()
+            while index < len(items):
+                raw_item = items[index]
+                if not isinstance(raw_item, QTextBlock) or raw_block_identity(
+                    raw_item
+                ) != (kind, group):
+                    break
+                _validate_raw_qt_block(raw_item)
+                lines.append(raw_item.text())
+                index += 1
             raw_text = "\n".join(lines)
             if kind == TABLE:
                 result.append(
@@ -398,23 +421,26 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
         if text_list is not None:
             list_kind = _list_kind(block)
             list_object_index = text_list.objectIndex()
-            items: list[Block] = []
-            while block.isValid():
-                current_list = block.textList()
+            list_items: list[Block] = []
+            while index < len(items):
+                list_item = items[index]
+                if not isinstance(list_item, QTextBlock):
+                    break
+                current_list = list_item.textList()
                 if current_list is None or current_list.objectIndex() != list_object_index:
                     break
-                if _list_kind(block) != list_kind:
+                if _list_kind(list_item) != list_kind:
                     raise UnsupportedBlockError(
                         "Une meme liste Qt melange plusieurs types de listes"
                     )
-                stored_kind = block.blockFormat().property(BLOCK_KIND_PROPERTY)
+                stored_kind = list_item.blockFormat().property(BLOCK_KIND_PROPERTY)
                 if stored_kind not in (None, "", LIST_ITEM):
                     raise UnsupportedBlockError(
                         f"Bloc {stored_kind!r} imbrique dans une liste Qt non pris en charge"
                     )
-                items.append(Block(kind=LIST_ITEM, runs=_extract_runs(block)))
-                block = block.next()
-            result.append(Block(kind=list_kind, children=items))
+                list_items.append(Block(kind=LIST_ITEM, runs=_extract_runs(list_item)))
+                index += 1
+            result.append(Block(kind=list_kind, children=list_items))
             continue
 
         block_format = block.blockFormat()
@@ -425,7 +451,7 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
             # as ``normalize_figure_captions`` would remove it. (Copied
             # caption text is turned into a paragraph beforehand, see
             # ``release_orphan_captions_as_text``.)
-            block = block.next()
+            index += 1
             continue
         if not kind:
             native_heading_level = block_format.headingLevel()
@@ -444,12 +470,24 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
                 raise UnsupportedBlockError(f"Niveau de titre Qt non pris en charge : H{level}")
 
         runs = _extract_runs(block)
-        following = block.next()
+        following_index = index + 1
+        following = (
+            items[following_index]
+            if following_index < len(items)
+            and isinstance(items[following_index], QTextBlock)
+            else QTextBlock()
+        )
         if is_caption_block(following):
             captions: list[QTextBlock] = []
             while is_caption_block(following):
                 captions.append(following)
-                following = following.next()
+                following_index += 1
+                following = (
+                    items[following_index]
+                    if following_index < len(items)
+                    and isinstance(items[following_index], QTextBlock)
+                    else QTextBlock()
+                )
             image_index = next(
                 (index for index, run in enumerate(runs) if run.image_src is not None),
                 None,
@@ -466,7 +504,7 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
                         alignment=_alignment_from_format(block_format),
                     )
                 )
-                block = following
+                index = following_index
                 continue
 
         result.append(
@@ -477,8 +515,154 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
                 alignment=_alignment_from_format(block_format),
             )
         )
-        block = block.next()
+        index += 1
     return result
+
+
+def _top_level_document_items(document: QTextDocument) -> list[QTextBlock | QTextFrame]:
+    """Return root blocks and child frames once each, in document order."""
+
+    items: list[QTextBlock | QTextFrame] = []
+    iterator = document.rootFrame().begin()
+    while not iterator.atEnd():
+        frame = iterator.currentFrame()
+        if frame is not None:
+            items.append(frame)
+        else:
+            block = iterator.currentBlock()
+            if block.isValid():
+                items.append(block)
+        iterator += 1
+    return items
+
+
+def _is_implicit_table_boundary_block(
+    items: list[QTextBlock | QTextFrame],
+    index: int,
+) -> bool:
+    """Ignore only Qt's empty scaffolding block immediately beside a table."""
+
+    block = items[index]
+    if not isinstance(block, QTextBlock):
+        return False
+    block_format = block.blockFormat()
+    if (
+        block.textList() is not None
+        or block.text()
+        or block_format.property(BLOCK_KIND_PROPERTY)
+        or block_format.headingLevel()
+    ):
+        return False
+    return (
+        index > 0 and isinstance(items[index - 1], QTextTable)
+    ) or (
+        index + 1 < len(items) and isinstance(items[index + 1], QTextTable)
+    )
+
+
+def _extract_table(table: QTextTable) -> Block:
+    """Extract one marked, simple QTextTable without guessing at richer frames."""
+
+    table_format = table.format()
+    if not table_format.hasProperty(MEROPE_TABLE_PROPERTY) or not bool(
+        table_format.property(MEROPE_TABLE_PROPERTY)
+    ):
+        raise UnsupportedBlockError("Les tableaux QTextDocument étrangers ne sont pas pris en charge")
+    if table_format.headerRowCount() != 1:
+        raise UnsupportedBlockError("Un tableau Mérope doit avoir une ligne d’en-tête")
+    if table.rows() < 1 or table.columns() < 1:
+        raise UnsupportedBlockError("Un tableau Mérope vide n’est pas représentable")
+    if table.childFrames():
+        raise UnsupportedBlockError("Les tableaux imbriqués ne sont pas pris en charge")
+
+    rows: list[Block] = []
+    for row_index in range(table.rows()):
+        cells: list[Block] = []
+        for column_index in range(table.columns()):
+            cell = table.cellAt(row_index, column_index)
+            if (
+                cell.row() != row_index
+                or cell.column() != column_index
+                or cell.rowSpan() != 1
+                or cell.columnSpan() != 1
+            ):
+                raise UnsupportedBlockError("Les cellules fusionnées ne sont pas prises en charge")
+
+            first_block = cell.firstCursorPosition().block()
+            last_block = cell.lastCursorPosition().block()
+            if first_block != last_block:
+                raise UnsupportedBlockError(
+                    "Une cellule de tableau ne peut contenir qu’un seul paragraphe"
+                )
+            if first_block.textList() is not None:
+                raise UnsupportedBlockError("Les listes dans les cellules ne sont pas prises en charge")
+
+            block_format = first_block.blockFormat()
+            _reject_unknown_table_user_properties(
+                block_format,
+                allowed={BLOCK_KIND_PROPERTY, ALIGNMENT_PROPERTY},
+            )
+            stored_kind = block_format.property(BLOCK_KIND_PROPERTY)
+            if stored_kind not in (None, "", PARAGRAPH) or block_format.headingLevel():
+                raise UnsupportedBlockError(
+                    "Une cellule de tableau contient une structure de bloc non prise en charge"
+                )
+            if raw_block_identity(first_block) is not None:
+                raise UnsupportedBlockError("Une cellule de tableau ne peut pas être un bloc brut")
+            stored_alignment = block_format.property(ALIGNMENT_PROPERTY)
+            if stored_alignment not in (None, "", "left") or (
+                block_format.alignment()
+                and not block_format.alignment() & Qt.AlignmentFlag.AlignLeft
+            ):
+                raise UnsupportedBlockError(
+                    "L’alignement des cellules de tableau n’est pas pris en charge"
+                )
+
+            iterator = first_block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                if fragment.isValid() and not fragment.charFormat().isImageFormat():
+                    _reject_unknown_table_user_properties(
+                        fragment.charFormat(),
+                        allowed={
+                            BOLD_PROPERTY,
+                            ITALIC_PROPERTY,
+                            UNDERLINE_PROPERTY,
+                            STRIKETHROUGH_PROPERTY,
+                            SUPERSCRIPT_PROPERTY,
+                            FOOTNOTE_MARKER_PROPERTY,
+                            FOOTNOTE_ID_PROPERTY,
+                            FOOTNOTE_INSTANCE_PROPERTY,
+                        },
+                    )
+                iterator += 1
+
+            runs = _extract_runs(first_block)
+            if any(run.image_src is not None for run in runs):
+                raise UnsupportedBlockError("Les images dans les cellules ne sont pas prises en charge")
+            _validate_runs(runs)
+            cells.append(Block(kind=TABLE_CELL, runs=runs))
+        rows.append(Block(kind=TABLE_ROW, children=cells))
+    return Block(kind=TABLE, children=rows)
+
+
+def _reject_unknown_table_user_properties(
+    text_format: QTextFormat,
+    *,
+    allowed: set[int],
+) -> None:
+    """Reject unrecognised transient semantics inside a graphical table."""
+
+    first_user_property = QTextFormat.Property.UserProperty.value
+    unknown = {
+        int(property_id)
+        for property_id in text_format.properties()
+        if int(property_id) >= first_user_property and int(property_id) not in allowed
+    }
+    if unknown:
+        raise UnsupportedBlockError(
+            "Une cellule de tableau contient une propriété sémantique Qt inconnue"
+        )
 
 
 def _block_has_content(block: QTextBlock) -> bool:
@@ -1339,6 +1523,23 @@ def _validate_table_block(block: Block) -> None:
             _validate_runs(cell.runs)
 
 
+def table_is_qt_editable(block: Block) -> bool:
+    """Whether ``block`` fits the deliberately small graphical table subset."""
+
+    if block.kind != TABLE:
+        return False
+    try:
+        _validate_table_block(block)
+    except UnsupportedDocumentError:
+        return False
+    return all(
+        run.image_src is None
+        for row in block.children
+        for cell in row.children
+        for run in cell.runs
+    )
+
+
 def _validate_raw_qt_block(block: QTextBlock) -> None:
     if block.textList() is not None:
         raise UnsupportedBlockError("Un bloc brut Qt ne peut appartenir à une liste")
@@ -1537,12 +1738,57 @@ def _populate_raw_block(cursor: QTextCursor, block: Block, first: bool) -> bool:
     return False
 
 
+def _populate_table(cursor: QTextCursor, block: Block, first: bool) -> bool:
+    """Insert one eligible canonical table as a marked QTextTable."""
+
+    if not first and cursor.currentList() is not None:
+        _insert_new_block(cursor, QTextBlockFormat(), make_char_format(InlineRun()))
+
+    split_nonempty_block_at_start = (
+        cursor.position() == cursor.block().position()
+        and cursor.position() < cursor.block().position() + cursor.block().length() - 1
+    )
+    if split_nonempty_block_at_start:
+        # QTextTable insertion at the start of a populated block leaves an
+        # empty boundary block before the frame. Do not let that technical
+        # block inherit the semantic format of the suffix being split.
+        cursor.setBlockFormat(QTextBlockFormat())
+
+    table_format = QTextTableFormat()
+    table_format.setProperty(MEROPE_TABLE_PROPERTY, True)
+    table_format.setHeaderRowCount(1)
+    table_format.setBorder(1.0)
+    table_format.setCellPadding(4.0)
+    table_format.setCellSpacing(0.0)
+    table = cursor.insertTable(
+        len(block.children),
+        len(block.children[0].children),
+        table_format,
+    )
+    for row_index, row in enumerate(block.children):
+        for column_index, cell in enumerate(row.children):
+            cell_cursor = table.cellAt(row_index, column_index).firstCursorPosition()
+            cell_format = QTextBlockFormat()
+            cell_format.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            cell_cursor.setBlockFormat(cell_format)
+            cell_cursor.setBlockCharFormat(make_char_format(InlineRun()))
+            _insert_runs(cell_cursor, cell.runs)
+
+    after = table.lastCursorPosition()
+    after.movePosition(QTextCursor.MoveOperation.NextBlock)
+    cursor.setPosition(after.position())
+    cursor.setBlockCharFormat(make_char_format(InlineRun()))
+    return True
+
+
 def _write_blocks(cursor: QTextCursor, blocks: list[Block], *, first: bool) -> bool:
     for block in blocks:
         if block.kind in SUPPORTED_LEAF_KINDS:
             first = _populate_leaf_block(cursor, block, first)
         elif block.kind in SUPPORTED_LIST_KINDS:
             first = _populate_list(cursor, block, first)
+        elif block.kind == TABLE and table_is_qt_editable(block):
+            first = _populate_table(cursor, block, first)
         elif block.kind in SUPPORTED_RAW_KINDS:
             first = _populate_raw_block(cursor, block, first)
         else:  # Kept as a defensive guard if validation evolves separately.

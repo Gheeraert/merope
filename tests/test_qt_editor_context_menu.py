@@ -116,7 +116,12 @@ def _table() -> Block:
         children=[
             Block(
                 kind=TABLE_ROW,
-                children=[Block(kind=TABLE_CELL, runs=[InlineRun(text="A")])],
+                children=[
+                    Block(
+                        kind=TABLE_CELL,
+                        runs=[InlineRun(image_src="image.png", image_alt="A")],
+                    )
+                ],
             ),
             Block(
                 kind=TABLE_ROW,

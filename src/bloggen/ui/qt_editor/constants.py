@@ -15,6 +15,8 @@ RAW_BLOCK_GROUP_PROPERTY = _MEROPE_PROPERTY_BASE + 6
 # Légende tapée sous une image seule : texte stocké tel qu'il a été chargé,
 # afin de réécrire exactement une légende que l'auteur n'a pas modifiée.
 CAPTION_SOURCE_PROPERTY = _MEROPE_PROPERTY_BASE + 7
+# Marqueur transitoire d'un QTextTable créé par l'adaptateur Mérope.
+MEROPE_TABLE_PROPERTY = _MEROPE_PROPERTY_BASE + 8
 
 # Type Qt (jamais canonique) du bloc de légende qui suit une image seule.
 IMAGE_CAPTION_KIND = "merope-image-caption"
