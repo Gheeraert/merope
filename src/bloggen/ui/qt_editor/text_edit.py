@@ -120,6 +120,7 @@ from bloggen.ui.qt_editor.footnote_selection import (
     expand_selection_to_footnotes,
     merope_footnote_at_position,
 )
+from bloggen.ui.qt_editor.table_structure import insert_table_row
 from bloggen.content.image_size import (
     MENU_PERCENTS,
     ResizeOutcome,
@@ -375,6 +376,15 @@ class MeropeTextEdit(QTextEdit):
                     target_index // table.columns(),
                     target_index % table.columns(),
                 ).firstCursorPosition()
+                self.setTextCursor(target)
+            elif not backwards:
+                target = insert_table_row(cursor, before=False)
+                target_context = cursor_table_context(target)
+                if target_context is not None:
+                    target_table, target_cell = target_context
+                    target = target_table.cellAt(
+                        target_cell.row(), 0
+                    ).firstCursorPosition()
                 self.setTextCursor(target)
             return True
         if erase and not cursor.hasSelection():

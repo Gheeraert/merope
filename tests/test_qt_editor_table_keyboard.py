@@ -280,7 +280,7 @@ def test_return_in_empty_cell_is_a_clean_no_op():
     _assert_clean_unchanged(editor, model)
 
 
-def test_tab_and_backtab_navigate_row_major_with_safe_edge_noops():
+def test_tab_and_backtab_navigate_existing_cells_row_major():
     model = [_table()]
     editor = _editor(model)
     table = _table_frame(editor.document())
@@ -294,7 +294,6 @@ def test_tab_and_backtab_navigate_row_major_with_safe_edge_noops():
     QTest.keyClick(editor, Qt.Key.Key_Tab)
     assert table.cellAt(editor.textCursor()).row() == 1
     assert table.cellAt(editor.textCursor()).column() == 0
-    QTest.keyClick(editor, Qt.Key.Key_Tab)
     QTest.keyClick(editor, Qt.Key.Key_Tab)
     assert editor.textCursor().position() == table.cellAt(1, 1).firstPosition()
 

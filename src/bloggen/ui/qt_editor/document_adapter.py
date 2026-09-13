@@ -178,7 +178,14 @@ def insert_blocks(cursor: QTextCursor, blocks: list[Block]) -> QTextCursor:
         has_suffix = insertion.position() < block.position() + block.length() - 1
 
         if has_prefix:
-            _insert_new_block(insertion, original_block_format, original_char_format)
+            # At the end of a block, this new block is only the technical
+            # insertion boundary before structural content.  It must not
+            # retain a semantic paragraph/list format and leak into extraction.
+            _insert_new_block(
+                insertion,
+                original_block_format if has_suffix else QTextBlockFormat(),
+                original_char_format if has_suffix else make_char_format(InlineRun()),
+            )
         elif original_list is not None:
             original_list.remove(insertion.block())
 
@@ -717,6 +724,17 @@ def make_char_format(run: InlineRun, *, heading_level: int | None = None) -> QTe
         char_format.setAnchorHref(run.link_href)
         char_format.setForeground(QColor("#1a5fb4"))
     return char_format
+
+
+def initialize_table_cell(cell: QTextTableCell) -> QTextCursor:
+    """Reset one graphical table cell to the canonical single-block format."""
+
+    cursor = cell.firstCursorPosition()
+    block_format = QTextBlockFormat()
+    block_format.setAlignment(Qt.AlignmentFlag.AlignLeft)
+    cursor.setBlockFormat(block_format)
+    cursor.setBlockCharFormat(make_char_format(InlineRun()))
+    return cursor
 
 
 def make_image_format(run: InlineRun) -> QTextImageFormat:
@@ -1859,11 +1877,9 @@ def _populate_table(cursor: QTextCursor, block: Block, first: bool) -> bool:
     )
     for row_index, row in enumerate(block.children):
         for column_index, cell in enumerate(row.children):
-            cell_cursor = table.cellAt(row_index, column_index).firstCursorPosition()
-            cell_format = QTextBlockFormat()
-            cell_format.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            cell_cursor.setBlockFormat(cell_format)
-            cell_cursor.setBlockCharFormat(make_char_format(InlineRun()))
+            cell_cursor = initialize_table_cell(
+                table.cellAt(row_index, column_index)
+            )
             _insert_runs(cell_cursor, cell.runs)
 
     after = table.lastCursorPosition()
