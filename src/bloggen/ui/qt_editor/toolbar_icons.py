@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPalette,
+    QPixmap,
+)
 from PySide6.QtWidgets import QStyle, QWidget
 
 
@@ -71,27 +79,33 @@ def toolbar_icon(owner: QWidget, key: str) -> QIcon:
     standard = _STANDARD_ICONS.get(key)
     if standard is not None:
         return owner.style().standardIcon(standard)
+    color = _icon_foreground(owner)
     if key == "preview":
-        return _eye_icon()
+        return _eye_icon(color)
     if key == "clear_format":
-        return _clear_format_icon()
+        return _clear_format_icon(color)
     if key in ("panel_contents", "panel_notes"):
-        return _panel_icon(left=key == "panel_contents")
+        return _panel_icon(left=key == "panel_contents", color=color)
     theme_name = _THEME_ICONS.get(key)
-    fallback = _text_icon(key, _GLYPHS.get(key, key[:2].upper()))
     if theme_name:
         themed = QIcon.fromTheme(theme_name)
         if not themed.isNull():
             return themed
-    return fallback
+    return _text_icon(key, _GLYPHS.get(key, key[:2].upper()), color)
 
 
-def _text_icon(key: str, glyph: str) -> QIcon:
+def _icon_foreground(owner: QWidget) -> QColor:
+    """Use Qt's button-text role so custom glyphs follow the active palette."""
+
+    return owner.palette().color(QPalette.ColorRole.ButtonText)
+
+
+def _text_icon(key: str, glyph: str, color: QColor) -> QIcon:
     pixmap = QPixmap(_ICON_SIZE, _ICON_SIZE)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    painter.setPen(QColor("#202124"))
+    painter.setPen(color)
     font = QFont()
     font.setPixelSize(18 if len(glyph) > 1 else 23)
     font.setBold(True)
@@ -109,7 +123,7 @@ def _text_icon(key: str, glyph: str) -> QIcon:
     return QIcon(pixmap)
 
 
-def _panel_icon(*, left: bool) -> QIcon:
+def _panel_icon(*, left: bool, color: QColor) -> QIcon:
     """A window outline whose left or right strip is filled: a side panel."""
 
     size = _ICON_SIZE
@@ -117,7 +131,6 @@ def _panel_icon(*, left: bool) -> QIcon:
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    color = QColor("#202124")
     frame = QRectF(3.5, 6.5, size - 7, size - 13)
     strip_width = frame.width() * 0.34
     strip = QRectF(
@@ -140,7 +153,7 @@ def _panel_icon(*, left: bool) -> QIcon:
     return QIcon(pixmap)
 
 
-def _clear_format_icon() -> QIcon:
+def _clear_format_icon(color: QColor) -> QIcon:
     """A big "T" with a small subscript "x", mirroring the common
     "clear formatting" pictogram (as seen in Google Docs / Word)."""
 
@@ -149,7 +162,6 @@ def _clear_format_icon() -> QIcon:
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    color = QColor("#202124")
     painter.setPen(color)
 
     big_font = QFont()
@@ -175,14 +187,12 @@ def _clear_format_icon() -> QIcon:
     return QIcon(pixmap)
 
 
-def _eye_icon() -> QIcon:
+def _eye_icon(color: QColor) -> QIcon:
     size = _ICON_SIZE
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    color = QColor("#202124")
-
     margin = size * 0.08
     center_y = size * 0.5
     half_height = size * 0.24
