@@ -19,6 +19,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from bloggen.content.atomic_write import atomic_write_text
+
 
 @dataclass(slots=True)
 class RecoveryDraft:
@@ -44,7 +46,11 @@ def save_draft(project_root: Path, draft: RecoveryDraft) -> None:
         "metadata": draft.metadata,
         "body_markdown": draft.body_markdown,
     }
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 def load_draft(project_root: Path) -> RecoveryDraft | None:

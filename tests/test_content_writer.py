@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+import bloggen.content.atomic_write as atomic_write_module
 from bloggen.content.writer import (
     default_filename,
     list_content_targets,
@@ -37,6 +38,31 @@ def test_write_and_read_content_file_roundtrip(tmp_path: Path):
     read_metadata, body = read_content_file(path)
     assert read_metadata == metadata
     assert body == "\n# Titre\n\nCorps.\n"
+
+
+def test_write_content_file_replace_failure_preserves_previous_markdown(
+    tmp_path: Path,
+    monkeypatch,
+):
+    path = tmp_path / "article.md"
+    previous = b"---\ntitle: Ancien\n---\n\nCorps ancien.\n"
+    path.write_bytes(previous)
+
+    def fail_replace(_source, _target):
+        raise OSError("replace failure")
+
+    monkeypatch.setattr(atomic_write_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failure"):
+        write_content_file(
+            tmp_path,
+            path.name,
+            {"title": "Nouveau"},
+            "Corps nouveau.\n",
+        )
+
+    assert path.read_bytes() == previous
+    assert list(tmp_path.glob(f".{path.name}.tmp-*")) == []
 
 
 def test_scan_existing_slugs_collects_across_pages_and_posts(tmp_path: Path):

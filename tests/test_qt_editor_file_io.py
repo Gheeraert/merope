@@ -13,6 +13,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
+import bloggen.content.atomic_write as atomic_write_module
 from bloggen.content.writer import read_content_file, write_content_file
 from bloggen.markdown.rich_text_import import markdown_to_blocks
 from bloggen.markdown.rich_text_model import PARAGRAPH, VERBATIM, Block, InlineRun
@@ -117,6 +118,31 @@ def test_disk_open_edit_save_reopen_roundtrip(tmp_path):
     reopened = QTextDocument()
     load_content_document(path, reopened)
     assert extract_blocks(reopened) == extract_blocks(document)
+
+
+def test_save_content_document_replace_failure_preserves_previous_markdown(
+    tmp_path,
+    monkeypatch,
+):
+    path = write_content_file(tmp_path, "document.md", _metadata(), "Corps initial.\n")
+    previous_bytes = path.read_bytes()
+    document = QTextDocument()
+    loaded = load_content_document(path, document)
+    cursor = QTextCursor(document)
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    cursor.insertText(" Modification non enregistrée.")
+
+    def fail_replace(_source, _target):
+        raise OSError("replace failure")
+
+    monkeypatch.setattr(atomic_write_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failure"):
+        save_content_document(path, loaded.metadata, document)
+
+    assert path.read_bytes() == previous_bytes
+    assert document.isModified()
+    assert list(tmp_path.glob(f".{path.name}.tmp-*")) == []
 
 
 def test_image_file_open_save_reopen_preserves_semantics_and_base_url(tmp_path):
