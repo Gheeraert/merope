@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 
 import pytest
@@ -35,6 +36,7 @@ from bloggen.ui.qt_editor.constants import (
 from bloggen.ui.qt_editor.document_adapter import (
     extract_blocks,
     inline_format_enabled,
+    make_char_format,
     populate_document,
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
@@ -160,6 +162,151 @@ def test_supported_oe_word_is_ligatured_while_typing(typed, expected):
     _type(editor, typed)
 
     assert _document_text(editor) == expected
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [
+        ("oeuvre", "œuvre"),
+        ("Oeuvre", "Œuvre"),
+        ("OEuvre", "Œuvre"),
+        ("OEUVRE", "ŒUVRE"),
+        ("Soeur", "Sœur"),
+        ("SOEUR", "SŒUR"),
+        ("COEUR", "CŒUR"),
+    ],
+)
+def test_real_key_events_ligature_supported_oe_case_variants(typed, expected):
+    editor = _editor()
+
+    QTest.keyClicks(editor, typed)
+
+    assert _document_text(editor) == expected
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text=expected)], alignment="justify")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [
+        ("-", "-"),
+        ("--", "–"),
+        ("---", "—"),
+        ("----", "—-"),
+        ("a--b", "a–b"),
+        ("a---b", "a—b"),
+        ("(--", "(–"),
+    ],
+)
+def test_real_key_events_apply_dash_typing_shortcuts(typed, expected):
+    editor = _editor()
+
+    QTest.keyClicks(editor, typed)
+
+    assert _document_text(editor) == expected
+
+
+def test_dash_typing_shortcuts_are_one_undo_step_per_triggering_key():
+    editor = _editor()
+
+    QTest.keyClicks(editor, "--")
+    assert _document_text(editor) == "–"
+    editor.undo()
+    assert _document_text(editor) == "-"
+    editor.redo()
+    assert _document_text(editor) == "–"
+
+    QTest.keyClick(editor, Qt.Key.Key_Minus)
+    assert _document_text(editor) == "—"
+    editor.undo()
+    assert _document_text(editor) == "–"
+    editor.redo()
+    assert _document_text(editor) == "—"
+
+
+def test_dash_typing_shortcut_works_in_the_middle_of_an_existing_block():
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text="ab")])])
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(1)
+    editor.setTextCursor(cursor)
+
+    QTest.keyClicks(editor, "--")
+
+    assert _document_text(editor) == "a–b"
+
+
+def test_dash_typing_shortcut_replaces_an_ordinary_selection():
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text="aXXb")])])
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(1)
+    cursor.setPosition(3, QTextCursor.MoveMode.KeepAnchor)
+    editor.setTextCursor(cursor)
+
+    QTest.keyClicks(editor, "--")
+
+    assert _document_text(editor) == "a–b"
+
+
+@pytest.mark.parametrize(
+    "format_run",
+    [
+        InlineRun(bold=True),
+        InlineRun(italic=True),
+    ],
+)
+def test_real_key_events_ligature_preserves_current_inline_format(format_run):
+    editor = _editor()
+    editor.setCurrentCharFormat(make_char_format(format_run))
+
+    QTest.keyClicks(editor, "OEUVRE")
+
+    assert extract_blocks(editor.document()) == [
+        Block(
+            kind=PARAGRAPH,
+            runs=[replace(format_run, text="ŒUVRE")],
+            alignment="justify",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "format_run",
+    [
+        InlineRun(text="x", bold=True),
+        InlineRun(text="x", italic=True),
+        InlineRun(text="x", underline=True),
+        InlineRun(text="x", link_href="https://example.org"),
+    ],
+)
+def test_dash_typing_shortcut_preserves_current_inline_format(format_run):
+    editor = _editor([Block(kind=PARAGRAPH, runs=[format_run])])
+
+    QTest.keyClicks(editor, "--")
+
+    assert extract_blocks(editor.document()) == [
+        Block(
+            kind=PARAGRAPH,
+            runs=[replace(format_run, text="x–")],
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        Block(kind=HEADING, level=2, runs=[InlineRun(text="Titre ")]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text="Citation ")]),
+    ],
+)
+def test_dash_typing_shortcut_preserves_rich_block_kind(block):
+    editor = _editor([block])
+
+    QTest.keyClicks(editor, "---")
+
+    extracted = extract_blocks(editor.document())[0]
+    assert replace(extracted, runs=[]) == replace(block, runs=[])
+    assert _leaf_text(extracted) == f"{_leaf_text(block)}—"
 
 
 @pytest.mark.parametrize("ordinal", ["XVe", "XVIe", "XVIIe", "XXIe"])

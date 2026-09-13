@@ -272,13 +272,13 @@ def test_raw_typing_and_enter_are_literal_and_keep_group():
     cursor.movePosition(QTextCursor.MoveOperation.End)
     editor.setTextCursor(cursor)
 
-    QTest.keyClicks(editor, ' " : ; ! ? oeuvre XXe')
+    QTest.keyClicks(editor, ' " : ; ! ? oeuvre XXe ---')
     QTest.keyClick(editor, Qt.Key.Key_Return)
     QTest.keyClicks(editor, "((note))")
 
     blocks = extract_blocks(editor.document())
     assert blocks == [
-        Block(kind=VERBATIM, raw_text='brut " : ; ! ? oeuvre XXe\n((note))')
+        Block(kind=VERBATIM, raw_text='brut " : ; ! ? oeuvre XXe ---\n((note))')
     ]
     first = editor.document().begin()
     second = first.next()

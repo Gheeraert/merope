@@ -1,7 +1,11 @@
+import pytest
+
 from bloggen.markdown.rich_text_model import InlineRun
 from bloggen.markdown.typography import (
     CLOSING_GUILLEMET,
     COMMON_CENTURY_ORDINAL_TYPED_RE,
+    EM_DASH,
+    EN_DASH,
     NBSP,
     OE_LIGATURE_TYPED_RE,
     OPENING_GUILLEMET,
@@ -14,6 +18,7 @@ from bloggen.markdown.typography import (
     is_valid_century_ordinal,
     oe_ligature_replacement,
     split_century_ordinals,
+    typed_dash_replacement,
 )
 
 _CURLY_OPEN = "“"
@@ -46,27 +51,42 @@ def test_double_punctuation_already_nbsp_is_unchanged():
     assert apply_french_typography(text) == text
 
 
-def test_oe_ligature_replacement_lowercase():
-    assert oe_ligature_replacement("soeur") == "sœur"
-    assert oe_ligature_replacement("oeuvre") == "œuvre"
-    assert oe_ligature_replacement("boeuf") == "bœuf"
-
-
-def test_oe_ligature_replacement_capitalized_word_keeps_ligature_lowercase_mid_word():
-    assert oe_ligature_replacement("Soeur") == "Sœur"
-
-
-def test_oe_ligature_replacement_uppercases_ligature_when_word_initial():
-    assert oe_ligature_replacement("Oeuvre") == "Œuvre"
-
-
-def test_oe_ligature_replacement_all_caps():
-    assert oe_ligature_replacement("SOEUR") == "SŒUR"
-    assert oe_ligature_replacement("OEUVRE") == "ŒUVRE"
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("oeuvre", "œuvre"),
+        ("Oeuvre", "Œuvre"),
+        ("OEuvre", "Œuvre"),
+        ("OEUVRE", "ŒUVRE"),
+        ("soeur", "sœur"),
+        ("Soeur", "Sœur"),
+        ("SOEUR", "SŒUR"),
+        ("coeur", "cœur"),
+        ("COEUR", "CŒUR"),
+        ("boeuf", "bœuf"),
+        ("BOEUF", "BŒUF"),
+    ],
+)
+def test_oe_ligature_replacement_preserves_useful_case_variants(source, expected):
+    assert oe_ligature_replacement(source) == expected
 
 
 def test_oe_ligature_typed_regex_does_not_match_unrelated_word():
     assert OE_LIGATURE_TYPED_RE.search("poeme") is None
+
+
+@pytest.mark.parametrize(
+    ("prefix", "expected"),
+    [
+        ("-", None),
+        ("--", EN_DASH),
+        (f"{EN_DASH}-", EM_DASH),
+        (f"mot{EN_DASH}-", EM_DASH),
+        (f"{EM_DASH}-", None),
+    ],
+)
+def test_typed_dash_replacement_is_limited_to_live_suffixes(prefix, expected):
+    assert typed_dash_replacement(prefix) == expected
 
 
 def test_common_century_ordinal_typed_regex_matches_listed_numerals():

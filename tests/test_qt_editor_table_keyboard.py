@@ -673,6 +673,16 @@ def test_typography_and_nbsp_stay_inside_current_cell():
     assert any(run.text == "e" and run.superscript for run in cell.runs)
 
 
+def test_ligature_and_dash_shortcuts_work_in_graphical_table_cell():
+    editor = _editor([_single_cell_table()])
+    _place_in_cell(editor, 0, 0)
+
+    QTest.keyClicks(editor, "OEUVRE---")
+
+    (cell,) = extract_blocks(editor.document())[0].children[0].children
+    assert cell.runs == [InlineRun(text="ŒUVRE—")]
+
+
 def test_quote_state_is_local_to_each_table_cell():
     model = [
         Block(

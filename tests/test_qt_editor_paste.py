@@ -127,6 +127,16 @@ def test_qt_paste_accepts_plain_text_without_html():
     ]
 
 
+def test_plain_text_paste_does_not_apply_live_dash_shortcuts():
+    editor = _editor()
+
+    _paste_text(editor, "--\n---")
+
+    assert editor.toPlainText() == "--\n---"
+    assert "–" not in editor.toPlainText()
+    assert "—" not in editor.toPlainText()
+
+
 def test_qt_paste_rejects_unsupported_mime_only():
     original = [Block(kind=PARAGRAPH, runs=[InlineRun(text="Intact")])]
     editor = _editor(original)

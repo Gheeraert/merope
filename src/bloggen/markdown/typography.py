@@ -13,11 +13,27 @@ from dataclasses import replace
 from bloggen.markdown.rich_text_model import InlineRun
 
 NBSP = " "
+EN_DASH = "–"
+EM_DASH = "—"
 DOUBLE_PUNCTUATION = ";:!?"
 CURLY_OPENING_QUOTE = "“"
 CURLY_CLOSING_QUOTE = "”"
 OPENING_GUILLEMET = "«"  # «
 CLOSING_GUILLEMET = "»"  # »
+
+
+def typed_dash_replacement(prefix: str) -> str | None:
+    """Return the live-typing replacement for the suffix of *prefix*.
+
+    Two typed hyphens become an en dash; a following third hyphen sees the
+    already-formatted ``–-`` suffix and upgrades it to an em dash.  This is
+    deliberately a typing helper, not a general text-normalization rule.
+    """
+    if prefix.endswith(f"{EN_DASH}-"):
+        return EM_DASH
+    if prefix.endswith("--"):
+        return EN_DASH
+    return None
 
 
 def apply_french_typography(text: str) -> str:

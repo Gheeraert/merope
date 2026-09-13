@@ -65,6 +65,7 @@ from bloggen.markdown.typography import (
     fix_period_spacing,
     is_valid_century_ordinal,
     oe_ligature_replacement,
+    typed_dash_replacement,
 )
 from bloggen.ui.qt_editor.clipboard_fragment import (
     MEROPE_FRAGMENT_MIME,
@@ -2108,7 +2109,9 @@ class MeropeTextEdit(QTextEdit):
         return True
 
     def _apply_typing_autoformat(self, char: str) -> None:
-        if char == '"':
+        if char == "-":
+            self._autoformat_typed_dash()
+        elif char == '"':
             self._replace_last_quote()
         elif char == OPENING_GUILLEMET:
             self._space_after_opening_guillemet()
@@ -2132,6 +2135,8 @@ class MeropeTextEdit(QTextEdit):
             return True
         _block, prefix = self._current_block_prefix()
         candidate = prefix + char
+        if char == "-" and typed_dash_replacement(candidate) is not None:
+            return True
         if char.isdigit() and PAGE_ABBREVIATION_TYPED_RE.search(candidate):
             return True
         if char == "." and SPACE_BEFORE_PERIOD_TYPED_RE.search(candidate):
@@ -2143,6 +2148,18 @@ class MeropeTextEdit(QTextEdit):
         return any(
             is_valid_century_ordinal(match.group(1), match.group(2))
             for match in CENTURY_RE.finditer(candidate)
+        )
+
+    def _autoformat_typed_dash(self) -> None:
+        _block, prefix = self._current_block_prefix()
+        replacement = typed_dash_replacement(prefix)
+        if replacement is None:
+            return
+        end = self.textCursor().position()
+        start = end - 2
+        char_format = self._format_for_edit(end - 1, end)
+        self._joined_with_previous_edit(
+            lambda: self._replace_range(start, end, replacement, char_format)
         )
 
     def _replace_last_quote(self) -> None:
