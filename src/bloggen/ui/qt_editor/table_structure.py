@@ -25,6 +25,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
     cursor_table_context,
     extract_blocks,
+    extract_table_block,
     initialize_table_cell,
     insert_blocks,
     is_merope_qtext_table,
@@ -87,6 +88,13 @@ def table_structure_context(
         return _require_single_merope_cell(cursor)
     except UnsupportedDocumentError:
         return None
+
+
+def current_table_block(cursor: QTextCursor) -> Block:
+    """Extract exactly the validated Merope table containing ``cursor``."""
+
+    table, _cell = _require_single_merope_cell(cursor)
+    return extract_table_block(table)
 
 
 def insert_table_row(cursor: QTextCursor, *, before: bool) -> QTextCursor:

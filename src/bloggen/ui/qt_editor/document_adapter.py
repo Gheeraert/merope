@@ -397,7 +397,7 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
     while index < len(items):
         item = items[index]
         if isinstance(item, QTextTable):
-            result.append(_extract_table(item))
+            result.append(extract_table_block(item))
             index += 1
             continue
         if isinstance(item, QTextFrame):
@@ -579,7 +579,7 @@ def _is_implicit_table_boundary_block(
     )
 
 
-def _extract_table(table: QTextTable) -> Block:
+def extract_table_block(table: QTextTable) -> Block:
     """Extract one marked, simple QTextTable without guessing at richer frames."""
 
     table_format = table.format()

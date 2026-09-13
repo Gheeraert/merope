@@ -310,6 +310,8 @@ def test_context_table_submenu_visibility_and_enabled_states():
     assert [
         action.text() for action in table_menu.actions() if not action.isSeparator()
     ] == [
+        "Copier le tableau",
+        "Couper le tableau",
         "Ajouter une ligne au-dessus",
         "Ajouter une ligne en dessous",
         "Ajouter une colonne à gauche",
@@ -321,6 +323,8 @@ def test_context_table_submenu_visibility_and_enabled_states():
     assert not _table_action(table_menu, "table-remove-row").isEnabled()
     assert not _table_action(table_menu, "table-remove-column").isEnabled()
     for name in (
+        "table-copy",
+        "table-cut",
         "table-row-above",
         "table-row-below",
         "table-column-left",

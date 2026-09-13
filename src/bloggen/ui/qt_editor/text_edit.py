@@ -43,7 +43,7 @@ from bloggen.markdown.html_paste_import import (
     UnsupportedHtmlStructureError,
     html_to_blocks,
 )
-from bloggen.markdown.rich_text_model import HEADING, Block
+from bloggen.markdown.rich_text_model import HEADING, TABLE, Block
 from bloggen.markdown.typography import (
     CENTURY_RE,
     CLOSING_GUILLEMET,
@@ -69,6 +69,7 @@ from bloggen.ui.qt_editor.clipboard_fragment import (
     MEROPE_FRAGMENT_MIME,
     InvalidMeropeClipboardFragment,
     decode_markdown_fragment,
+    encode_blocks_as_markdown,
     encode_selection_as_markdown,
 )
 from bloggen.ui.qt_editor.clipboard_images import (
@@ -121,6 +122,7 @@ from bloggen.ui.qt_editor.footnote_selection import (
     merope_footnote_at_position,
 )
 from bloggen.ui.qt_editor.table_structure import (
+    current_table_block,
     insert_table_column,
     insert_table_row,
     remove_table,
@@ -485,6 +487,15 @@ class MeropeTextEdit(QTextEdit):
         table_menu = menu.addMenu("Tableau")
         table_menu.menuAction().setObjectName("merope-table-menu")
 
+        copy_table = table_menu.addAction("Copier le tableau")
+        copy_table.setObjectName("table-copy")
+        copy_table.triggered.connect(self.copy_current_table)
+        cut_table = table_menu.addAction("Couper le tableau")
+        cut_table.setObjectName("table-cut")
+        cut_table.setEnabled(not self.isReadOnly())
+        cut_table.triggered.connect(self.cut_current_table)
+        table_menu.addSeparator()
+
         commands = (
             (
                 "table-row-above",
@@ -539,6 +550,52 @@ class MeropeTextEdit(QTextEdit):
         delete_table.triggered.connect(
             lambda _checked=False: self._run_table_structure_action(remove_table)
         )
+
+    def copy_current_table(self, _checked: bool = False) -> bool:
+        """Copy exactly the current graphical table through canonical Markdown."""
+
+        return self._copy_current_table(cut=False)
+
+    def cut_current_table(self, _checked: bool = False) -> bool:
+        """Copy first, then remove the current table in one structural undo."""
+
+        if self.isReadOnly():
+            return self.copy_current_table()
+        return self._copy_current_table(cut=True)
+
+    def _copy_current_table(self, *, cut: bool) -> bool:
+        try:
+            cursor = QTextCursor(self.textCursor())
+            table_block = current_table_block(cursor)
+            payload = encode_blocks_as_markdown([table_block])
+            mime_data = QMimeData()
+            mime_data.setData(MEROPE_FRAGMENT_MIME, QByteArray(payload))
+            mime_data.setText(payload.decode("utf-8"))
+        except (ValueError, UnsupportedDocumentError) as exc:
+            self.clipboardRefused.emit(
+                f"Le tableau n’a pas pu être copié sans perte : {exc}"
+            )
+            return False
+
+        try:
+            QApplication.clipboard().setMimeData(mime_data)
+        except Exception as exc:  # Qt clipboard backends expose runtime failures.
+            self.clipboardRefused.emit(
+                f"Le presse-papiers n’a pas pu recevoir le tableau : {exc}"
+            )
+            return False
+
+        if cut:
+            try:
+                target = remove_table(cursor)
+            except UnsupportedDocumentError as exc:
+                self.clipboardRefused.emit(
+                    f"Le tableau a été copié mais n’a pas pu être coupé : {exc}"
+                )
+                return False
+            self.setTextCursor(target)
+        self.setFocus()
+        return True
 
     def _run_table_structure_action(
         self,
@@ -1005,6 +1062,11 @@ class MeropeTextEdit(QTextEdit):
         return changed
 
     def copy(self) -> None:
+        if selection_crosses_qt_table_boundary(self.textCursor()):
+            self.clipboardRefused.emit(
+                "La copie de plusieurs cellules exige la commande Copier le tableau"
+            )
+            return
         if not self._copy_merope_selection(cut=False):
             super().copy()
 
@@ -1520,7 +1582,13 @@ class MeropeTextEdit(QTextEdit):
                 "Le collage ne peut pas séparer une légende de son image"
             )
             return
+        contains_table = self._internal_fragment_contains_table(source)
         if caption_block_for_selection(paste_cursor) is not None:
+            if contains_table:
+                self.pasteRefused.emit(
+                    "Un tableau ne peut pas être collé dans une légende d’image"
+                )
+                return
             text = source.text() if source.hasText() else ""
             if not self._insert_plain_text_in_caption(text):
                 self.pasteRefused.emit(
@@ -1532,6 +1600,11 @@ class MeropeTextEdit(QTextEdit):
             if len(raw_identities) != 1 or None in raw_identities:
                 self.pasteRefused.emit(
                     "Le collage ne peut pas traverser la frontière d’un bloc brut"
+                )
+                return
+            if contains_table:
+                self.pasteRefused.emit(
+                    "Un tableau ne peut pas être collé dans un bloc brut"
                 )
                 return
             if not source.hasText() or not source.text():
@@ -1611,6 +1684,20 @@ class MeropeTextEdit(QTextEdit):
         self.pasteRefused.emit(
             "Ce format de presse-papiers n’est pas encore pris en charge par l’éditeur Qt"
         )
+
+    @staticmethod
+    def _internal_fragment_contains_table(source: QMimeData) -> bool:
+        if not source.hasFormat(MEROPE_FRAGMENT_MIME):
+            return False
+        try:
+            return any(
+                block.kind == TABLE
+                for block in decode_markdown_fragment(
+                    source.data(MEROPE_FRAGMENT_MIME)
+                )
+            )
+        except (InvalidMeropeClipboardFragment, UnsupportedDocumentError):
+            return False
 
     def _insert_table_mime_data(self, source: QMimeData) -> bool:
         """Handle or refuse paste whenever its target touches a QTextTable."""

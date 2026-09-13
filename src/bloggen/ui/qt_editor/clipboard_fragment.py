@@ -37,6 +37,12 @@ def encode_selection_as_markdown(cursor: QTextCursor) -> bytes:
     apply_image_alts(fragment_document, selection_image_alts(cursor))
     release_orphan_captions_as_text(fragment_document)
     blocks = extract_blocks(fragment_document)
+    return encode_blocks_as_markdown(blocks)
+
+
+def encode_blocks_as_markdown(blocks: list[Block]) -> bytes:
+    """Serialize validated canonical blocks for the internal clipboard."""
+
     validate_blocks(blocks)
     return blocks_to_markdown(blocks).encode("utf-8")
 
