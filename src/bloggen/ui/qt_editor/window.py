@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QImageReader,
     QKeySequence,
     QTextCursor,
+    QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -121,10 +122,7 @@ from bloggen.ui.qt_editor.footnote_editor import (
     validate_footnote_runs,
 )
 from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
-from bloggen.ui.qt_editor.footnote_store import (
-    FootnoteStore,
-    FootnoteStoreSnapshot,
-)
+from bloggen.ui.qt_editor.footnote_store import FootnoteStore
 from bloggen.ui.qt_editor.image_crop import validate_source_box
 from bloggen.ui.qt_editor.image_crop_dialog import CropImageDialog
 from bloggen.ui.qt_editor.image_dialog import ImageMetadataDialog
@@ -164,12 +162,10 @@ from bloggen.ui.qt_editor_protocol import emit_event
 
 
 @dataclass(frozen=True, slots=True)
-class _RenumberSaveSnapshot:
-    body_blocks: list[Block]
-    store: FootnoteStoreSnapshot
-    body_modified: bool
-    cursor_position: int
-    cursor_anchor: int
+class _PreparedRenumberedSave:
+    document: QTextDocument
+    definitions: FootnoteDefinitions
+    mapping: dict[str, str]
 
 
 CONTENT_DOCK_WIDTH = 230
@@ -364,26 +360,38 @@ class QtEditorWindow(QMainWindow):
                     f"Le fichier cible existe déjà :\n{target_path}",
                 )
                 return False
-        renumber_snapshot: _RenumberSaveSnapshot | None = None
+        prepared_renumbering: _PreparedRenumberedSave | None = None
         try:
-            renumber_snapshot = self._renumber_footnotes_for_save()
+            prepared_renumbering = self._prepare_renumbered_save()
             result = save_content_document(
                 target_path,
                 self.metadata,
-                self.editor.document(),
-                self.footnote_store.definitions,
+                (
+                    prepared_renumbering.document
+                    if prepared_renumbering is not None
+                    else self.editor.document()
+                ),
+                (
+                    prepared_renumbering.definitions
+                    if prepared_renumbering is not None
+                    else self.footnote_store.definitions
+                ),
             )
         except (OSError, ValueError) as exc:
-            if renumber_snapshot is not None:
-                self._restore_renumber_save_snapshot(renumber_snapshot)
             self._emit("error", message=f"Enregistrement impossible : {exc}")
             QMessageBox.critical(self, "Enregistrement impossible", str(exc))
             return False
 
+        if prepared_renumbering is not None:
+            renumber_footnote_references(
+                self.editor.document(),
+                prepared_renumbering.mapping,
+            )
+            self.footnote_store.replace_all(prepared_renumbering.definitions)
         self.current_path = result.path
         self.editor.document().setBaseUrl(directory_base_url(result.path.parent))
         self._update_external_paste_context()
-        if renumber_snapshot is not None:
+        if prepared_renumbering is not None:
             self.editor.document().clearUndoRedoStacks()
             self.editor.document().setModified(False)
         self.footnote_store.mark_clean()
@@ -1726,7 +1734,9 @@ class QtEditorWindow(QMainWindow):
         if path:
             self.open_document(Path(path))
 
-    def _renumber_footnotes_for_save(self) -> _RenumberSaveSnapshot | None:
+    def _prepare_renumbered_save(self) -> _PreparedRenumberedSave | None:
+        """Build a renumbered serialization document without touching the session."""
+
         body_blocks = extract_blocks(self.editor.document())
         renumbering = plan_footnote_renumbering(
             self.footnote_store.definitions,
@@ -1735,41 +1745,15 @@ class QtEditorWindow(QMainWindow):
         if not renumbering.changed:
             return None
 
-        cursor = self.editor.textCursor()
-        snapshot = _RenumberSaveSnapshot(
-            body_blocks=body_blocks,
-            store=self.footnote_store.snapshot(),
-            body_modified=self.editor.document().isModified(),
-            cursor_position=cursor.position(),
-            cursor_anchor=cursor.anchor(),
+        document = QTextDocument()
+        document.setBaseUrl(self.editor.document().baseUrl())
+        populate_document(document, body_blocks)
+        renumber_footnote_references(document, renumbering.mapping)
+        return _PreparedRenumberedSave(
+            document=document,
+            definitions=renumbering.definitions,
+            mapping=renumbering.mapping,
         )
-        try:
-            renumber_footnote_references(
-                self.editor.document(),
-                renumbering.mapping,
-            )
-            self.footnote_store.replace_all(renumbering.definitions)
-        except Exception:
-            self._restore_renumber_save_snapshot(snapshot)
-            raise
-        return snapshot
-
-    def _restore_renumber_save_snapshot(
-        self,
-        snapshot: _RenumberSaveSnapshot,
-    ) -> None:
-        populate_document(self.editor.document(), snapshot.body_blocks)
-        self.editor.document().setModified(snapshot.body_modified)
-        self.footnote_store.restore(snapshot.store)
-        document_end = max(0, self.editor.document().characterCount() - 1)
-        cursor = QTextCursor(self.editor.document())
-        cursor.setPosition(min(snapshot.cursor_anchor, document_end))
-        cursor.setPosition(
-            min(snapshot.cursor_position, document_end),
-            QTextCursor.MoveMode.KeepAnchor,
-        )
-        self.editor.setTextCursor(cursor)
-        self._update_window_title()
 
     def _confirm_unsaved_changes(self) -> bool:
         if not self.document_has_unsaved_changes:
