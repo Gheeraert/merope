@@ -3,7 +3,9 @@
 from pathlib import Path
 import uuid
 
-from bloggen.build.site_builder import build_site
+from lxml import html as lxml_html
+
+from bloggen.build.site_builder import GeneratedItem, _recent_post_excerpt, build_site
 from bloggen.config.defaults import build_default_config
 from bloggen.tei.pandoc_converter import MarkdownToTeiResult
 from bloggen.tei.validator import TeiValidationResult
@@ -22,6 +24,81 @@ TEI_SAMPLE = (
     '</div></body></text>'
     '</TEI>'
 )
+
+
+def _excerpt_item(content_html: str, *, description: str | None = None) -> GeneratedItem:
+    return GeneratedItem(
+        source=Path("billet.md"),
+        title="Billet",
+        slug="billet",
+        url="/billets/billet/index.html",
+        html_path=Path("site/billets/billet/index.html"),
+        tei_path=Path("build/tei/billet.xml"),
+        date="2026-09-08",
+        content_html=content_html,
+        description=description,
+    )
+
+
+def test_recent_post_excerpt_uses_editorial_body_even_with_seo_description():
+    item = _excerpt_item(
+        '<article class="tei-fragment">'
+        "<p>Corps long du billet, avec une amorce réelle.</p></article>",
+        description="Résumé SEO très court.",
+    )
+
+    excerpt = _recent_post_excerpt(item, 2000)
+
+    assert excerpt == "Corps long du billet, avec une amorce réelle."
+    assert excerpt != item.description
+
+
+def test_recent_post_excerpt_strips_fragment_metadata_but_keeps_a_body_date():
+    item = _excerpt_item(
+        '<article class="tei-fragment">'
+        '<header class="article-header"><p class="article-meta">'
+        '<time datetime="2026-09-08">2026-09-08</time></p></header>'
+        "<p>Le calendrier de l’Agrégation interdit cette option.</p>"
+        "</article>"
+    )
+    dated_body = _excerpt_item(
+        '<article class="tei-fragment">'
+        "<p>2026-09-08 est une date importante dans mon raisonnement.</p>"
+        "</article>"
+    )
+
+    assert _recent_post_excerpt(item, 2000) == (
+        "Le calendrier de l’Agrégation interdit cette option."
+    )
+    assert _recent_post_excerpt(dated_body, 2000).startswith("2026-09-08 est une date")
+
+
+def test_recent_post_excerpt_excludes_note_navigation_and_endnotes():
+    item = _excerpt_item(
+        '<article class="tei-fragment">'
+        '<p>Texte éditorial<sup class="note-call"><a href="#note-1">1</a></sup>.</p>'
+        '<section class="endnotes" id="endnotes"><h2>Notes</h2>'
+        '<ol><li id="note-1">Note complète'
+        '<a class="note-backref" href="#note-call-1">↩</a></li></ol></section>'
+        "</article>"
+    )
+
+    assert _recent_post_excerpt(item, 2000) == "Texte éditorial."
+
+
+def test_recent_post_excerpt_truncates_cleanly_and_preserves_unicode():
+    assert _recent_post_excerpt(_excerpt_item("<p>Texte bref.</p>"), 2000) == "Texte bref."
+    assert _recent_post_excerpt(_excerpt_item("<p>Texte bref.</p>"), 0) == ""
+    assert _recent_post_excerpt(
+        _excerpt_item("<p>Une phrase avec plusieurs mots.</p>"), 20
+    ) == "Une phrase avec…"
+    assert _recent_post_excerpt(
+        _excerpt_item("<p>Une phrase avec suite.</p>"), 15
+    ) == "Une phrase avec…"
+    assert _recent_post_excerpt(_excerpt_item("<p>abcdefghij</p>"), 5) == "abcde…"
+    assert _recent_post_excerpt(
+        _excerpt_item("<p>L’œuvre d’Henriette-Marie reste étudiée.</p>"), 2000
+    ) == "L’œuvre d’Henriette-Marie reste étudiée."
 
 
 def test_site_builder_generates_illustrated_site(monkeypatch):
@@ -249,7 +326,7 @@ def test_recent_posts_mode_shows_an_excerpt_not_the_full_body(monkeypatch):
     config.paths.tei_dir = "build/tei"
     config.home.source = "content/pages/accueil.md"
     config.home.mode = "recent_posts"
-    config.home.recent_posts_excerpt_length = 60
+    config.home.recent_posts_excerpt_length = 300
 
     config_path = project / "config/site.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -267,9 +344,14 @@ def test_recent_posts_mode_shows_an_excerpt_not_the_full_body(monkeypatch):
     assert long_paragraph.strip() not in home_html  # but not duplicated onto the home page
     assert 'class="recent-post-excerpt"' in home_html
     assert 'class="recent-post-more" href="billets/premier-billet/index.html"' in home_html
+    excerpt = lxml_html.fromstring(home_html).xpath(
+        "string(//p[contains(@class, 'recent-post-excerpt')])"
+    ).strip()
+    assert len(excerpt) <= 301
+    assert excerpt.endswith("…")
 
 
-def test_recent_posts_excerpt_prefers_the_authored_description(monkeypatch):
+def test_recent_posts_excerpt_uses_body_while_description_stays_in_seo(monkeypatch):
     project = RUNTIME_ROOT / f"recent_posts_description_{uuid.uuid4().hex}"
     (project / "content/pages").mkdir(parents=True)
     (project / "content/posts").mkdir(parents=True)
@@ -303,7 +385,105 @@ def test_recent_posts_excerpt_prefers_the_authored_description(monkeypatch):
     assert report.success is True
 
     home_html = (project / "site/index.html").read_text(encoding="utf-8")
-    assert "Résumé rédigé à la main pour ce billet." in home_html
+    post_html = (project / "site/billets/premier-billet/index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "Contenu avec note" in home_html
+    assert "Résumé rédigé à la main pour ce billet." not in home_html
+    assert (
+        '<meta name="description" content="Résumé rédigé à la main pour ce billet.">'
+        in post_html
+    )
+
+
+def test_recent_posts_home_renders_body_excerpts_at_configured_2000_chars(monkeypatch):
+    project = RUNTIME_ROOT / f"recent_posts_2000_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    posts = (
+        ("a", "Billet A", "2026-09-03", 'description: "Résumé SEO A."\n'),
+        ("b", "Billet B", "2026-09-02", ""),
+        ("c", "Billet C", "2026-09-01", ""),
+    )
+    for slug, title, date, description_line in posts:
+        (project / f"content/posts/{slug}.md").write_text(
+            f'---\ntitle: "{title}"\nslug: "{slug}"\ntype: "post"\n'
+            f'date: "{date}"\n{description_line}---\n\nCorps.\n',
+            encoding="utf-8",
+        )
+
+    body_by_stem = {
+        "a": "Corps A éditorial avec œ et accents. " * 100,
+        "b": "Corps B éditorial sans description. " * 100,
+        "c": "Corps C bref et intégral.",
+        "accueil": "Accueil.",
+    }
+
+    def fake_convert(input_path, output_path, **_kwargs):
+        source = Path(input_path)
+        body = body_by_stem[source.stem]
+        date = next((value for slug, _title, value, _desc in posts if slug == source.stem), "")
+        date_xml = f"<date>{date}</date>" if date else ""
+        tei = (
+            '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+            '<teiHeader><fileDesc><titleStmt><title>Test</title></titleStmt>'
+            f'<publicationStmt>{date_xml}<p>p</p></publicationStmt>'
+            '<sourceDesc><p>s</p></sourceDesc></fileDesc></teiHeader>'
+            f"<text><body><p>{body}</p></body></text></TEI>"
+        )
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(tei, encoding="utf-8")
+        return MarkdownToTeiResult(
+            source_file=source,
+            tei_file=out,
+            command=["pandoc"],
+            success=True,
+            message="ok",
+            validation=TeiValidationResult(valid=True),
+        )
+
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.home.mode = "recent_posts"
+    config.home.recent_posts_count = 3
+    config.home.recent_posts_excerpt_length = 2000
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("bloggen.build.site_builder.convert_markdown_file_to_tei", fake_convert)
+
+    report = build_site(config, config_path=config_path)
+
+    assert report.success is True
+    home_html = (project / "site/index.html").read_text(encoding="utf-8")
+    document = lxml_html.fromstring(home_html)
+    excerpts = {
+        section.xpath("string(.//h2)").strip(): section.xpath(
+            "string(.//p[contains(@class, 'recent-post-excerpt')])"
+        ).strip()
+        for section in document.xpath("//section[contains(@class, 'recent-post')]")
+    }
+    assert excerpts["Billet A"].startswith("Corps A éditorial")
+    assert "Résumé SEO A." not in home_html
+    assert "2026-09-03 Corps A" not in excerpts["Billet A"]
+    assert len(excerpts["Billet A"]) <= 2001
+    assert len(excerpts["Billet B"]) <= 2001
+    assert excerpts["Billet A"].endswith("…")
+    assert excerpts["Billet B"].endswith("…")
+    assert excerpts["Billet C"] == "Corps C bref et intégral."
+    assert home_html.count("Lire la suite") == 3
+    assert body_by_stem["a"].strip() not in home_html
+    assert body_by_stem["b"].strip() not in home_html
 
 
 def test_site_builder_skips_search_index_when_disabled(monkeypatch):

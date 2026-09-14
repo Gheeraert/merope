@@ -12,6 +12,8 @@ import shutil
 import time
 import uuid
 
+from lxml import html as lxml_html
+
 from bloggen.build.assets import (
     copy_linked_content_assets,
     copy_project_assets,
@@ -41,6 +43,7 @@ from bloggen.render.html_templates import (
     render_external_link_fragment,
     render_page_document,
     render_recent_posts_fragment,
+    strip_fragment_article_meta,
 )
 from bloggen.render.theme import load_custom_template
 from bloggen.render.lightbox import apply_lightbox_markup
@@ -954,15 +957,39 @@ def _validate_generated_tei_against_commons_publishing(
 
 
 def _recent_post_excerpt(item: GeneratedItem, excerpt_length: int) -> str:
-    """A short teaser for the home page's "derniers billets" mode —
-    prefers the post's own authored description (front matter), falling
-    back to an auto-extracted excerpt of its plain text. Never the full
-    body: that used to duplicate every recent post's entire content onto
-    /index.html, both URLs fully indexable.
-    """
-    if item.description:
-        return item.description
-    return extract_plain_text(item.content_html)[:excerpt_length]
+    """Return a bounded teaser made only from the post's editorial body."""
+    if excerpt_length <= 0:
+        return ""
+
+    body_html = _strip_recent_post_excerpt_chrome(
+        strip_fragment_article_meta(item.content_html)
+    )
+    text = extract_plain_text(body_html)
+    if len(text) <= excerpt_length:
+        return text
+
+    truncated = text[:excerpt_length].rstrip()
+    ends_on_word_boundary = (
+        text[excerpt_length].isspace() or text[excerpt_length - 1].isspace()
+    )
+    if not ends_on_word_boundary:
+        last_space = truncated.rfind(" ")
+        if last_space >= max(1, excerpt_length // 2):
+            truncated = truncated[:last_space].rstrip()
+    return f"{truncated}…"
+
+
+def _strip_recent_post_excerpt_chrome(content_html: str) -> str:
+    """Drop generated note navigation that is not part of the body teaser."""
+    root = lxml_html.fragment_fromstring(content_html, create_parent="div")
+    for class_name in ("endnotes", "margin-notes", "note-call"):
+        nodes = root.xpath(
+            ".//*[contains(concat(' ', normalize-space(@class), ' '), "
+            f"' {class_name} ')]"
+        )
+        for node in nodes:
+            node.drop_tree()
+    return lxml_html.tostring(root, encoding="unicode")
 
 
 def _generate_home_page(

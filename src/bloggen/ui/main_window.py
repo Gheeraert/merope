@@ -633,7 +633,9 @@ class MainWindow(tk.Tk):
         add_tooltip(count_label, count_help)
         add_tooltip(count_entry, count_help)
 
-        excerpt_length_var = tk.StringVar(value="1000")
+        excerpt_length_var = tk.StringVar(
+            value=str(HomeConfig().recent_posts_excerpt_length)
+        )
         self.home_vars["recent_posts_excerpt_length"] = excerpt_length_var
         excerpt_length_label = ttk.Label(self.home_recent_frame, text="Longueur de l'extrait (car.)")
         excerpt_length_label.grid(row=1, column=0, sticky="w", padx=8, pady=4)
@@ -642,9 +644,8 @@ class MainWindow(tk.Tk):
         )
         excerpt_length_entry.grid(row=1, column=1, sticky="w", padx=8, pady=4)
         excerpt_length_help = (
-            "Longueur de l'extrait affiché sous chaque billet récent, en nombre de "
-            "caractères (utilisée seulement si le billet n'a pas de description dans "
-            "son en-tête, auquel cas c'est elle qui est affichée).\nExemple : 300"
+            "Nombre maximal approximatif de caractères du corps de chaque billet "
+            "affiché avant « Lire la suite ».\nExemple : 2000"
         )
         add_tooltip(excerpt_length_label, excerpt_length_help)
         add_tooltip(excerpt_length_entry, excerpt_length_help)

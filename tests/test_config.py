@@ -65,6 +65,17 @@ def test_default_config_generation():
     assert config.paths.pages_dir
     assert len(config.menus.top) >= 1
     assert len(config.menus.side) >= 1
+    assert config.home.recent_posts_excerpt_length == 2000
+
+
+@pytest.mark.parametrize("explicit_length", [750, 1000])
+def test_explicit_recent_posts_excerpt_length_is_not_migrated(explicit_length):
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["home"]["recent_posts_excerpt_length"] = explicit_length
+
+    config = parse_config(raw)
+
+    assert config.home.recent_posts_excerpt_length == explicit_length
 
 
 def test_serialization_round_trip_is_stable():

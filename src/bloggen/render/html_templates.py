@@ -86,7 +86,7 @@ def render_page_document(
 
     normalized_content = content_html
     if suppress_fragment_meta:
-        normalized_content = _strip_fragment_article_meta(normalized_content)
+        normalized_content = strip_fragment_article_meta(normalized_content)
     if article_date:
         normalized_content = _inject_article_date(normalized_content, article_date)
     if show_title_heading:
@@ -599,7 +599,8 @@ def _asset_url(path: str, *, asset_prefix: str) -> str:
     return str(PurePosixPath(prefix) / normalized)
 
 
-def _strip_fragment_article_meta(content_html: str) -> str:
+def strip_fragment_article_meta(content_html: str) -> str:
+    """Remove the renderer-owned metadata header from an HTML fragment."""
     return re.sub(
         r'<header class="article-header">.*?</header>\s*',
         "",
