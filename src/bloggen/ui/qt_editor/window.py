@@ -17,6 +17,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QImageReader,
     QKeySequence,
+    QTextBlock,
     QTextCursor,
     QTextDocument,
 )
@@ -65,7 +66,9 @@ from bloggen.content.versioning import (
 from bloggen.content.writer import default_filename, scan_existing_slugs
 from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_model import (
+    BLOCKQUOTE,
     BULLET_LIST,
+    HEADING,
     ORDERED_LIST,
     PARAGRAPH,
     Block,
@@ -78,8 +81,12 @@ from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
     insert_footnote_reference,
     insert_blocks,
+    is_caption_block,
+    is_figure_block,
+    is_raw_block,
     populate_document,
     renumber_footnote_references,
+    selection_touches_qt_table,
     validate_block_insertion,
 )
 from bloggen.ui.qt_editor.clipboard_images import (
@@ -160,7 +167,9 @@ from bloggen.ui.qt_editor.table_structure import (
 from bloggen.ui.qt_editor.toolbar_icons import toolbar_icon
 from bloggen.ui.qt_editor.wrapping_toolbar import WrappingButtonRow, WrappingToolBar
 from bloggen.ui.qt_editor.constants import (
+    BLOCK_KIND_PROPERTY,
     BOLD_PROPERTY,
+    HEADING_LEVEL_PROPERTY,
     ITALIC_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
@@ -732,19 +741,21 @@ class QtEditorWindow(QMainWindow):
         self.adjust_image_action.setEnabled(False)
         toolbar.add_separator()
 
-        block_group = QActionGroup(self)
-        for label, icon_key, callback in [
-            ("Paragraphe", "paragraph", lambda: set_paragraph(self.editor)),
-            ("H1", "h1", lambda: set_heading(self.editor, 1)),
-            ("H2", "h2", lambda: set_heading(self.editor, 2)),
-            ("H3", "h3", lambda: set_heading(self.editor, 3)),
-            ("H4", "h4", lambda: set_heading(self.editor, 4)),
-            ("Citation", "quote", lambda: set_blockquote(self.editor)),
+        self.block_style_group = QActionGroup(self)
+        self.block_style_actions: dict[str, QAction] = {}
+        for key, label, icon_key, callback in [
+            ("paragraph", "Paragraphe", "paragraph", lambda: set_paragraph(self.editor)),
+            ("h1", "H1", "h1", lambda: set_heading(self.editor, 1)),
+            ("h2", "H2", "h2", lambda: set_heading(self.editor, 2)),
+            ("h3", "H3", "h3", lambda: set_heading(self.editor, 3)),
+            ("h4", "H4", "h4", lambda: set_heading(self.editor, 4)),
+            ("blockquote", "Citation", "quote", lambda: set_blockquote(self.editor)),
         ]:
             action = self._add_action(
                 toolbar, label, callback, icon_key=icon_key, checkable=True
             )
-            block_group.addAction(action)
+            self.block_style_group.addAction(action)
+            self.block_style_actions[key] = action
 
         toolbar.add_separator()
         self._add_action(
@@ -805,12 +816,16 @@ class QtEditorWindow(QMainWindow):
         self.editor.cursorPositionChanged.connect(self._sync_inline_format_actions)
         self.editor.selectionChanged.connect(self._sync_inline_format_actions)
         self.editor.document().contentsChanged.connect(self._sync_inline_format_actions)
+        self.editor.cursorPositionChanged.connect(self._sync_block_style_actions)
+        self.editor.selectionChanged.connect(self._sync_block_style_actions)
+        self.editor.document().contentsChanged.connect(self._sync_block_style_actions)
         self.editor.cursorPositionChanged.connect(self._update_insert_table_action)
         self.editor.selectionChanged.connect(self._update_insert_table_action)
         self.editor.document().contentsChanged.connect(
             self._update_insert_table_action
         )
         self._sync_inline_format_actions()
+        self._sync_block_style_actions()
         self._update_insert_table_action()
 
     def _sync_inline_format_actions(self) -> None:
@@ -823,6 +838,66 @@ class QtEditorWindow(QMainWindow):
             (self.superscript_action, SUPERSCRIPT_PROPERTY),
         ):
             action.setChecked(inline_format_enabled(char_format, property_id))
+
+    def _current_block_style_key(self) -> str | None:
+        cursor = self.editor.textCursor()
+        if selection_touches_qt_table(cursor):
+            return None
+
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        block = self.editor.document().findBlock(start)
+        keys: set[str | None] = set()
+        while block.isValid() and (start == end or block.position() < end):
+            keys.add(self._block_style_key(block))
+            if block.position() + block.length() > end:
+                break
+            block = block.next()
+        return keys.pop() if len(keys) == 1 else None
+
+    @staticmethod
+    def _block_style_key(block: QTextBlock) -> str | None:
+        if not block.isValid() or block.textList() is not None:
+            return None
+        try:
+            if is_raw_block(block) or is_caption_block(block) or is_figure_block(block):
+                return None
+        except UnsupportedDocumentError:
+            return None
+
+        block_format = block.blockFormat()
+        kind = block_format.property(BLOCK_KIND_PROPERTY)
+        native_heading_level = block_format.headingLevel()
+        if not kind:
+            kind = HEADING if native_heading_level else PARAGRAPH
+        if kind == PARAGRAPH:
+            return "paragraph"
+        if kind == BLOCKQUOTE:
+            return "blockquote"
+        if kind != HEADING:
+            return None
+
+        try:
+            level = int(
+                block_format.property(HEADING_LEVEL_PROPERTY)
+                or native_heading_level
+                or 0
+            )
+        except (TypeError, ValueError):
+            return None
+        return f"h{level}" if 1 <= level <= 4 else None
+
+    def _sync_block_style_actions(self) -> None:
+        current = self._current_block_style_key()
+        # An exclusive QActionGroup does not normally allow its checked action
+        # to be cleared. Temporarily relax only programmatic synchronization;
+        # user-triggered actions remain strictly exclusive.
+        self.block_style_group.setExclusive(False)
+        try:
+            for key, action in self.block_style_actions.items():
+                action.setChecked(key == current)
+        finally:
+            self.block_style_group.setExclusive(True)
 
     def _show_find_dialog(self) -> None:
         self._open_find_replace_dialog(show_replace=False)
