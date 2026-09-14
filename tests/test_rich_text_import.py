@@ -191,6 +191,105 @@ def test_image_with_attributes_roundtrip():
     assert _roundtrip(body).strip() == body.strip()
 
 
+@pytest.mark.parametrize(
+    ("source", "width", "image_align"),
+    [
+        ("![x](img.jpg)\n", None, None),
+        ("![x](img.jpg){width=18}\n", "18", None),
+        ("![x](img.jpg){width=40%}\n", "40%", None),
+        ("![x](img.jpg){align=center}\n", None, "center"),
+        ("![x](img.jpg){width=18 align=center}\n", "18", "center"),
+        ("{{align=left}}![x](img.jpg)\n", None, "left"),
+        ("{{align=center}}![x](img.jpg)\n", None, "center"),
+        ("{{align=center}}![x](img.jpg){width=18}\n", "18", "center"),
+        ("{{align=right}}![x](img.jpg){width=18}\n", "18", "right"),
+    ],
+)
+def test_figure_alignment_syntaxes_share_one_canonical_representation(
+    source, width, image_align
+):
+    blocks = markdown_to_blocks(source)
+
+    assert blocks == [
+        Block(
+            kind=PARAGRAPH,
+            alignment="left",
+            runs=[
+                InlineRun(
+                    image_src="img.jpg",
+                    image_alt="x",
+                    image_width=width,
+                    image_align=image_align,
+                )
+            ],
+        )
+    ]
+    expected_attributes = []
+    if width is not None:
+        expected_attributes.append(f"width={width}")
+    if image_align is not None:
+        expected_attributes.append(f"align={image_align}")
+    suffix = "{" + " ".join(expected_attributes) + "}" if expected_attributes else ""
+    assert blocks_to_markdown(blocks) == f"![x](img.jpg){suffix}\n"
+
+
+def test_legacy_alignment_is_not_moved_from_a_mixed_text_and_image_paragraph():
+    source = "{{align=center}}Texte ![x](img.jpg){width=18}\n"
+
+    blocks = markdown_to_blocks(source)
+
+    assert blocks[0].alignment == "center"
+    assert blocks[0].runs[-1].image_align is None
+    assert blocks_to_markdown(blocks) == source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "{{align=justify}}![x](img.jpg){width=18}\n",
+        "{{align=center}}![x](img.jpg){width=18 align=right}\n",
+    ],
+)
+def test_ambiguous_legacy_figure_alignment_falls_back_to_verbatim(source):
+    blocks = markdown_to_blocks(source)
+
+    assert blocks == [Block(kind=VERBATIM, raw_text=source.rstrip("\n"))]
+    assert blocks_to_markdown(blocks) == source
+
+
+def test_legacy_figure_alignment_preserves_rich_caption_and_historic_width():
+    source = (
+        "{{align=center}}![Ann Hughes, \\*The Causes of the English Civil War\\*, "
+        "seconde édition, Palgrave McMillan, 1998.]"
+        "(../../assets/images/collage-51bbf9a6.jpg){width=18}\n"
+    )
+
+    blocks = markdown_to_blocks(source)
+
+    assert blocks == [
+        Block(
+            kind=PARAGRAPH,
+            alignment="left",
+            runs=[
+                InlineRun(
+                    image_src="../../assets/images/collage-51bbf9a6.jpg",
+                    image_alt=(
+                        "Ann Hughes, *The Causes of the English Civil War*, "
+                        "seconde édition, Palgrave McMillan, 1998."
+                    ),
+                    image_width="18",
+                    image_align="center",
+                )
+            ],
+        )
+    ]
+    assert blocks_to_markdown(blocks) == (
+        "![Ann Hughes, *The Causes of the English Civil War*, seconde édition, "
+        "Palgrave McMillan, 1998.]"
+        "(../../assets/images/collage-51bbf9a6.jpg){width=18 align=center}\n"
+    )
+
+
 def test_unsupported_html_falls_back_to_verbatim_and_is_preserved():
     body = '<div class="weird">contenu <b>html</b> non supporte</div>'
     blocks = markdown_to_blocks(body)

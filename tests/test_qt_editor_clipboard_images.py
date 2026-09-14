@@ -9,14 +9,23 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QMimeData, QUrl
-from PySide6.QtGui import QImage, QPixmap, QTextCursor
+from PySide6.QtCore import Qt, QByteArray, QBuffer, QIODevice, QMimeData, QUrl
+from PySide6.QtGui import QImage, QPixmap, QTextCursor, QTextDocument
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
-from bloggen.ui.qt_editor.clipboard_images import inspect_html_image_markup
+from bloggen.content.writer import write_content_file
+from bloggen.markdown.rich_text_export import blocks_to_markdown
+from bloggen.markdown.rich_text_import import markdown_to_blocks
+from bloggen.markdown.rich_text_model import PARAGRAPH, VERBATIM, Block, InlineRun
+from bloggen.ui.qt_editor.clipboard_images import (
+    ExternalPasteContext,
+    inspect_html_image_markup,
+    prepare_external_paste,
+)
 from bloggen.ui.qt_editor.clipboard_fragment import MEROPE_FRAGMENT_MIME
 from bloggen.ui.qt_editor.document_adapter import extract_blocks, populate_document
+from bloggen.ui.qt_editor.file_io import apply_prepared_content, prepare_content_document
 from bloggen.ui.qt_editor import text_edit as text_edit_module
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor.window import QtEditorWindow
@@ -83,6 +92,46 @@ def _image_runs(editor: MeropeTextEdit) -> list[InlineRun]:
         for run in block.runs
         if run.image_src is not None
     ]
+
+
+def _image_fragment_count(document: QTextDocument) -> int:
+    count = 0
+    block = document.begin()
+    while block.isValid():
+        iterator = block.begin()
+        while not iterator.atEnd():
+            if iterator.fragment().charFormat().isImageFormat():
+                count += 1
+            iterator += 1
+        block = block.next()
+    return count
+
+
+def _assert_image_survives_file_roundtrip(
+    editor: MeropeTextEdit,
+    doc_dir: Path,
+) -> list[Block]:
+    blocks = extract_blocks(editor.document())
+    assert blocks
+    assert all(block.kind != VERBATIM for block in blocks)
+    assert _image_fragment_count(editor.document()) == 1
+
+    markdown = blocks_to_markdown(blocks)
+    assert markdown_to_blocks(markdown) == blocks
+    path = write_content_file(
+        doc_dir,
+        "roundtrip.md",
+        {"title": "Image", "slug": "image", "type": "page"},
+        markdown,
+    )
+    prepared = prepare_content_document(path)
+    reopened = QTextDocument()
+    apply_prepared_content(prepared, reopened)
+
+    assert _image_fragment_count(reopened) == 1
+    assert extract_blocks(reopened) == blocks
+    assert all(block.kind != VERBATIM for block in prepared.body_blocks)
+    return blocks
 
 
 def _paste_html(editor: MeropeTextEdit, html: str, *, text: str = "fallback") -> list[str]:
@@ -283,6 +332,67 @@ def test_native_qimage_becomes_project_png_and_canonical_run(tmp_path):
     assert final_path.parent == images_dir.resolve()
     loaded = QImage(str(final_path))
     assert (loaded.width(), loaded.height()) == (11, 7)
+
+
+def test_native_qimage_remains_graphical_after_save_and_reopen(tmp_path):
+    editor, doc_dir, _images_dir = _editor(tmp_path)
+    mime = QMimeData()
+    mime.setImageData(_qimage(11, 7))
+
+    prepared = prepare_external_paste(
+        mime,
+        ExternalPasteContext(_images_dir, doc_dir),
+    )
+    assert prepared is not None
+    assert prepared.blocks[0].kind == PARAGRAPH
+    assert prepared.blocks[0].runs[0].image_src is not None
+    assert prepared.blocks[0].runs[0].image_alt == ""
+    prepared.discard()
+
+    QApplication.clipboard().setMimeData(mime)
+    editor.show()
+    editor.activateWindow()
+    editor.setFocus()
+    QApplication.processEvents()
+    QTest.keyClick(editor, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+
+    blocks = _assert_image_survives_file_roundtrip(editor, doc_dir)
+    assert blocks == [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(image_src=blocks[0].runs[0].image_src, image_alt="")],
+        )
+    ]
+
+
+def test_html_data_image_with_rich_alt_and_dimensions_survives_reopen(tmp_path):
+    editor, doc_dir, _images_dir = _editor(tmp_path)
+    payload = base64.b64encode(_png_bytes()).decode("ascii")
+    mime = QMimeData()
+    mime.setHtml(
+        '<p><img src="data:image/png;base64,'
+        f'{payload}" alt="Ann Hughes, *The Causes*" width="18" height="12"></p>'
+    )
+
+    prepared = prepare_external_paste(
+        mime,
+        ExternalPasteContext(_images_dir, doc_dir),
+    )
+    assert prepared is not None
+    prepared_image = prepared.blocks[0].runs[0]
+    assert prepared_image.image_src is not None
+    assert prepared_image.image_alt == "Ann Hughes, *The Causes*"
+    assert prepared_image.image_width == "18"
+    assert prepared_image.image_height == "12"
+    prepared.discard()
+
+    editor.insertFromMimeData(mime)
+
+    blocks = _assert_image_survives_file_roundtrip(editor, doc_dir)
+    image = blocks[0].runs[0]
+    assert image.image_alt == "Ann Hughes, *The Causes*"
+    assert image.image_width == "18"
+    assert image.image_height == "12"
 
 
 def test_native_qpixmap_is_converted_to_project_png(tmp_path):

@@ -13,14 +13,19 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 
 from bloggen.content.writer import read_content_file, write_content_file
+from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import markdown_to_blocks
-from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
+from bloggen.markdown.rich_text_model import PARAGRAPH, VERBATIM, Block, InlineRun
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedInlineError,
     extract_blocks,
     populate_document,
 )
-from bloggen.ui.qt_editor.file_io import load_content_document
+from bloggen.ui.qt_editor.file_io import (
+    apply_prepared_content,
+    load_content_document,
+    prepare_content_document,
+)
 from bloggen.ui.qt_editor.image_dialog import ImageMetadataDialog
 from bloggen.ui.qt_editor.image_selection import (
     merope_image_at_position,
@@ -78,6 +83,36 @@ def _mixed_image_block() -> tuple[list[Block], InlineRun]:
             runs=[InlineRun(text="A"), image, InlineRun(text="B")],
         )
     ], image
+
+
+def test_legacy_aligned_figure_is_migrated_before_qt_population(tmp_path):
+    source = (
+        "{{align=center}}![Ann Hughes, \\*The Causes of the English Civil War\\*, "
+        "seconde édition, Palgrave McMillan, 1998.]"
+        "(../../assets/images/collage-51bbf9a6.jpg){width=18}\n"
+    )
+
+    path = write_content_file(
+        tmp_path,
+        "legacy.md",
+        {"title": "Image", "slug": "image", "type": "page"},
+        source,
+    )
+    prepared = prepare_content_document(path)
+    document = QTextDocument()
+    apply_prepared_content(prepared, document)
+    extracted = extract_blocks(document)
+
+    assert _first_image_format(document).isImageFormat()
+    assert all(block.kind != VERBATIM for block in extracted)
+    assert extracted == prepared.body_blocks
+    assert extracted[0].alignment == "left"
+    assert extracted[0].runs[0].image_align == "center"
+    assert blocks_to_markdown(extracted) == (
+        "![Ann Hughes, *The Causes of the English Civil War*, seconde édition, "
+        "Palgrave McMillan, 1998.]"
+        "(../../assets/images/collage-51bbf9a6.jpg){width=18 align=center}\n"
+    )
 
 
 def test_image_position_and_exact_or_mixed_selection_are_resolved():

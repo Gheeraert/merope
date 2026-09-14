@@ -17,6 +17,7 @@ untouched and still goes exclusively through Pandoc.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from bloggen.markdown.image_attributes import parse_image_attributes
 from bloggen.markdown.paragraph_alignment import strip_alignment_marker
@@ -180,10 +181,24 @@ def _chunk_to_block(lines: list[str]) -> Block:
 
     if _is_safe_paragraph_chunk(lines):
         text = " ".join(line.strip() for line in lines)
-        text, alignment = strip_alignment_marker(text)
-        return Block(kind=PARAGRAPH, runs=_parse_inline(text), alignment=alignment)
+        content, alignment = strip_alignment_marker(text)
+        runs = _parse_inline(content)
+        if content != text and _is_figure_only_runs(runs):
+            image = runs[0]
+            if alignment == "justify" or image.image_align not in (None, alignment):
+                return Block(kind=VERBATIM, raw_text="\n".join(lines))
+            return Block(
+                kind=PARAGRAPH,
+                runs=[replace(image, image_align=alignment)],
+                alignment="left",
+            )
+        return Block(kind=PARAGRAPH, runs=runs, alignment=alignment)
 
     return Block(kind=VERBATIM, raw_text="\n".join(lines))
+
+
+def _is_figure_only_runs(runs: list[InlineRun]) -> bool:
+    return len(runs) == 1 and runs[0].image_src is not None
 
 
 def _chunk_starts_with_fence(lines: list[str]) -> bool:

@@ -24,7 +24,9 @@ from bloggen.ui.qt_editor.document_adapter import (
     populate_document,
 )
 from bloggen.ui.qt_editor.file_io import (
+    apply_prepared_content,
     load_content_document,
+    prepare_content_document,
     save_content_document,
 )
 from bloggen.ui.qt_editor import window as qt_window_module
@@ -455,6 +457,30 @@ def test_insert_image_file_uses_shared_copy_service_and_native_undo_redo(tmp_pat
     reopened = QtEditorWindow(path, images_dir=images_dir)
     assert extract_blocks(reopened.editor.document()) == pasted
     reopened.close()
+
+
+def test_insert_standalone_image_file_reopens_as_a_graphical_figure(tmp_path):
+    doc_dir = tmp_path / "content" / "pages"
+    images_dir = tmp_path / "assets" / "images"
+    path = write_content_file(doc_dir, "article.md", _metadata(), "")
+    source = tmp_path / "incoming" / "photo.png"
+    source.parent.mkdir()
+    Image.new("RGB", (10, 6), color="red").save(source)
+    window = QtEditorWindow(path, images_dir=images_dir)
+
+    inserted = window.insert_image_file(source, image_alt="**Légende**")
+
+    expected = [Block(kind=PARAGRAPH, runs=[inserted])]
+    assert extract_blocks(window.editor.document()) == expected
+    assert window.save_document()
+    window.close()
+
+    prepared = prepare_content_document(path)
+    reopened_document = QTextDocument()
+    apply_prepared_content(prepared, reopened_document)
+    assert extract_blocks(reopened_document) == expected
+    image_fragment = reopened_document.begin().begin().fragment()
+    assert image_fragment.charFormat().isImageFormat()
 
 
 def test_insert_image_file_uses_collision_free_name(tmp_path):
