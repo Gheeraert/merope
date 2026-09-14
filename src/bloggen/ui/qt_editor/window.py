@@ -52,7 +52,9 @@ from bloggen.content.image_service import (
     copy_into_images_dir,
     crop_is_identity,
     edited_size,
+    image_adjustment_is_identity,
     probe_image,
+    write_adjusted_copy,
     write_cropped_copy,
 )
 from bloggen.content.versioning import (
@@ -120,6 +122,7 @@ from bloggen.ui.qt_editor.footnote_editor import (
 )
 from bloggen.ui.qt_editor.footnote_panel import FootnotePanel
 from bloggen.ui.qt_editor.footnote_store import FootnoteStore
+from bloggen.ui.qt_editor.image_adjust_dialog import AdjustImageDialog
 from bloggen.ui.qt_editor.image_crop import validate_source_box
 from bloggen.ui.qt_editor.image_crop_dialog import CropImageDialog
 from bloggen.ui.qt_editor.image_dialog import ImageMetadataDialog
@@ -720,6 +723,13 @@ class QtEditorWindow(QMainWindow):
             icon_key="crop",
         )
         self.crop_image_action.setEnabled(False)
+        self.adjust_image_action = self._add_action(
+            toolbar,
+            "Ajuster…",
+            self._adjust_image_from_dialog,
+            icon_key="adjust",
+        )
+        self.adjust_image_action.setEnabled(False)
         toolbar.add_separator()
 
         block_group = QActionGroup(self)
@@ -1598,7 +1608,7 @@ class QtEditorWindow(QMainWindow):
         clockwise quarter turns. Choosing the whole unrotated image is a no-op.
         """
 
-        capability = self._targeted_crop_source()
+        capability = self._targeted_editable_image_source()
         if capability is None:
             raise ValueError(
                 "L’image ciblée n’a pas de fichier source local lisible à recadrer."
@@ -1625,7 +1635,7 @@ class QtEditorWindow(QMainWindow):
         return True
 
     def _crop_image_from_dialog(self) -> bool:
-        capability = self._targeted_crop_source()
+        capability = self._targeted_editable_image_source()
         if capability is None:
             QMessageBox.warning(
                 self,
@@ -1651,7 +1661,71 @@ class QtEditorWindow(QMainWindow):
             QMessageBox.critical(self, "Recadrage impossible", str(exc))
             return False
 
-    def _targeted_crop_source(self) -> tuple[ImageTarget, Path] | None:
+    def adjust_targeted_image(self, *, brightness: int, contrast: int) -> bool:
+        """Write and select a tonal derivative without changing its dimensions."""
+
+        capability = self._targeted_editable_image_source()
+        if capability is None:
+            raise ValueError(
+                "L’image ciblée n’a pas de fichier source local lisible à ajuster."
+            )
+        if image_adjustment_is_identity(brightness, contrast):
+            return False
+        target, source_path = capability
+        doc_dir = self.current_path.parent
+        new_src = write_adjusted_copy(
+            source_path,
+            doc_dir,
+            brightness=brightness,
+            contrast=contrast,
+        )
+        derived_path = (doc_dir / Path(new_src)).resolve()
+        run = replace(target.run, image_src=new_src)
+        try:
+            cursor = replace_merope_image(
+                self.editor.document(),
+                target,
+                run,
+                allow_source_change=True,
+            )
+        except Exception:
+            derived_path.unlink(missing_ok=True)
+            raise
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _adjust_image_from_dialog(self) -> bool:
+        capability = self._targeted_editable_image_source()
+        if capability is None:
+            QMessageBox.warning(
+                self,
+                "Ajustement impossible",
+                "Cette image n’a pas de fichier source local lisible à ajuster.",
+            )
+            return False
+        _target, source_path = capability
+        try:
+            dialog = AdjustImageDialog(source_path, self)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Ajustement impossible", str(exc))
+            return False
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        request = dialog.request()
+        try:
+            return self.adjust_targeted_image(
+                brightness=request.brightness,
+                contrast=request.contrast,
+            )
+        except (OSError, ValueError, UnsupportedDocumentError) as exc:
+            QMessageBox.critical(self, "Ajustement impossible", str(exc))
+            return False
+        finally:
+            self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _targeted_editable_image_source(self) -> tuple[ImageTarget, Path] | None:
         if self.current_path is None:
             return None
         try:
@@ -1699,7 +1773,9 @@ class QtEditorWindow(QMainWindow):
             enabled = False
         self.image_action.setEnabled(enabled)
         self.replace_image_action.setEnabled(enabled)
-        self.crop_image_action.setEnabled(self._targeted_crop_source() is not None)
+        editable = self._targeted_editable_image_source() is not None
+        self.crop_image_action.setEnabled(editable)
+        self.adjust_image_action.setEnabled(editable)
 
     def _show_paste_refused(self, message: str) -> None:
         QMessageBox.warning(

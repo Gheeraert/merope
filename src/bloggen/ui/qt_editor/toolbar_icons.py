@@ -54,6 +54,7 @@ _GLYPHS = {
     "image_edit": "▧",
     "image_replace": "⇄",
     "crop": "⌗",
+    "adjust": "☼",
     "paragraph": "¶",
     "h1": "H1",
     "h2": "H2",

@@ -665,6 +665,13 @@ produit `photo-crop3.jpg` plutôt qu’une chaîne `-crop2-crop1`. L’éditeur
 Tkinter oriente lui aussi ses images selon l’EXIF, ses boîtes de recadrage
 restant ainsi cohérentes avec ce service.
 
+L’action « Ajuster… » règle la luminosité et le contraste sur une
+prévisualisation réduite, sans modifier l’original ni le document pendant le
+dialogue. « Appliquer » écrit un dérivé `-adjustN` puis remplace seulement le
+`src` de l’image ; undo restaure l’ancienne référence documentaire. Les
+dimensions d’affichage sont conservées. Comme pour les autres dérivés, le
+fichier créé n’est pas supprimé automatiquement par un undo réussi.
+
 L’état des actions image est recalculé à chaque mouvement du curseur. Il
 s’appuie sur `probe_image`, qui ne lit que l’en-tête du fichier et met le
 résultat en cache par (date de modification, taille) : aucun fichier n’est

@@ -46,7 +46,9 @@ def _color_distance(left: QColor, right: QColor) -> int:
     )
 
 
-@pytest.mark.parametrize("key", ["bold", "panel_contents", "clear_format", "preview"])
+@pytest.mark.parametrize(
+    "key", ["bold", "panel_contents", "clear_format", "preview", "adjust"]
+)
 @pytest.mark.parametrize(
     ("button", "button_text"),
     [

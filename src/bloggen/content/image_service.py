@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image, ImageOps, JpegImagePlugin
+from PIL import Image, ImageEnhance, ImageOps, JpegImagePlugin
 
 
 # Display-size presets are part of the editor's document behaviour rather
@@ -141,6 +141,7 @@ def load_image_or_placeholder(
 _SIDEWAYS_ORIENTATIONS = frozenset({5, 6, 7, 8})
 _EXIF_ORIENTATION = 0x0112
 _CROP_SUFFIX_RE = re.compile(r"-crop\d+$")
+_ADJUST_SUFFIX_RE = re.compile(r"-adjust(\d+)$")
 _JPEG_QUALITY = 95
 _PROBE_CACHE: dict[Path, tuple[tuple[int, int], tuple[int, int] | None]] = {}
 
@@ -245,6 +246,71 @@ def crop_is_identity(
     return quarter_turns % 4 == 0 and tuple(box) == (0, 0, width, height)
 
 
+def _validate_adjustment(name: str, value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} doit être un entier compris entre -100 et 100")
+    if not -100 <= value <= 100:
+        raise ValueError(f"{name} doit être compris entre -100 et 100")
+    return value
+
+
+def image_adjustment_is_identity(brightness: int, contrast: int) -> bool:
+    """Validate a tonal request and report whether it changes no pixels."""
+
+    brightness = _validate_adjustment("La luminosité", brightness)
+    contrast = _validate_adjustment("Le contraste", contrast)
+    return brightness == 0 and contrast == 0
+
+
+def adjust_image(
+    image: Image.Image,
+    *,
+    brightness: int = 0,
+    contrast: int = 0,
+) -> Image.Image:
+    """Adjust colour channels while preserving alpha byte-for-byte.
+
+    Brightness is applied first, then contrast.  Each slider maps linearly
+    from ``-100..100`` to a Pillow enhancement factor of ``0.0..2.0``.
+    """
+
+    _validate_adjustment("La luminosité", brightness)
+    _validate_adjustment("Le contraste", contrast)
+    if brightness == 0 and contrast == 0:
+        return image.copy()
+
+    alpha: Image.Image | None = None
+    output_mode: str
+    if image.mode == "LA":
+        colour = image.getchannel("L")
+        alpha = image.getchannel("A").copy()
+        output_mode = "LA"
+    elif "A" in image.getbands() or (
+        image.mode == "P" and "transparency" in image.info
+    ):
+        converted = image.convert("RGBA")
+        colour = converted.convert("RGB")
+        alpha = converted.getchannel("A").copy()
+        output_mode = "RGBA"
+    elif image.mode in ("RGB", "L"):
+        colour = image.copy()
+        output_mode = image.mode
+    else:
+        colour = image.convert("RGB")
+        output_mode = "RGB"
+
+    if brightness:
+        colour = ImageEnhance.Brightness(colour).enhance(1.0 + brightness / 100.0)
+    if contrast:
+        colour = ImageEnhance.Contrast(colour).enhance(1.0 + contrast / 100.0)
+
+    if output_mode == "LA":
+        return Image.merge("LA", (colour, alpha))
+    if output_mode == "RGBA":
+        colour.putalpha(alpha)
+    return colour
+
+
 def _validate_box(box: tuple[int, int, int, int], size: tuple[int, int]) -> None:
     if len(box) != 4 or any(
         isinstance(value, bool) or not isinstance(value, int) for value in box
@@ -265,6 +331,19 @@ def _next_crop_path(source_path: Path) -> Path:
     counter = 1
     while True:
         candidate = source_path.with_name(f"{base}-crop{counter}{source_path.suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _next_adjusted_path(source_path: Path) -> Path:
+    match = _ADJUST_SUFFIX_RE.search(source_path.stem)
+    base = _ADJUST_SUFFIX_RE.sub("", source_path.stem) or source_path.stem
+    counter = int(match.group(1)) + 1 if match is not None else 1
+    while True:
+        candidate = source_path.with_name(
+            f"{base}-adjust{counter}{source_path.suffix}"
+        )
         if not candidate.exists():
             return candidate
         counter += 1
@@ -330,6 +409,45 @@ def write_cropped_copy(
     try:
         _save_like_source(
             cropped,
+            candidate,
+            source_format=source_format,
+            icc_profile=icc_profile,
+            jpeg_sampling=jpeg_sampling,
+        )
+    except Exception:
+        candidate.unlink(missing_ok=True)
+        raise
+    return relative_image_src(candidate, doc_dir)
+
+
+def write_adjusted_copy(
+    source_path: Path,
+    doc_dir: Path,
+    *,
+    brightness: int,
+    contrast: int,
+) -> str:
+    """Write a numbered tonal derivative and return its Markdown source."""
+
+    source_path = Path(source_path)
+    if image_adjustment_is_identity(brightness, contrast):
+        return relative_image_src(source_path, doc_dir)
+    with Image.open(source_path) as opened:
+        source_format = opened.format
+        icc_profile = opened.info.get("icc_profile")
+        jpeg_sampling = (
+            JpegImagePlugin.get_sampling(opened) if source_format == "JPEG" else -1
+        )
+        image = ImageOps.exif_transpose(opened)
+        adjusted = adjust_image(
+            image,
+            brightness=brightness,
+            contrast=contrast,
+        )
+    candidate = _next_adjusted_path(source_path)
+    try:
+        _save_like_source(
+            adjusted,
             candidate,
             source_format=source_format,
             icc_profile=icc_profile,
