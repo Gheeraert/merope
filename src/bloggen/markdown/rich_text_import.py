@@ -132,10 +132,13 @@ def _blank_continues_footnote(
 
 
 def _chunk_to_block(lines: list[str]) -> Block:
+    original_lines = list(lines)
+    lines = _without_useless_terminal_spaces(original_lines)
+    raw_text = "\n".join(original_lines)
     if _chunk_starts_with_fence(lines):
-        return Block(kind=VERBATIM, raw_text="\n".join(lines))
+        return Block(kind=VERBATIM, raw_text=raw_text)
     if len(lines) == 1 and _THEMATIC_BREAK_RE.match(lines[0]):
-        return Block(kind=VERBATIM, raw_text=lines[0])
+        return Block(kind=VERBATIM, raw_text=raw_text)
 
     if len(lines) == 1:
         heading_match = _HEADING_RE.match(lines[0])
@@ -180,13 +183,13 @@ def _chunk_to_block(lines: list[str]) -> Block:
         return ordered_list
 
     if _is_safe_paragraph_chunk(lines):
-        text = " ".join(line.strip() for line in lines)
+        text = " ".join(line.strip(" ") for line in lines)
         content, alignment = strip_alignment_marker(text)
         runs = _parse_inline(content)
         if content != text and _is_figure_only_runs(runs):
             image = runs[0]
             if alignment == "justify" or image.image_align not in (None, alignment):
-                return Block(kind=VERBATIM, raw_text="\n".join(lines))
+                return Block(kind=VERBATIM, raw_text=raw_text)
             return Block(
                 kind=PARAGRAPH,
                 runs=[replace(image, image_align=alignment)],
@@ -194,7 +197,22 @@ def _chunk_to_block(lines: list[str]) -> Block:
             )
         return Block(kind=PARAGRAPH, runs=runs, alignment=alignment)
 
-    return Block(kind=VERBATIM, raw_text="\n".join(lines))
+    return Block(kind=VERBATIM, raw_text=raw_text)
+
+
+def _without_useless_terminal_spaces(lines: list[str]) -> list[str]:
+    """Ignore ASCII spaces after the final content line while classifying.
+
+    Two spaces only express a Markdown hard break when another line follows in
+    the same chunk.  The original lines remain available to an exact VERBATIM
+    fallback when another unsupported construct is present.
+    """
+
+    if not lines or not lines[-1].endswith(" "):
+        return lines
+    canonical = list(lines)
+    canonical[-1] = canonical[-1].rstrip(" ")
+    return canonical
 
 
 def _is_figure_only_runs(runs: list[InlineRun]) -> bool:

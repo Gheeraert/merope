@@ -483,6 +483,40 @@ def test_insert_standalone_image_file_reopens_as_a_graphical_figure(tmp_path):
     assert image_fragment.charFormat().isImageFormat()
 
 
+def test_legacy_figure_with_terminal_spaces_saves_and_reopens_graphically(tmp_path):
+    metadata = _metadata()
+    source = (
+        "{{align=center}}![Page de titre]"
+        "(../../assets/images/collage.jpg){width=25%}  \n"
+    )
+    path = write_content_file(tmp_path, "legacy.md", metadata, source)
+
+    prepared = prepare_content_document(path)
+
+    assert all(block.kind != VERBATIM for block in prepared.body_blocks)
+    document = QTextDocument()
+    apply_prepared_content(prepared, document)
+    image_fragment = document.begin().begin().fragment()
+    assert image_fragment.charFormat().isImageFormat()
+    expected = extract_blocks(document)
+    assert expected[0].alignment == "left"
+    assert expected[0].runs[0].image_align == "center"
+    assert expected[0].runs[0].image_width == "25%"
+
+    save_content_document(path, metadata, document)
+    _saved_metadata, markdown = read_content_file(path)
+    assert markdown == (
+        "\n![Page de titre](../../assets/images/collage.jpg)"
+        "{width=25% align=center}\n"
+    )
+
+    reopened = prepare_content_document(path)
+    reopened_document = QTextDocument()
+    apply_prepared_content(reopened, reopened_document)
+    assert reopened_document.begin().begin().fragment().charFormat().isImageFormat()
+    assert extract_blocks(reopened_document) == expected
+
+
 def test_insert_image_file_uses_collision_free_name(tmp_path):
     doc_dir = tmp_path / "content" / "pages"
     images_dir = tmp_path / "assets" / "images"
