@@ -627,17 +627,36 @@ def _inject_article_date(content_html: str, article_date: str) -> str:
     return f"{meta_html}{content_html}"
 
 
-_HEADING_TAG_RE = re.compile(r"<(/?)h([123])(?=[\s>])", flags=re.IGNORECASE)
+_HEADING_TAG_RE = re.compile(
+    r"<(?P<closing>/?)h(?P<level>[1-6])(?P<attributes>(?:\s[^<>]*?)?)>",
+    flags=re.IGNORECASE,
+)
+_EDITORIAL_HEADING_LEVEL_ATTRIBUTE = "data-content-heading-level"
 
 
 def _shift_headings_down_one_level(content_html: str) -> str:
-    """h1->h2, h2->h3, h3->h4 (the XSLT's div-nesting-to-heading mapping
-    never goes past h3, so h4 never collides with anything else already
-    in the content) — used when injecting the page's own <h1> title, so
-    the content's internal structure can never end up with its own h1
-    competing with, or replacing, the real page title.
+    """Nest content headings below the injected page title without losing
+    their original editorial level.
+
+    The TEI renderer can emit h1 through h6. Levels 1 through 5 move down
+    one HTML rank; level 6 stays at HTML's h6 ceiling. A stable data
+    attribute keeps the pre-shift level available to CSS, so presentation
+    does not depend on the SEO-driven tag change.
     """
-    return _HEADING_TAG_RE.sub(lambda m: f"<{m.group(1)}h{int(m.group(2)) + 1}", content_html)
+
+    def replace_heading(match: re.Match[str]) -> str:
+        editorial_level = int(match.group("level"))
+        html_level = min(editorial_level + 1, 6)
+        if match.group("closing"):
+            return f"</h{html_level}>"
+
+        attributes = match.group("attributes")
+        return (
+            f"<h{html_level}{attributes} "
+            f'{_EDITORIAL_HEADING_LEVEL_ATTRIBUTE}="{editorial_level}">'
+        )
+
+    return _HEADING_TAG_RE.sub(replace_heading, content_html)
 
 
 def _inject_article_title(content_html: str, title: str) -> str:
