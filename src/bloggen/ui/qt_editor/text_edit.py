@@ -2123,7 +2123,7 @@ class MeropeTextEdit(QTextEdit):
             self._space_before_current_character()
 
         self._autoformat_century_phrases()
-        if char.isdigit():
+        if char == " ":
             self._autoformat_page_number_space()
         elif char == ".":
             self._autoformat_period_spacing()
@@ -2139,7 +2139,7 @@ class MeropeTextEdit(QTextEdit):
         candidate = prefix + char
         if char == "-" and typed_dash_replacement(candidate) is not None:
             return True
-        if char.isdigit() and PAGE_ABBREVIATION_TYPED_RE.search(candidate):
+        if char == " " and PAGE_ABBREVIATION_TYPED_RE.search(candidate):
             return True
         if char == "." and SPACE_BEFORE_PERIOD_TYPED_RE.search(candidate):
             return True

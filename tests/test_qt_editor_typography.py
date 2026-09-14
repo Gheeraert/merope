@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QKeyEvent, QTextCursor
+from PySide6.QtGui import QKeyEvent, QTextCursor, QTextTable
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -20,6 +20,9 @@ from bloggen.markdown.rich_text_model import (
     HEADING,
     LIST_ITEM,
     PARAGRAPH,
+    TABLE,
+    TABLE_CELL,
+    TABLE_ROW,
     VERBATIM,
     Block,
     InlineRun,
@@ -36,6 +39,7 @@ from bloggen.ui.qt_editor.constants import (
 from bloggen.ui.qt_editor.document_adapter import (
     extract_blocks,
     inline_format_enabled,
+    is_caption_block,
     make_char_format,
     populate_document,
 )
@@ -142,6 +146,112 @@ def test_page_number_space_becomes_nbsp(typed, expected):
     _type(editor, typed)
 
     assert _document_text(editor) == expected
+
+
+@pytest.mark.parametrize("prefix", ["p.", "voir p.", "pp."])
+def test_real_space_key_immediately_glues_page_abbreviation(prefix):
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text=prefix)])])
+
+    QTest.keyClick(editor, Qt.Key.Key_Space)
+
+    assert _document_text(editor) == f"{prefix}{NBSP}"
+
+
+@pytest.mark.parametrize("word", ["coup.", "stop.", "champ.", "app."])
+def test_real_space_key_does_not_change_words_ending_in_p(word):
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text=word)])])
+
+    QTest.keyClick(editor, Qt.Key.Key_Space)
+
+    assert _document_text(editor) == f"{word} "
+
+
+def test_page_abbreviation_space_is_one_undo_step_with_spellcheck_active():
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text="p.")])])
+    assert editor._spell_highlighter is not None
+    assert not editor.document().isModified()
+    assert not editor.document().isUndoAvailable()
+
+    QTest.keyClick(editor, Qt.Key.Key_Space)
+    assert _document_text(editor) == f"p.{NBSP}"
+    assert editor.document().isModified()
+
+    editor.undo()
+    assert _document_text(editor) == "p."
+    assert not editor.document().isModified()
+    editor.redo()
+    assert _document_text(editor) == f"p.{NBSP}"
+
+
+@pytest.mark.parametrize(
+    "format_run",
+    [InlineRun(text="p.", bold=True), InlineRun(text="p.", italic=True)],
+)
+def test_page_abbreviation_nbsp_preserves_inline_format(format_run):
+    editor = _editor([Block(kind=PARAGRAPH, runs=[format_run])])
+
+    QTest.keyClick(editor, Qt.Key.Key_Space)
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[replace(format_run, text=f"p.{NBSP}")])
+    ]
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        Block(kind=HEADING, level=2, runs=[InlineRun(text="p.")]),
+        Block(kind=BLOCKQUOTE, runs=[InlineRun(text="p.")]),
+    ],
+)
+def test_page_abbreviation_nbsp_preserves_rich_block_kind(block):
+    editor = _editor([block])
+
+    QTest.keyClick(editor, Qt.Key.Key_Space)
+
+    extracted = extract_blocks(editor.document())[0]
+    assert replace(extracted, runs=[]) == replace(block, runs=[])
+    assert _leaf_text(extracted) == f"p.{NBSP}"
+
+
+def test_page_abbreviation_nbsp_works_in_an_image_caption():
+    image = InlineRun(image_src="missing.png", image_alt="p.")
+    editor = _editor([Block(kind=PARAGRAPH, runs=[image])])
+    caption = editor.document().begin().next()
+    assert is_caption_block(caption)
+    cursor = QTextCursor(caption)
+    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+    editor.setTextCursor(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Space)
+
+    assert extract_blocks(editor.document())[0].runs[0].image_alt == f"p.{NBSP}"
+
+
+def test_page_abbreviation_nbsp_works_in_a_graphical_table_cell():
+    table_block = Block(
+        kind=TABLE,
+        children=[
+            Block(
+                kind=TABLE_ROW,
+                children=[Block(kind=TABLE_CELL, runs=[InlineRun(text="p.")])],
+            )
+        ],
+    )
+    editor = _editor([table_block])
+    table = next(
+        frame
+        for frame in editor.document().rootFrame().childFrames()
+        if isinstance(frame, QTextTable)
+    )
+    cursor = table.cellAt(0, 0).firstCursorPosition()
+    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+    editor.setTextCursor(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Space)
+
+    cell = extract_blocks(editor.document())[0].children[0].children[0]
+    assert _leaf_text(cell) == f"p.{NBSP}"
 
 
 def test_space_before_period_is_removed():
@@ -475,7 +585,7 @@ def test_century_superscript_preserves_bold_italic_and_link():
         ("Mérope ", ":", f"Mérope{NBSP}:"),
         ("", '"', f"«{NBSP}"),
         ("oeuvr", "e", "œuvre"),
-        ("Voir p. ", "1", f"Voir p.{NBSP}1"),
+        ("Voir p.", " ", f"Voir p.{NBSP}"),
         ("XVII", "e", "XVIIe"),
     ],
 )

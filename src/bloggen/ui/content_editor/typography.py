@@ -65,7 +65,7 @@ class TypographyMixin:
         if char and char in _TYPOGRAPHY_TRIGGER_CHARS:
             opening_next = self._autoformat_last_typed_char(widget, char, opening_next=opening_next)
         self._autoformat_century_ordinal(widget)
-        if char.isdigit():
+        if char == " ":
             self._autoformat_page_number_space(widget)
         elif char == ".":
             self._autoformat_period_spacing(widget)
@@ -155,22 +155,14 @@ class TypographyMixin:
         widget.tag_add("superscript", suffix_start, cursor)
 
     def _autoformat_page_number_space(self, widget: tk.Text) -> None:
-        """Detect a page number's first digit just typed right after
-        "p. "/"pp. " (e.g. "p. 12") and turn that regular space into a
-        non-breaking one in place, the same convention as the NBSP already
-        enforced before ``; : ! ?`` — see :func:`bloggen.markdown.
-        typography.fix_page_number_spacing`, applied the same way to
-        pasted/imported content.
-        """
+        """Turn a space typed after standalone ``p.``/``pp.`` into NBSP."""
         cursor = widget.index("insert")
         line = int(cursor.split(".")[0])
         text_before = widget.get(f"{line}.0", cursor)
         if PAGE_ABBREVIATION_TYPED_RE.search(text_before) is None:
             return
-        # The digit just typed is the last character; the space to convert
-        # is the one right before it.
-        space_start = widget.index(f"{cursor}-2c")
-        space_end = widget.index(f"{cursor}-1c")
+        space_start = widget.index(f"{cursor}-1c")
+        space_end = cursor
         widget.delete(space_start, space_end)
         widget.insert(space_start, NBSP)
 

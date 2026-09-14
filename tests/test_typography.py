@@ -9,6 +9,7 @@ from bloggen.markdown.typography import (
     NBSP,
     OE_LIGATURE_TYPED_RE,
     OPENING_GUILLEMET,
+    PAGE_ABBREVIATION_TYPED_RE,
     apply_french_typography,
     convert_curly_quotes_to_guillemets,
     convert_straight_quotes_stateful,
@@ -208,19 +209,67 @@ def test_fix_page_number_spacing_plural_abbreviation():
     assert fix_page_number_spacing("Cf. pp. 12-15.") == f"Cf. pp.{NBSP}12-15."
 
 
-def test_fix_page_number_spacing_already_nbsp_is_unchanged():
-    text = f"Voir p.{NBSP}12."
+@pytest.mark.parametrize("suffix", ["12", "suivante"])
+def test_fix_page_number_spacing_already_nbsp_is_unchanged(suffix):
+    text = f"Voir p.{NBSP}{suffix}."
     assert fix_page_number_spacing(text) == text
 
 
-def test_fix_page_number_spacing_ignores_non_digit_followers():
+def test_fix_page_number_spacing_supports_non_digit_followers():
     text = "Il y a p. ex. autre chose."
-    assert fix_page_number_spacing(text) == text
+    assert fix_page_number_spacing(text) == f"Il y a p.{NBSP}ex. autre chose."
 
 
 def test_fix_page_number_spacing_ignores_p_glued_inside_a_word():
     text = "app. 12 ne doit pas changer."
     assert fix_page_number_spacing(text) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Le dernier coup. ",
+        "stop. ",
+        "champ. ",
+        "app. ",
+        "galop. ",
+        "beaucoup. ",
+        "p.12",
+    ],
+)
+def test_fix_page_number_spacing_does_not_touch_words_or_insert_spaces(text):
+    assert fix_page_number_spacing(text) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("p. 12", f"p.{NBSP}12"),
+        ("pp. 12-15", f"pp.{NBSP}12-15"),
+        ("p. suivante", f"p.{NBSP}suivante"),
+        ("pp. suivantes", f"pp.{NBSP}suivantes"),
+        ("voir p. 12", f"voir p.{NBSP}12"),
+        ("(p. 12)", f"(p.{NBSP}12)"),
+        ("— p. suivante", f"— p.{NBSP}suivante"),
+        ("[p. 12]", f"[p.{NBSP}12]"),
+        ("§ p. 12", f"§ p.{NBSP}12"),
+    ],
+)
+def test_fix_page_number_spacing_after_autonomous_abbreviation(text, expected):
+    assert fix_page_number_spacing(text) == expected
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["p. ", "pp. ", "voir p. ", "voir pp. ", "(p. ", "[p. ", "— p. ", "§ p. "],
+)
+def test_page_abbreviation_typed_pattern_matches_autonomous_suffix(prefix):
+    assert PAGE_ABBREVIATION_TYPED_RE.search(prefix)
+
+
+@pytest.mark.parametrize("prefix", ["coup. ", "stop. ", "champ. ", "app. "])
+def test_page_abbreviation_typed_pattern_rejects_word_endings(prefix):
+    assert PAGE_ABBREVIATION_TYPED_RE.search(prefix) is None
 
 
 def test_fix_page_number_spacing_multiple_occurrences():

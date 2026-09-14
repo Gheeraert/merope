@@ -141,24 +141,21 @@ def fix_period_spacing(text: str) -> str:
 
 _LETTER_CLASS = "A-Za-zÀ-ÖØ-öø-ÿ"
 # "p."/"pp." (page reference abbreviations) immediately followed by a
-# regular space then a digit: matches "p. 12" or "pp. 12-15", but not
+# regular ASCII space: matches "p. 12" or "pp. suivantes", but not
 # "p." used as some other abbreviation's ending or glued inside a longer
 # word (e.g. "app."). The abbreviation itself is captured (with its dot)
-# so the substitution only touches the space.
-PAGE_ABBREVIATION_RE = re.compile(rf"(?<![{_LETTER_CLASS}])(pp?\.) (?=\d)")
-# Same shape, anchored to the end of the string: used to detect the
-# pattern right as the page number's first digit is typed, one
-# line-prefix at a time (mirrors typography's own use in the editor for
-# quotes/double punctuation, and note_shortcuts' typed-shorthand regex).
-PAGE_ABBREVIATION_TYPED_RE = re.compile(rf"(?<![{_LETTER_CLASS}])pp?\. \d$")
+# so the substitution only touches its immediately following ASCII space.
+PAGE_ABBREVIATION_RE = re.compile(rf"(?<![{_LETTER_CLASS}])(pp?\.) ")
+# Same shape, anchored to the end of the string: used to detect the pattern
+# as its following space is typed, one line-prefix at a time.
+PAGE_ABBREVIATION_TYPED_RE = re.compile(rf"(?<![{_LETTER_CLASS}])pp?\. $")
 
 
 def fix_page_number_spacing(text: str) -> str:
-    """Ensure a non-breaking space follows "p."/"pp." right before a page
-    number (e.g. "p. 12"), the same convention as the non-breaking space
-    already enforced before ``; : ! ?`` and inside guillemets. Idempotent:
-    once the space is non-breaking, the regex (which only matches a
-    regular space) no longer applies.
+    """Ensure a non-breaking space follows standalone "p."/"pp.".
+
+    Only an existing ASCII space is replaced. Once it is non-breaking, the
+    regex no longer applies, so the transformation is idempotent.
     """
     return PAGE_ABBREVIATION_RE.sub(rf"\1{NBSP}", text)
 

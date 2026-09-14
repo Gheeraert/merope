@@ -137,6 +137,24 @@ def test_plain_text_paste_does_not_apply_live_dash_shortcuts():
     assert "—" not in editor.toPlainText()
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Voir p. 12.", f"Voir p.{NBSP}12."),
+        ("Voir p. suivante.", f"Voir p.{NBSP}suivante."),
+        ("Voir pp. 12-15.", f"Voir pp.{NBSP}12-15."),
+        ("Le dernier coup. ", "Le dernier coup. "),
+        ("Un champ. ", "Un champ. "),
+    ],
+)
+def test_html_paste_normalizes_only_autonomous_page_abbreviations(text, expected):
+    editor = _editor()
+
+    _paste_html(editor, f"<p>{text}</p>")
+
+    assert _text(extract_blocks(editor.document())[0]) == expected
+
+
 def test_qt_paste_rejects_unsupported_mime_only():
     original = [Block(kind=PARAGRAPH, runs=[InlineRun(text="Intact")])]
     editor = _editor(original)
