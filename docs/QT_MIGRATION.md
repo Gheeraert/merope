@@ -1198,3 +1198,10 @@ refusé n’est ni réécrit ni archivé.
 Restent également liés à l’ancien adaptateur Tkinter : construction du widget
 `Text`, tags et marques, undo compensatoire, formatage GUI, affichage des
 images, panneaux de notes, dialogues et bindings.
+
+### Correcteur orthographique visuel
+
+L’éditeur Qt active un correcteur français local et hors ligne. Les mots inconnus
+sont uniquement soulignés visuellement : le modèle canonique et le Markdown ne
+sont jamais modifiés. Les blocs raw/VERBATIM sont exclus ; suggestions et
+dictionnaire personnel sont volontairement différés.

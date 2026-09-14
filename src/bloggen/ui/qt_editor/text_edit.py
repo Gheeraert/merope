@@ -172,6 +172,7 @@ from bloggen.ui.qt_editor.image_selection import (
     merope_image_at_position,
     replace_merope_image,
 )
+from bloggen.ui.qt_editor.spellcheck import FrenchSpellHighlighter
 
 
 _OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
@@ -257,6 +258,7 @@ class MeropeTextEdit(QTextEdit):
         body_font = QFont(self.document().defaultFont())
         body_font.setPointSizeF(BODY_POINT_SIZE)
         self.document().setDefaultFont(body_font)
+        self._spell_highlighter = FrenchSpellHighlighter(self.document())
         self._image_resize_state: _ImageResizeState | None = None
         self._table_resize_state: TableColumnResizeState | None = None
         self._external_paste_context: ExternalPasteContext | None = None
