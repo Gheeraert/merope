@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from bloggen.ui import preview_process
 from bloggen.ui.preview_protocol import PREVIEW_READY_MARKER
 
@@ -48,3 +50,38 @@ def test_ready_marker_is_emitted_from_webview_start_hook(
     assert calls[0][0] == "create"
     assert calls[1] == ("start",)
     assert calls[-1] == ("thread-start",)
+
+
+def test_stable_pointer_reloads_a_new_path_in_the_same_window(
+    tmp_path, monkeypatch
+):
+    first = tmp_path / "revision-000001" / "index.html"
+    second = tmp_path / "revision-000002" / "index.html"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("first", encoding="utf-8")
+    second.write_text("second", encoding="utf-8")
+    pointer = tmp_path / "_current.txt"
+    pointer.write_text(str(first), encoding="utf-8")
+    loaded = []
+
+    class StopWatcher(Exception):
+        pass
+
+    sleeps = 0
+
+    def advance_pointer(_seconds):
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 1:
+            pointer.write_text(str(second), encoding="utf-8")
+        else:
+            raise StopWatcher
+
+    window = SimpleNamespace(load_url=loaded.append)
+    monkeypatch.setattr(preview_process.time, "sleep", advance_pointer)
+
+    with pytest.raises(StopWatcher):
+        preview_process._watch_and_reload(window, pointer, str(first))
+
+    assert loaded == [second.as_uri()]

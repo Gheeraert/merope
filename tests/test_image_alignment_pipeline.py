@@ -156,7 +156,7 @@ def test_qt_figure_alignment_reaches_preview_and_published_site(tmp_path):
         preview_html = artifact.html_path.read_text(encoding="utf-8")
         _assert_figure_html(preview_html)
         preview_attrs = _graphic_attributes(
-            artifact.scratch_dir / "tei" / "figures.xml"
+            artifact.html_path.parents[1] / "tei" / "figures.xml"
         )
         assert [attrs.get("rend") for attrs in preview_attrs] == [
             "align-left",

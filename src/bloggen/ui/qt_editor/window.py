@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QByteArray, QSettings, QTimer, Qt, QUrl
+from PySide6.QtCore import QByteArray, QSettings, QSignalBlocker, QTimer, Qt, QUrl
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -143,9 +143,12 @@ from bloggen.ui.qt_editor.metadata_dialog import ContentMetadataDialog
 from bloggen.ui.qt_editor.preview import (
     PreviewArtifact,
     PreviewBuildError,
+    PreviewSession,
     PreviewSnapshot,
     build_preview_artifact,
+    build_preview_revision,
     launch_preview_process,
+    preview_session_from_artifact,
     pywebview_available,
     remove_preview_artifact,
 )
@@ -193,6 +196,7 @@ DEFAULT_WINDOW_MAX_HEIGHT = 1000
 LAYOUT_STATE_VERSION = 1
 _GEOMETRY_KEY = "fenetre/geometrie"
 _STATE_KEY = "fenetre/panneaux"
+LIVE_PREVIEW_DEBOUNCE_MS = 900
 
 
 def editor_layout_settings() -> QSettings:
@@ -251,12 +255,23 @@ class QtEditorWindow(QMainWindow):
         self.ipc = ipc
         self._pending_preview_request_id: int | None = None
         self._pending_preview_snapshots: dict[int, PreviewSnapshot] = {}
+        self._pending_preview_automatic: dict[int, bool] = {}
         self._preview_artifact: PreviewArtifact | None = None
+        self._preview_session: PreviewSession | None = None
         self._preview_process: subprocess.Popen | None = None
         self._preview_monitor: PreviewStartupMonitor | None = None
         self._preview_candidate_artifact: PreviewArtifact | None = None
         self._preview_candidate_process: subprocess.Popen | None = None
         self._preview_candidate_monitor: PreviewStartupMonitor | None = None
+        self._preview_refresh_building = False
+        self._preview_refresh_queued = False
+        self._preview_stale = False
+        self._preview_auto_error_reported = False
+        self._preview_request_automatic = False
+        self._live_preview_timer = QTimer(self)
+        self._live_preview_timer.setSingleShot(True)
+        self._live_preview_timer.setInterval(LIVE_PREVIEW_DEBOUNCE_MS)
+        self._live_preview_timer.timeout.connect(self._on_live_preview_timeout)
         self._find_replace_dialog: FindReplaceDialog | None = None
         self.ipc_bridge = QtEditorIpcBridge(enabled=ipc, parent=self)
         self.ipc_bridge.configReady.connect(self._on_preview_config_ready)
@@ -283,6 +298,7 @@ class QtEditorWindow(QMainWindow):
         )
         self._layout_settings: QSettings | None = None
         self.footnote_store.changed.connect(self._refresh_footnote_panel)
+        self.footnote_store.changed.connect(self._mark_preview_stale)
         self.footnote_store.modifiedChanged.connect(self._update_window_title)
         self.editor.footnoteActivated.connect(self.footnote_panel.select_note)
         self.editor.cursorPositionChanged.connect(self._update_image_action)
@@ -572,8 +588,16 @@ class QtEditorWindow(QMainWindow):
         self.preview_action = self._add_action(
             toolbar,
             "Aperçu HTML",
-            self._request_html_preview,
+            lambda: self._request_html_preview(),
             icon_key="preview",
+        )
+        self.live_preview_action = self._add_action(
+            toolbar,
+            "Aperçu en direct",
+            self._toggle_live_preview,
+            icon_key="preview",
+            tooltip="Aperçu en direct — actualise après 0,9 s d’inactivité",
+            checkable=True,
         )
         toolbar.add_separator()
         self._add_action(
@@ -824,6 +848,7 @@ class QtEditorWindow(QMainWindow):
         self.editor.document().contentsChanged.connect(
             self._update_insert_table_action
         )
+        self.editor.document().contentsChanged.connect(self._mark_preview_stale)
         self._sync_inline_format_actions()
         self._sync_block_style_actions()
         self._update_insert_table_action()
@@ -1104,6 +1129,7 @@ class QtEditorWindow(QMainWindow):
             return False
         self.metadata = result
         self._update_window_title()
+        self._mark_preview_stale()
         return True
 
     def _validated_metadata(self) -> dict[str, str]:
@@ -1992,34 +2018,75 @@ class QtEditorWindow(QMainWindow):
 
         return self.ipc_bridge.request_config()
 
-    def _request_html_preview(self) -> None:
-        """Snapshot the current model, then asynchronously request live config."""
+    def _preview_snapshot(self) -> PreviewSnapshot:
+        """Capture canonical in-memory state without mutating the live document."""
 
         if self.current_path is None:
-            self._show_preview_error(
+            raise PreviewBuildError(
                 "L’aperçu exige un document Mérope déjà ouvert afin de résoudre "
                 "ses ressources relatives."
             )
-            return
+        body_blocks = extract_blocks(self.editor.document())
+        all_blocks = body_blocks + footnote_definition_blocks(
+            self.footnote_store.definitions
+        )
+        return PreviewSnapshot(
+            body_markdown=blocks_to_markdown(all_blocks),
+            metadata=dict(self.metadata),
+            current_path=self.current_path,
+            current_kind=self.current_kind,
+        )
+
+    def _request_html_preview(self, *, automatic: bool = False) -> None:
+        """Snapshot current state and request one fresh live configuration."""
+
+        self._live_preview_timer.stop()
+        if self._preview_refresh_building:
+            # A manual request may supersede an older IPC request because no
+            # build has started yet. Everything else is coalesced.
+            if automatic or self._pending_preview_request_id is None:
+                self._preview_stale = True
+                self._preview_refresh_queued = True
+                return
         try:
-            body_blocks = extract_blocks(self.editor.document())
-            all_blocks = body_blocks + footnote_definition_blocks(
-                self.footnote_store.definitions
-            )
-            snapshot = PreviewSnapshot(
-                body_markdown=blocks_to_markdown(all_blocks),
-                metadata=dict(self.metadata),
-                current_path=self.current_path,
-                current_kind=self.current_kind,
-            )
-        except (UnsupportedDocumentError, ValueError) as exc:
-            self._show_preview_error(str(exc))
+            snapshot = self._preview_snapshot()
+        except (UnsupportedDocumentError, PreviewBuildError, ValueError) as exc:
+            self._report_preview_error(str(exc), automatic=automatic)
             return
 
         request_id = self.request_live_config()
         self._pending_preview_request_id = request_id
         self._pending_preview_snapshots[request_id] = snapshot
+        self._pending_preview_automatic[request_id] = automatic
+        self._preview_request_automatic = automatic
+        self._preview_refresh_building = True
+        self._preview_refresh_queued = False
+        self._preview_stale = False
         self.preview_action.setEnabled(False)
+
+    def _toggle_live_preview(self, enabled: bool) -> None:
+        if not enabled:
+            self._live_preview_timer.stop()
+            self._preview_stale = False
+            self._preview_refresh_queued = False
+            return
+        self._preview_stale = True
+        self._preview_auto_error_reported = False
+        self._request_html_preview(automatic=False)
+
+    def _mark_preview_stale(self) -> None:
+        if not self.live_preview_action.isChecked():
+            return
+        self._preview_stale = True
+        self._preview_auto_error_reported = False
+        if self._preview_refresh_building:
+            self._preview_refresh_queued = True
+            return
+        self._live_preview_timer.start()
+
+    def _on_live_preview_timeout(self) -> None:
+        if self.live_preview_action.isChecked() and self._preview_stale:
+            self._request_html_preview(automatic=True)
 
     def _on_preview_config_ready(
         self,
@@ -2027,45 +2094,99 @@ class QtEditorWindow(QMainWindow):
         config: ProjectConfig,
     ) -> None:
         snapshot = self._pending_preview_snapshots.pop(request_id, None)
+        automatic = self._pending_preview_automatic.pop(request_id, False)
         if request_id != self._pending_preview_request_id or snapshot is None:
             return
+        awaiting_candidate = False
         try:
             if self.project_root is None:
                 raise PreviewBuildError(
                     "L’aperçu exige la racine de projet fixe transmise par Mérope."
                 )
-            artifact = build_preview_artifact(
-                snapshot,
-                config=config,
-                project_root=self.project_root,
-            )
-            self._activate_preview_artifact(artifact)
+            if self._preview_is_active():
+                assert self._preview_artifact is not None
+                session = self._preview_session or preview_session_from_artifact(
+                    self._preview_artifact
+                )
+                artifact = build_preview_revision(
+                    snapshot,
+                    session=session,
+                    config=config,
+                    project_root=self.project_root,
+                )
+                self._preview_session = session
+                self._preview_artifact = artifact
+            else:
+                artifact = build_preview_artifact(
+                    snapshot,
+                    config=config,
+                    project_root=self.project_root,
+                )
+                self._activate_preview_artifact(artifact)
+                awaiting_candidate = self._preview_candidate_monitor is not None
         except PreviewBuildError as exc:
-            self._show_preview_error(str(exc))
+            self._report_preview_error(str(exc), automatic=automatic)
         finally:
-            self._finish_preview_request(request_id)
+            self._finish_preview_request(
+                request_id,
+                awaiting_candidate=awaiting_candidate,
+            )
 
     def _on_preview_config_failed(self, request_id: int, message: str) -> None:
         self._pending_preview_snapshots.pop(request_id, None)
+        automatic = self._pending_preview_automatic.pop(request_id, False)
         if request_id != self._pending_preview_request_id:
             return
-        self._show_preview_error(message)
+        self._report_preview_error(message, automatic=automatic)
         self._finish_preview_request(request_id)
 
     def _on_preview_protocol_error(self, message: str) -> None:
         request_id = self._pending_preview_request_id
         if request_id is None:
             return
-        self._show_preview_error(f"Réponse de configuration invalide : {message}")
+        automatic = self._pending_preview_automatic.pop(request_id, False)
+        self._report_preview_error(
+            f"Réponse de configuration invalide : {message}",
+            automatic=automatic,
+        )
         self._finish_preview_request(request_id)
 
-    def _finish_preview_request(self, request_id: int) -> None:
+    def _finish_preview_request(
+        self,
+        request_id: int,
+        *,
+        awaiting_candidate: bool = False,
+    ) -> None:
         if request_id != self._pending_preview_request_id:
             return
         self._pending_preview_request_id = None
         self._pending_preview_snapshots.clear()
-        if self._preview_candidate_monitor is None:
-            self.preview_action.setEnabled(True)
+        self._pending_preview_automatic.clear()
+        if not awaiting_candidate:
+            self._complete_preview_cycle()
+
+    def _complete_preview_cycle(self) -> None:
+        self._preview_refresh_building = False
+        self._preview_request_automatic = False
+        self.preview_action.setEnabled(True)
+        queued = self._preview_refresh_queued
+        self._preview_refresh_queued = False
+        if self.live_preview_action.isChecked() and (queued or self._preview_stale):
+            self._live_preview_timer.start()
+
+    def _preview_is_active(self) -> bool:
+        return (
+            self._preview_process is not None
+            and self._preview_artifact is not None
+            and self._preview_process.poll() is None
+        )
+
+    def _report_preview_error(self, message: str, *, automatic: bool) -> None:
+        if automatic and self._preview_auto_error_reported:
+            return
+        self._show_preview_error(message)
+        if automatic:
+            self._preview_auto_error_reported = True
 
     def _activate_preview_artifact(self, artifact: PreviewArtifact) -> None:
         """Launch a candidate and swap the active preview only after READY."""
@@ -2143,10 +2264,11 @@ class QtEditorWindow(QMainWindow):
         self._preview_candidate_monitor = None
         self._preview_process = process
         self._preview_artifact = artifact
+        self._preview_session = preview_session_from_artifact(artifact)
         self._preview_monitor = monitor
-        self.preview_action.setEnabled(True)
 
         self._stop_preview_lifecycle(old_process, old_monitor, old_artifact)
+        self._complete_preview_cycle()
 
     def _on_preview_process_failed(
         self,
@@ -2165,13 +2287,16 @@ class QtEditorWindow(QMainWindow):
         self._preview_candidate_artifact = None
         self._preview_candidate_monitor = None
         self._stop_preview_lifecycle(process, monitor, artifact)
-        self.preview_action.setEnabled(True)
         message = "Impossible d’ouvrir la fenêtre d’aperçu."
         if diagnostic:
             message += f"\n\nDiagnostic :\n{diagnostic}"
         else:
             message += f"\n\nLe processus s’est arrêté avec le code {returncode}."
-        self._show_preview_error(message)
+        self._report_preview_error(
+            message,
+            automatic=self._preview_request_automatic,
+        )
+        self._complete_preview_cycle()
 
     def _on_preview_process_timeout(
         self,
@@ -2188,11 +2313,12 @@ class QtEditorWindow(QMainWindow):
         self._preview_candidate_artifact = None
         self._preview_candidate_monitor = None
         self._stop_preview_lifecycle(process, monitor, artifact)
-        self.preview_action.setEnabled(True)
-        self._show_preview_error(
+        self._report_preview_error(
             "Impossible d’ouvrir la fenêtre d’aperçu : elle n’a pas démarré "
-            "dans le délai attendu de 5 secondes."
+            "dans le délai attendu de 5 secondes.",
+            automatic=self._preview_request_automatic,
         )
+        self._complete_preview_cycle()
 
     def _on_preview_process_closed(
         self,
@@ -2205,8 +2331,10 @@ class QtEditorWindow(QMainWindow):
         artifact = self._preview_artifact
         self._preview_process = None
         self._preview_artifact = None
+        self._preview_session = None
         self._preview_monitor = None
         self._stop_preview_lifecycle(process, monitor, artifact)
+        self._reset_live_preview_after_close()
 
     def _stop_preview_lifecycle(
         self,
@@ -2229,6 +2357,15 @@ class QtEditorWindow(QMainWindow):
         lifecycle.when_reaped(lambda _process, item=lifecycle: item.deleteLater())
 
     def _close_html_preview(self) -> None:
+        self._live_preview_timer.stop()
+        self._set_live_preview_checked(False)
+        self._preview_refresh_building = False
+        self._preview_refresh_queued = False
+        self._preview_stale = False
+        self._pending_preview_request_id = None
+        self._pending_preview_snapshots.clear()
+        self._pending_preview_automatic.clear()
+        self.preview_action.setEnabled(True)
         candidate_monitor = self._preview_candidate_monitor
         candidate_process = self._preview_candidate_process
         candidate_artifact = self._preview_candidate_artifact
@@ -2247,7 +2384,25 @@ class QtEditorWindow(QMainWindow):
         self._preview_process = None
         self._preview_monitor = None
         self._preview_artifact = None
+        self._preview_session = None
         self._stop_preview_lifecycle(process, monitor, artifact)
+
+    def _set_live_preview_checked(self, checked: bool) -> None:
+        blocker = QSignalBlocker(self.live_preview_action)
+        self.live_preview_action.setChecked(checked)
+        del blocker
+
+    def _reset_live_preview_after_close(self) -> None:
+        self._live_preview_timer.stop()
+        self._set_live_preview_checked(False)
+        self._preview_refresh_building = False
+        self._preview_refresh_queued = False
+        self._preview_stale = False
+        self._preview_request_automatic = False
+        self._pending_preview_request_id = None
+        self._pending_preview_snapshots.clear()
+        self._pending_preview_automatic.clear()
+        self.preview_action.setEnabled(True)
 
     def _show_preview_error(self, message: str) -> None:
         QMessageBox.critical(self, "Aperçu HTML", message)

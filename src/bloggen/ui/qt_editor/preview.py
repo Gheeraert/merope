@@ -1,7 +1,7 @@
-"""One-shot Qt editor preview through Mérope's real publication pipeline.
+"""Reusable Qt editor preview through Mérope's real publication pipeline.
 
 The build helpers in this module deliberately know nothing about Qt widgets.
-They consume an immutable canonical snapshot and own only temporary files.
+They consume immutable canonical snapshots and own only temporary files.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from bloggen.build.assets import copy_project_assets, copy_theme_resources
 from bloggen.build.reports import BuildReport
 from bloggen.build.site_builder import _build_single_item
 from bloggen.config.models import ProjectConfig
+from bloggen.content.atomic_write import atomic_write_text
 from bloggen.content.assets import collect_linked_assets
 from bloggen.content.loader import ContentItem
 from bloggen.content.metadata import ContentMetadataError, build_content_metadata
@@ -34,7 +35,7 @@ _TEMP_MARKDOWN_PREFIX = ".__merope_qt_preview__-"
 
 
 class PreviewBuildError(RuntimeError):
-    """The one-shot preview could not be built or displayed safely."""
+    """A preview revision could not be built or displayed safely."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,17 @@ class PreviewArtifact:
     scratch_dir: Path
     html_path: Path
     pointer_path: Path
+    session: PreviewSession | None = None
+
+
+@dataclass(slots=True)
+class PreviewSession:
+    """One stable pointer and scratch shared by successive preview builds."""
+
+    scratch_dir: Path
+    pointer_path: Path
+    revision: int = 0
+    current_html_path: Path | None = None
 
 
 def determine_content_kind(
@@ -104,14 +116,49 @@ def build_preview_artifact(
     config: ProjectConfig,
     project_root: Path,
 ) -> PreviewArtifact:
-    """Build one isolated artifact and always remove the neighboring source."""
+    """Create a session and build its first isolated preview revision."""
+
+    scratch = Path(tempfile.mkdtemp(prefix="merope-qt-preview-"))
+    session = PreviewSession(scratch, scratch / "_current.txt")
+    try:
+        return build_preview_revision(
+            snapshot,
+            session=session,
+            config=config,
+            project_root=project_root,
+        )
+    except Exception:
+        shutil.rmtree(scratch, ignore_errors=True)
+        raise
+
+
+def build_preview_revision(
+    snapshot: PreviewSnapshot,
+    *,
+    session: PreviewSession,
+    config: ProjectConfig,
+    project_root: Path,
+) -> PreviewArtifact:
+    """Build and atomically publish one revision in an existing session.
+
+    Theme resources and project assets live inside each revision.  A failed
+    rebuild can therefore be discarded without touching the HTML currently
+    displayed by pywebview.
+    """
 
     source_path = Path(snapshot.current_path).resolve()
     kind = determine_content_kind(snapshot, config=config, project_root=project_root)
     temp_name = f"{_TEMP_MARKDOWN_PREFIX}{uuid.uuid4().hex}.md"
     temp_path = source_path.parent / temp_name
-    scratch: Path | None = None
+    revision = session.revision + 1
+    revision_name = f"revision-{revision:06d}"
+    building_dir = session.scratch_dir / f".{revision_name}-building"
+    revision_dir = session.scratch_dir / revision_name
+    published = False
     try:
+        session.scratch_dir.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(building_dir, ignore_errors=True)
+        shutil.rmtree(revision_dir, ignore_errors=True)
         write_content_file(
             source_path.parent,
             temp_name,
@@ -151,30 +198,31 @@ def build_preview_artifact(
             linked_assets=linked_assets,
         )
 
-        scratch = Path(tempfile.mkdtemp(prefix="merope-qt-preview-"))
-        copy_theme_resources(project_root, config.paths.theme_dir, scratch)
+        building_dir.mkdir(parents=True)
+        copy_theme_resources(project_root, config.paths.theme_dir, building_dir)
         if config.build.copy_assets:
-            copy_project_assets(project_root, config.paths.assets_dir, scratch)
+            copy_project_assets(project_root, config.paths.assets_dir, building_dir)
 
         if kind == "page":
             url = f"/{item_metadata.slug}/index.html"
-            item_dir = scratch / item_metadata.slug
+            relative_item_dir = Path(item_metadata.slug)
         else:
             archive_path = config.blog.archive_path.strip("/") or "billets"
             url = f"/{archive_path}/{item_metadata.slug}/index.html"
-            item_dir = scratch / archive_path / item_metadata.slug
+            relative_item_dir = Path(archive_path) / item_metadata.slug
+        item_dir = building_dir / relative_item_dir
         html_path = item_dir / "index.html"
-        tei_path = scratch / "tei" / f"{item_metadata.slug}.xml"
+        tei_path = building_dir / "tei" / f"{item_metadata.slug}.xml"
         report = BuildReport(
             success=True,
-            output_dir=scratch,
-            tei_dir=scratch / "tei",
+            output_dir=building_dir,
+            tei_dir=building_dir / "tei",
         )
         built = _build_single_item(
             item,
             config=config,
             project_root=project_root,
-            output_root=scratch,
+            output_root=building_dir,
             html_path=html_path,
             tei_path=tei_path,
             url=url,
@@ -185,16 +233,22 @@ def build_preview_artifact(
                 "\n".join(report.errors) or "Échec de la génération de l’aperçu."
             )
 
-        pointer_path = item_dir / "_current.txt"
-        pointer_path.write_text(str(html_path.resolve()), encoding="utf-8")
+        building_dir.replace(revision_dir)
+        final_html_path = revision_dir / relative_item_dir / "index.html"
+        atomic_write_text(session.pointer_path, str(final_html_path.resolve()))
+        published = True
+        session.revision = revision
+        session.current_html_path = final_html_path
+        for old_revision in session.scratch_dir.glob("revision-*"):
+            if old_revision != revision_dir:
+                shutil.rmtree(old_revision, ignore_errors=True)
         return PreviewArtifact(
-            scratch_dir=scratch,
-            html_path=html_path,
-            pointer_path=pointer_path,
+            scratch_dir=session.scratch_dir,
+            html_path=final_html_path,
+            pointer_path=session.pointer_path,
+            session=session,
         )
     except PreviewBuildError:
-        if scratch is not None:
-            shutil.rmtree(scratch, ignore_errors=True)
         raise
     except (
         ContentMetadataError,
@@ -202,15 +256,27 @@ def build_preview_artifact(
         OSError,
         ValueError,
     ) as exc:
-        if scratch is not None:
-            shutil.rmtree(scratch, ignore_errors=True)
         raise PreviewBuildError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - pipeline failures must clean scratch
-        if scratch is not None:
-            shutil.rmtree(scratch, ignore_errors=True)
         raise PreviewBuildError(f"Échec de la génération de l’aperçu : {exc}") from exc
     finally:
         temp_path.unlink(missing_ok=True)
+        shutil.rmtree(building_dir, ignore_errors=True)
+        if not published:
+            shutil.rmtree(revision_dir, ignore_errors=True)
+
+
+def preview_session_from_artifact(artifact: PreviewArtifact) -> PreviewSession:
+    """Return the artifact's session, adapting legacy/test artifacts safely."""
+
+    if artifact.session is not None:
+        return artifact.session
+    return PreviewSession(
+        scratch_dir=artifact.scratch_dir,
+        pointer_path=artifact.pointer_path,
+        revision=1,
+        current_html_path=artifact.html_path,
+    )
 
 
 def pywebview_available() -> bool:

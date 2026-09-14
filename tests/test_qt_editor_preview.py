@@ -29,8 +29,10 @@ from bloggen.ui.qt_editor.document_adapter import extract_blocks
 from bloggen.ui.qt_editor.preview import (
     PreviewArtifact,
     PreviewBuildError,
+    PreviewSession,
     PreviewSnapshot,
     build_preview_artifact,
+    build_preview_revision,
     determine_content_kind,
     launch_preview_process,
     remove_preview_artifact,
@@ -141,7 +143,9 @@ def test_page_preview_uses_real_pipeline_and_leaves_project_untouched(
         project_root=root,
     )
 
-    assert artifact.html_path == artifact.scratch_dir / "apercu-qt" / "index.html"
+    revision_root = artifact.scratch_dir / "revision-000001"
+    assert artifact.html_path == revision_root / "apercu-qt" / "index.html"
+    assert artifact.pointer_path == artifact.scratch_dir / "_current.txt"
     assert artifact.html_path.exists()
     html = artifact.html_path.read_text(encoding="utf-8")
     assert "Aperçu Qt" in html
@@ -152,8 +156,8 @@ def test_page_preview_uses_real_pipeline_and_leaves_project_untouched(
     assert "[^7]: Une **note riche**." in seen_items[0].raw_markdown
     assert "((note différée))" in seen_items[0].raw_markdown
     assert "^[note différée]" in seen_items[0].normalized_markdown
-    assert (artifact.scratch_dir / "assets" / "images" / "exemple.jpg").exists()
-    assert (artifact.scratch_dir / "static" / "css" / "site.css").exists()
+    assert (revision_root / "assets" / "images" / "exemple.jpg").exists()
+    assert (revision_root / "static" / "css" / "site.css").exists()
     assert source.read_bytes() == before
     assert list(source.parent.glob(".__merope_qt_preview__-*.md")) == []
     assert not (source.parent / ".versions").exists()
@@ -176,7 +180,11 @@ def test_post_preview_uses_archive_path(project, monkeypatch):
     )
 
     assert artifact.html_path == (
-        artifact.scratch_dir / "chroniques" / "billet-qt" / "index.html"
+        artifact.scratch_dir
+        / "revision-000001"
+        / "chroniques"
+        / "billet-qt"
+        / "index.html"
     )
     assert artifact.html_path.exists()
     remove_preview_artifact(artifact)
@@ -282,10 +290,113 @@ def test_each_preview_uses_fresh_scratch_and_current_theme(project, monkeypatch)
     second = build_preview_artifact(_snapshot(source), config=config, project_root=root)
 
     assert first.scratch_dir != second.scratch_dir
-    assert (first.scratch_dir / "static/css/site.css").read_text(encoding="utf-8") == "/* A */"
-    assert (second.scratch_dir / "static/css/site.css").read_text(encoding="utf-8") == "/* B */"
+    assert (first.html_path.parents[1] / "static/css/site.css").read_text(
+        encoding="utf-8"
+    ) == "/* A */"
+    assert (second.html_path.parents[1] / "static/css/site.css").read_text(
+        encoding="utf-8"
+    ) == "/* B */"
     remove_preview_artifact(first)
     remove_preview_artifact(second)
+
+
+def test_reusable_preview_session_keeps_pointer_and_changes_revision_path(
+    project, monkeypatch, tmp_path
+):
+    root, config = project
+    source = _source(root, slug="session-live")
+    _install_fake_pandoc(monkeypatch)
+    scratch = tmp_path / "live-session"
+    scratch.mkdir()
+    session = PreviewSession(scratch, scratch / "_current.txt")
+
+    first = build_preview_revision(
+        _snapshot(source, slug="session-live"),
+        session=session,
+        config=config,
+        project_root=root,
+    )
+    first_target = first.pointer_path.read_text(encoding="utf-8")
+    assert first.pointer_path == scratch / "_current.txt"
+    assert first.html_path.exists()
+    assert first_target == str(first.html_path.resolve())
+
+    new_asset = root / config.paths.assets_dir / "images" / "live-new.png"
+    new_asset.parent.mkdir(parents=True, exist_ok=True)
+    new_asset.write_bytes(b"new image bytes")
+    live_theme = root / "live-theme" / "css" / "site.css"
+    live_theme.parent.mkdir(parents=True)
+    live_theme.write_text("/* live theme */", encoding="utf-8")
+    config.paths.theme_dir = "live-theme"
+    real_atomic_write = preview_module.atomic_write_text
+    pointer_switches = []
+
+    def observe_pointer_switch(path, text, **kwargs):
+        assert first.html_path.exists()
+        assert first.pointer_path.read_text(encoding="utf-8") == first_target
+        pointer_switches.append((Path(path), text))
+        real_atomic_write(path, text, **kwargs)
+
+    monkeypatch.setattr(preview_module, "atomic_write_text", observe_pointer_switch)
+    second_snapshot = _snapshot(source, slug="session-renamed")
+    second = build_preview_revision(
+        second_snapshot,
+        session=session,
+        config=config,
+        project_root=root,
+    )
+
+    assert second.scratch_dir == first.scratch_dir
+    assert second.pointer_path == first.pointer_path
+    assert second.html_path != first.html_path
+    assert second.pointer_path.read_text(encoding="utf-8") == str(
+        second.html_path.resolve()
+    )
+    assert second.html_path.exists()
+    assert not first.html_path.exists()
+    assert pointer_switches == [(second.pointer_path, str(second.html_path.resolve()))]
+    second_root = second.html_path.parents[1]
+    assert (second_root / "assets/images/live-new.png").read_bytes() == b"new image bytes"
+    assert (second_root / "static/css/site.css").read_text(encoding="utf-8") == (
+        "/* live theme */"
+    )
+    remove_preview_artifact(second)
+
+
+def test_failed_reusable_refresh_keeps_last_valid_pointer_and_revision(
+    project, monkeypatch, tmp_path
+):
+    root, config = project
+    source = _source(root, slug="session-stable")
+    _install_fake_pandoc(monkeypatch)
+    scratch = tmp_path / "stable-session"
+    scratch.mkdir()
+    session = PreviewSession(scratch, scratch / "_current.txt")
+    first = build_preview_revision(
+        _snapshot(source, slug="session-stable"),
+        session=session,
+        config=config,
+        project_root=root,
+    )
+    pointer_before = first.pointer_path.read_bytes()
+
+    def fail_build(*_args, **_kwargs):
+        raise PreviewBuildError("échec injecté après préparation du scratch")
+
+    monkeypatch.setattr(preview_module, "_build_single_item", fail_build)
+    with pytest.raises(PreviewBuildError, match="échec injecté"):
+        build_preview_revision(
+            _snapshot(source, slug="session-stable"),
+            session=session,
+            config=config,
+            project_root=root,
+        )
+
+    assert first.pointer_path.read_bytes() == pointer_before
+    assert first.html_path.exists()
+    assert session.current_html_path == first.html_path
+    assert list(scratch.glob(".revision-*-building")) == []
+    remove_preview_artifact(first)
 
 
 def test_preview_process_uses_existing_module_and_pointer(tmp_path, monkeypatch):
@@ -784,6 +895,245 @@ def test_preview_action_triggers_snapshot_and_live_config_request(project, monke
     assert window._pending_preview_request_id == 44
     assert 44 in window._pending_preview_snapshots
     assert not window.preview_action.isEnabled()
+    _dispose(window)
+
+
+def test_live_preview_is_off_by_default_and_toggle_requests_initial_preview(
+    project, monkeypatch
+):
+    root, _ = project
+    source = _source(root, slug="live-toggle")
+    window = QtEditorWindow(markdown_path=source, project_root=root)
+    requests = []
+    monkeypatch.setattr(
+        window,
+        "request_live_config",
+        lambda: requests.append(True) or 81,
+    )
+
+    assert not window.live_preview_action.isChecked()
+    assert window._live_preview_timer.interval() == window_module.LIVE_PREVIEW_DEBOUNCE_MS
+
+    window.live_preview_action.trigger()
+
+    assert window.live_preview_action.isChecked()
+    assert requests == [True]
+    assert window._pending_preview_request_id == 81
+    _dispose(window)
+
+
+def test_disabling_live_preview_stops_debounce_but_keeps_active_process(
+    tmp_path,
+):
+    window = QtEditorWindow()
+
+    class Process:
+        terminated = False
+
+        @staticmethod
+        def poll():
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    process = Process()
+    scratch = tmp_path / "live-off-keeps-window"
+    scratch.mkdir()
+    html = scratch / "revision-000001/page/index.html"
+    html.parent.mkdir(parents=True)
+    html.write_text("ok", encoding="utf-8")
+    pointer = scratch / "_current.txt"
+    pointer.write_text(str(html), encoding="utf-8")
+    window._preview_process = process
+    window._preview_artifact = PreviewArtifact(scratch, html, pointer)
+    window._preview_monitor = _ManualPreviewStartupMonitor(process, parent=window)
+    window.live_preview_action.setChecked(True)
+    window._preview_stale = True
+    window._live_preview_timer.start()
+
+    window.live_preview_action.trigger()
+
+    assert not window.live_preview_action.isChecked()
+    assert not window._live_preview_timer.isActive()
+    assert window._preview_process is process
+    assert not process.terminated
+    _dispose(window)
+
+
+def test_live_preview_debounce_restarts_and_coalesces_burst(qapplication):
+    window = QtEditorWindow()
+    window.live_preview_action.setChecked(True)
+    timer = window._live_preview_timer
+    timer.stop()
+    timer.setInterval(40)
+    expirations = []
+    timer.timeout.disconnect()
+    timer.timeout.connect(lambda: expirations.append(True))
+
+    for _ in range(5):
+        window._mark_preview_stale()
+        QTest.qWait(10)
+    assert expirations == []
+    QTest.qWait(20)
+    assert expirations == []
+    QTest.qWait(30)
+    assert expirations == [True]
+    _dispose(window)
+
+
+def test_changes_during_preview_build_queue_only_one_follow_up():
+    window = QtEditorWindow()
+    window.live_preview_action.setChecked(True)
+    window._preview_refresh_building = True
+
+    for _ in range(5):
+        window._mark_preview_stale()
+
+    assert window._preview_refresh_queued
+    assert not window._live_preview_timer.isActive()
+
+    window._complete_preview_cycle()
+
+    assert not window._preview_refresh_queued
+    assert window._live_preview_timer.isActive()
+    _dispose(window)
+
+
+def test_footnotes_and_metadata_mark_live_preview_stale_but_cursor_does_not(
+    project, monkeypatch
+):
+    root, _ = project
+    source = _source(root, slug="live-stale-sources")
+    window = QtEditorWindow(markdown_path=source, project_root=root)
+    window.live_preview_action.setChecked(True)
+    window._live_preview_timer.stop()
+
+    cursor = window.editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    window.editor.setTextCursor(cursor)
+    assert not window._live_preview_timer.isActive()
+    selection = window.editor.textCursor()
+    selection.setPosition(0)
+    selection.setPosition(2, QTextCursor.MoveMode.KeepAnchor)
+    window.editor.setTextCursor(selection)
+    window.editor.verticalScrollBar().setValue(0)
+    assert not window._live_preview_timer.isActive()
+
+    cursor = window.editor.textCursor()
+    cursor.clearSelection()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    cursor.insertText(" modification")
+    window.editor.setTextCursor(cursor)
+    assert window._live_preview_timer.isActive()
+    window._live_preview_timer.stop()
+
+    window.footnote_store.register("Nouvelle note")
+    assert window._live_preview_timer.isActive()
+    window._live_preview_timer.stop()
+
+    class MetadataDialog:
+        def __init__(self, **_kwargs):
+            pass
+
+        @staticmethod
+        def exec():
+            return window_module.QDialog.DialogCode.Accepted
+
+        @staticmethod
+        def result_metadata():
+            return {"title": "Nouveau", "slug": "live-stale-sources", "type": "page"}
+
+    monkeypatch.setattr(window_module, "ContentMetadataDialog", MetadataDialog)
+    assert window._edit_metadata_from_dialog()
+    assert window._live_preview_timer.isActive()
+    _dispose(window)
+
+
+def test_manual_refresh_reuses_active_process_and_session(
+    project, monkeypatch, tmp_path
+):
+    root, _ = project
+    source = _source(root, slug="manual-refresh")
+    window = QtEditorWindow(markdown_path=source, project_root=root)
+
+    class Process:
+        @staticmethod
+        def poll():
+            return None
+
+        @staticmethod
+        def terminate():
+            pass
+
+    process = Process()
+    scratch = tmp_path / "manual-session"
+    scratch.mkdir()
+    first_html = scratch / "revision-000001/manual-refresh/index.html"
+    first_html.parent.mkdir(parents=True)
+    first_html.write_text("old", encoding="utf-8")
+    pointer = scratch / "_current.txt"
+    pointer.write_text(str(first_html.resolve()), encoding="utf-8")
+    session = PreviewSession(scratch, pointer, 1, first_html)
+    window._preview_process = process
+    window._preview_session = session
+    window._preview_artifact = PreviewArtifact(
+        scratch, first_html, pointer, session
+    )
+    window._preview_monitor = _ManualPreviewStartupMonitor(process, parent=window)
+    request_ids = iter((82, 83))
+    monkeypatch.setattr(window, "request_live_config", lambda: next(request_ids))
+    launches = []
+    monkeypatch.setattr(
+        window_module,
+        "launch_preview_process",
+        lambda _artifact: launches.append(True),
+    )
+    builds = []
+
+    def fake_refresh(snapshot, *, session, config, project_root):
+        builds.append((snapshot, session, config, project_root))
+        html = scratch / "revision-000002/manual-refresh/index.html"
+        html.parent.mkdir(parents=True, exist_ok=True)
+        html.write_text("new", encoding="utf-8")
+        pointer.write_text(str(html.resolve()), encoding="utf-8")
+        return PreviewArtifact(scratch, html, pointer, session)
+
+    monkeypatch.setattr(window_module, "build_preview_revision", fake_refresh)
+
+    window.preview_action.trigger()
+    window._on_preview_config_ready(82, ProjectConfig())
+
+    assert len(builds) == 1
+    assert builds[0][1] is session
+    assert window._preview_process is process
+    assert launches == []
+    assert window._preview_artifact.html_path.name == "index.html"
+    assert window.preview_action.isEnabled()
+
+    window.live_preview_action.trigger()
+    assert window.live_preview_action.isChecked()
+    window._on_preview_config_ready(83, ProjectConfig())
+
+    assert len(builds) == 2
+    assert window._preview_process is process
+    assert launches == []
+    _dispose(window)
+
+
+def test_automatic_preview_error_is_reported_once_until_next_change(monkeypatch):
+    window = QtEditorWindow()
+    errors = []
+    monkeypatch.setattr(window, "_show_preview_error", errors.append)
+
+    window._report_preview_error("invalide", automatic=True)
+    window._report_preview_error("invalide", automatic=True)
+    assert errors == ["invalide"]
+
+    window.live_preview_action.setChecked(True)
+    window._mark_preview_stale()
+    window._report_preview_error("invalide", automatic=True)
+    assert errors == ["invalide", "invalide"]
     _dispose(window)
 
 
@@ -1318,6 +1668,9 @@ def test_close_preview_stops_and_reaps_active_and_candidate_without_blocking(
         candidate_scratch / "index.html",
         candidate_scratch / "pointer",
     )
+    window.live_preview_action.setChecked(True)
+    window._preview_stale = True
+    window._live_preview_timer.start()
 
     window.show()
     started = time.monotonic()
@@ -1335,6 +1688,8 @@ def test_close_preview_stops_and_reaps_active_and_candidate_without_blocking(
     assert candidate_process.wait_calls == 1
     assert window._preview_process is None
     assert window._preview_candidate_process is None
+    assert not window.live_preview_action.isChecked()
+    assert not window._live_preview_timer.isActive()
     assert not active_scratch.exists()
     assert not candidate_scratch.exists()
 
@@ -1370,11 +1725,26 @@ def test_exit_after_ready_is_normal_and_cleans_active_preview(monkeypatch, tmp_p
     monitor = window._preview_candidate_monitor
     assert monitor is not None
     monitor.ready.emit(process)
+    window.live_preview_action.setChecked(True)
+    window._preview_stale = True
+    window._live_preview_timer.start()
+    window._preview_refresh_building = True
+    window._pending_preview_request_id = 91
+    window._pending_preview_snapshots[91] = PreviewSnapshot(
+        body_markdown="stale",
+        metadata={"title": "Stale", "slug": "stale", "type": "page"},
+        current_path=tmp_path / "stale.md",
+    )
+    window._pending_preview_automatic[91] = True
     monitor.closed.emit(process, 0)
 
     assert errors == []
     assert window._preview_process is None
     assert window._preview_artifact is None
+    assert not window.live_preview_action.isChecked()
+    assert not window._live_preview_timer.isActive()
+    assert window._pending_preview_request_id is None
+    assert window._pending_preview_snapshots == {}
     assert not scratch.exists()
     _dispose(window)
 
@@ -1407,7 +1777,7 @@ def test_failed_new_build_keeps_existing_preview(project, monkeypatch, tmp_path)
     monkeypatch.setattr(window, "request_live_config", lambda: 31)
     monkeypatch.setattr(
         window_module,
-        "build_preview_artifact",
+        "build_preview_revision",
         lambda *args, **kwargs: (_ for _ in ()).throw(PreviewBuildError("échec")),
     )
     errors = []
