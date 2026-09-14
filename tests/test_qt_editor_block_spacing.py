@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import replace
 
 import pytest
 
@@ -200,19 +199,15 @@ def test_image_insertion_margins_share_the_single_document_undo():
 
     assert _margins(document.begin()) == FIGURE_MARGINS
     assert is_caption_block(document.begin().next())
-    # Inserting a lone paragraph reuses the destination block's own
-    # formatting (like an ordinary paste), which is the empty document's
-    # default justified paragraph here - not ``image_blocks``' own
-    # (unused) "left" default.
-    assert extract_blocks(document) == [
-        replace(image_blocks[0], alignment="justify")
-    ]
+    # A figure's block alignment stays canonical-neutral: the image's own
+    # image_align property is its sole persistent alignment source.
+    assert extract_blocks(document) == image_blocks
     document.undo()
     assert _margins(document.begin()) == (0.0, 0.0)
     assert document.isUndoAvailable() is False
     document.redo()
     assert _margins(document.begin()) == FIGURE_MARGINS
-    assert extract_blocks(document) == [replace(image_blocks[0], alignment="justify")]
+    assert extract_blocks(document) == image_blocks
 
 
 def test_replacing_standalone_image_preserves_block_spacing():

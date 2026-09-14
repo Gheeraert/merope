@@ -7,9 +7,11 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QApplication, QTextEdit
 
+from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -35,10 +37,12 @@ from bloggen.ui.qt_editor.formatting import (
     set_paragraph,
     toggle_bold,
     toggle_italic,
+    toggle_justify,
     toggle_strikethrough,
     toggle_superscript,
     toggle_underline,
 )
+from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -80,6 +84,226 @@ def _assert_no_heading_residue(editor: QTextEdit, block_index: int = 0) -> None:
     assert not block_format.hasProperty(HEADING_LEVEL_PROPERTY)
     assert block_format.headingLevel() == 0
     assert block.begin().fragment().charFormat().fontPointSize() == BODY_POINT_SIZE
+
+
+def _figure_editor(run: InlineRun) -> MeropeTextEdit:
+    editor = MeropeTextEdit()
+    populate_document(editor.document(), [Block(kind=PARAGRAPH, runs=[run])])
+    editor.document().setModified(False)
+    cursor = QTextCursor(editor.document().begin())
+    cursor.movePosition(
+        QTextCursor.MoveOperation.EndOfBlock,
+        QTextCursor.MoveMode.KeepAnchor,
+    )
+    editor.setTextCursor(cursor)
+    return editor
+
+
+def _qt_alignment_name(block) -> str:
+    alignment = block.blockFormat().alignment()
+    if alignment & Qt.AlignmentFlag.AlignHCenter:
+        return "center"
+    if alignment & Qt.AlignmentFlag.AlignRight:
+        return "right"
+    if alignment & Qt.AlignmentFlag.AlignJustify:
+        return "justify"
+    return "left"
+
+
+@pytest.mark.parametrize("alignment", ["left", "center", "right"])
+def test_figure_alignment_updates_image_semantics_and_caption_visuals(alignment):
+    run = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_width="40%",
+        image_height="200",
+    )
+    editor = _figure_editor(run)
+
+    set_alignment(editor, alignment)
+
+    image_block = editor.document().begin()
+    caption = image_block.next()
+    expected_run = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_width="40%",
+        image_height="200",
+        image_align=alignment,
+    )
+    assert _qt_alignment_name(image_block) == alignment
+    assert _qt_alignment_name(caption) == alignment
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[expected_run])
+    ]
+    markdown = blocks_to_markdown(extract_blocks(editor.document()))
+    assert markdown == (
+        f"![Légende](image.png){{width=40% height=200 align={alignment}}}\n"
+    )
+    assert "{{align=" not in markdown
+
+
+@pytest.mark.parametrize("target_location", ["image-selection", "image-caret", "caption"])
+def test_alignment_from_figure_or_caption_undoes_once(target_location):
+    run = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_align="left",
+    )
+    editor = _figure_editor(run)
+    if target_location == "image-caret":
+        cursor = QTextCursor(editor.document().begin())
+        editor.setTextCursor(cursor)
+    elif target_location == "caption":
+        caption = editor.document().begin().next()
+        cursor = QTextCursor(caption)
+        cursor.setPosition(caption.position() + 2)
+        editor.setTextCursor(cursor)
+
+    set_alignment(editor, "center")
+
+    centered = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_align="center",
+    )
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[centered])
+    ]
+    assert _qt_alignment_name(editor.document().begin().next()) == "center"
+    editor.undo()
+    assert extract_blocks(editor.document()) == [Block(kind=PARAGRAPH, runs=[run])]
+    assert _qt_alignment_name(editor.document().begin()) == "left"
+    assert _qt_alignment_name(editor.document().begin().next()) == "left"
+    assert not editor.document().isUndoAvailable()
+    editor.redo()
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[centered])
+    ]
+    assert _qt_alignment_name(editor.document().begin()) == "center"
+    assert _qt_alignment_name(editor.document().begin().next()) == "center"
+
+
+def test_justify_is_a_clean_noop_for_a_figure():
+    run = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_align="right",
+    )
+    editor = _figure_editor(run)
+
+    set_alignment(editor, "justify")
+
+    assert extract_blocks(editor.document()) == [Block(kind=PARAGRAPH, runs=[run])]
+    assert _qt_alignment_name(editor.document().begin()) == "right"
+    assert _qt_alignment_name(editor.document().begin().next()) == "right"
+    assert not editor.document().isModified()
+    assert not editor.document().isUndoAvailable()
+
+    toggle_justify(editor)
+    assert extract_blocks(editor.document()) == [Block(kind=PARAGRAPH, runs=[run])]
+    assert not editor.document().isModified()
+    assert not editor.document().isUndoAvailable()
+
+
+def test_figure_alignment_works_without_caption_text():
+    run = InlineRun(image_src="image.png", image_alt="")
+    editor = _figure_editor(run)
+    cursor = QTextCursor(editor.document().begin())
+    editor.setTextCursor(cursor)
+
+    set_alignment(editor, "center")
+
+    centered = InlineRun(image_src="image.png", image_alt="", image_align="center")
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[centered])
+    ]
+    assert _qt_alignment_name(editor.document().begin()) == "center"
+    assert _qt_alignment_name(editor.document().begin().next()) == "center"
+
+
+def test_image_and_caption_selection_targets_the_single_figure():
+    run = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_align="left",
+    )
+    editor = _figure_editor(run)
+    image_block = editor.document().begin()
+    caption = image_block.next()
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(image_block.position())
+    cursor.setPosition(
+        caption.position() + caption.length() - 1,
+        QTextCursor.MoveMode.KeepAnchor,
+    )
+    editor.setTextCursor(cursor)
+
+    set_alignment(editor, "right")
+
+    expected = InlineRun(
+        image_src="image.png",
+        image_alt="Légende",
+        image_align="right",
+    )
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[expected])
+    ]
+    assert editor.textCursor().selectionStart() == image_block.position()
+    assert editor.textCursor().selectionEnd() == (
+        caption.position() + caption.length() - 1
+    )
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        [
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(image_src="a.png", image_alt="A")],
+            ),
+            Block(kind=PARAGRAPH, runs=[InlineRun(text="Texte")]),
+        ],
+        [
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(image_src="a.png", image_alt="A")],
+            ),
+            Block(
+                kind=PARAGRAPH,
+                runs=[InlineRun(image_src="b.png", image_alt="B")],
+            ),
+        ],
+    ],
+)
+def test_alignment_selection_crossing_a_figure_is_refused(original):
+    editor = MeropeTextEdit()
+    populate_document(editor.document(), original)
+    editor.document().setModified(False)
+    cursor = editor.textCursor()
+    cursor.select(QTextCursor.SelectionType.Document)
+    editor.setTextCursor(cursor)
+
+    set_alignment(editor, "center")
+
+    assert extract_blocks(editor.document()) == original
+    assert not editor.document().isModified()
+    assert not editor.document().isUndoAvailable()
+
+
+@pytest.mark.parametrize(
+    ("kind", "alignment"),
+    [(PARAGRAPH, "justify"), (BLOCKQUOTE, "right")],
+)
+def test_text_block_alignment_remains_unchanged(kind, alignment):
+    editor = _editor([Block(kind=kind, runs=[InlineRun(text="Texte")])])
+
+    set_alignment(editor, alignment)
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=kind, runs=[InlineRun(text="Texte")], alignment=alignment)
+    ]
 
 
 def test_underline_is_semantic_and_preserved_when_a_link_is_removed():

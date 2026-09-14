@@ -303,8 +303,12 @@ def test_replacement_uses_fresh_format_clears_visual_size_and_is_one_undo():
     image_format = _first_image_format(editor.document())
     assert image_format.width() == 0
     assert image_format.height() == 0
+    assert editor.document().begin().blockFormat().alignment() & Qt.AlignmentFlag.AlignRight
+    assert editor.document().begin().next().blockFormat().alignment() & Qt.AlignmentFlag.AlignRight
     editor.undo()
     assert extract_blocks(editor.document()) == original
+    assert editor.document().begin().blockFormat().alignment() & Qt.AlignmentFlag.AlignHCenter
+    assert editor.document().begin().next().blockFormat().alignment() & Qt.AlignmentFlag.AlignHCenter
     editor.redo()
     assert extract_blocks(editor.document()) == [Block(kind=PARAGRAPH, runs=[new])]
 

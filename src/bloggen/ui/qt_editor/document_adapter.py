@@ -492,6 +492,9 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
                 raise UnsupportedBlockError(f"Niveau de titre Qt non pris en charge : H{level}")
 
         runs = _extract_runs(block)
+        block_alignment = (
+            "left" if _is_figure_runs(runs) else _alignment_from_format(block_format)
+        )
         following_index = index + 1
         following = (
             items[following_index]
@@ -523,7 +526,7 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
                         kind=kind,
                         level=level,
                         runs=runs,
-                        alignment=_alignment_from_format(block_format),
+                        alignment=block_alignment,
                     )
                 )
                 index = following_index
@@ -534,7 +537,7 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
                 kind=kind,
                 level=level,
                 runs=runs,
-                alignment=_alignment_from_format(block_format),
+                alignment=block_alignment,
             )
         )
         index += 1
@@ -969,6 +972,41 @@ def figure_caption_block(image_block: QTextBlock) -> QTextBlock | None:
     return following if is_figure_block(image_block) and is_caption_block(following) else None
 
 
+def refresh_figure_alignment(image_block: QTextBlock) -> bool:
+    """Mirror canonical image alignment on a figure and its visual caption."""
+
+    if not is_figure_block(image_block):
+        return False
+    position = _first_image_position(image_block)
+    if position is None:
+        return False
+    cursor = QTextCursor(image_block.document())
+    cursor.setPosition(position + 1)
+    alignment = image_run_from_format(cursor.charFormat()).image_align or "left"
+    qt_alignment = _QT_ALIGNMENTS[alignment]
+    changed = False
+
+    block_format = QTextBlockFormat(image_block.blockFormat())
+    if (
+        block_format.alignment() != qt_alignment
+        or block_format.property(ALIGNMENT_PROPERTY) != "left"
+    ):
+        block_format.setAlignment(qt_alignment)
+        # A figure's canonical alignment lives on InlineRun.image_align.
+        # Keep the ordinary paragraph marker neutral to avoid two sources.
+        block_format.setProperty(ALIGNMENT_PROPERTY, "left")
+        QTextCursor(image_block).setBlockFormat(block_format)
+        changed = True
+
+    caption = figure_caption_block(image_block)
+    if caption is not None and caption.blockFormat().alignment() != qt_alignment:
+        caption_format = QTextBlockFormat(caption.blockFormat())
+        caption_format.setAlignment(qt_alignment)
+        QTextCursor(caption).setBlockFormat(caption_format)
+        changed = True
+    return changed
+
+
 def caption_text_runs(block: QTextBlock) -> list[InlineRun]:
     """What a caption block currently says, as bold/italic runs only."""
 
@@ -1357,14 +1395,15 @@ def _refresh_caption_visuals(caption: QTextBlock) -> None:
 def _caption_alignment(image_block: QTextBlock) -> Qt.AlignmentFlag:
     """The caption starts under the image, like the site's figcaption."""
 
-    if not image_block.isValid():
+    if not is_figure_block(image_block):
         return Qt.AlignmentFlag.AlignLeft
-    alignment = _alignment_from_format(image_block.blockFormat())
-    if alignment == "center":
-        return Qt.AlignmentFlag.AlignHCenter
-    if alignment == "right":
-        return Qt.AlignmentFlag.AlignRight
-    return Qt.AlignmentFlag.AlignLeft
+    position = _first_image_position(image_block)
+    if position is None:
+        return Qt.AlignmentFlag.AlignLeft
+    cursor = QTextCursor(image_block.document())
+    cursor.setPosition(position + 1)
+    alignment = image_run_from_format(cursor.charFormat()).image_align or "left"
+    return _QT_ALIGNMENTS[alignment]
 
 
 def _caption_source(caption: QTextBlock) -> str | None:
@@ -1804,6 +1843,7 @@ def _populate_leaf_block(cursor: QTextCursor, block: Block, first: bool) -> bool
     if block.kind == PARAGRAPH and _is_figure_runs(block.runs):
         image_block = cursor.block()
         image = next(run for run in block.runs if run.image_src is not None)
+        refresh_figure_alignment(image_block)
         _insert_caption_after(cursor, image.image_alt)
         refresh_block_visuals(image_block)
         return False

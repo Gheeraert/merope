@@ -13,6 +13,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     figure_caption_block,
     image_run_from_format,
     make_image_format,
+    refresh_figure_alignment,
     set_figure_caption,
 )
 
@@ -176,6 +177,7 @@ def replace_merope_image(
         caption = figure_caption_block(document.findBlock(target.start))
         if caption is not None and run.image_alt != target.run.image_alt:
             set_figure_caption(caption, run.image_alt)
+        refresh_figure_alignment(document.findBlock(target.start))
     finally:
         cursor.endEditBlock()
     cursor.setPosition(target.start)

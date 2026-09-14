@@ -9,7 +9,7 @@ from PIL import Image
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
@@ -173,6 +173,9 @@ def test_image_file_open_save_reopen_preserves_semantics_and_base_url(tmp_path):
         image_height="300",
         image_align="center",
     )
+    image_block = document.begin().next()
+    assert image_block.blockFormat().alignment() & Qt.AlignmentFlag.AlignHCenter
+    assert image_block.next().blockFormat().alignment() & Qt.AlignmentFlag.AlignHCenter
     resolved = document.baseUrl().resolved(QUrl(image_run.image_src))
     assert Path(resolved.toLocalFile()).resolve() == image_path.resolve()
 
@@ -184,6 +187,9 @@ def test_image_file_open_save_reopen_preserves_semantics_and_base_url(tmp_path):
     reopened = QTextDocument()
     load_content_document(path, reopened)
     assert extract_blocks(reopened) == extract_blocks(document)
+    reopened_image = reopened.begin().next()
+    assert reopened_image.blockFormat().alignment() & Qt.AlignmentFlag.AlignHCenter
+    assert reopened_image.next().blockFormat().alignment() & Qt.AlignmentFlag.AlignHCenter
 
 
 def test_missing_image_remains_openable_and_roundtrips_without_loss(tmp_path):
@@ -693,7 +699,6 @@ def test_insert_image_dialog_asks_no_caption_and_moves_into_it(tmp_path, monkeyp
                     image_alt="Ma légende",
                 )
             ],
-            alignment="justify",
         )
     ]
     window.editor.document().setModified(False)

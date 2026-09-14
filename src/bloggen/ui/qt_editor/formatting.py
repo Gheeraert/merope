@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QPalette, QTextCharFormat, QTextCursor, QTextListFormat
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QPalette,
+    QTextBlock,
+    QTextCharFormat,
+    QTextCursor,
+    QTextListFormat,
+)
 from PySide6.QtWidgets import QTextEdit
 
 from bloggen.markdown.rich_text_model import (
@@ -30,12 +39,17 @@ from bloggen.ui.qt_editor.constants import (
 from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
     is_caption_block,
+    is_figure_block,
     is_raw_block,
     is_semantic_inline_object_format,
     refresh_block_visuals,
     selection_is_within_single_table_cell,
     selection_touches_raw_block,
     selection_touches_qt_table,
+)
+from bloggen.ui.qt_editor.image_selection import (
+    replace_merope_image,
+    targeted_merope_image,
 )
 
 # An image caption only carries bold and italic (``**``/``*`` in its alt text).
@@ -245,6 +259,30 @@ def set_alignment(editor: QTextEdit, alignment: str) -> None:
     cursor = editor.textCursor()
     if selection_touches_raw_block(cursor) or selection_touches_qt_table(cursor):
         return
+    figure, touches_figure = _figure_for_alignment(cursor)
+    if touches_figure:
+        if figure is None or alignment == "justify":
+            return
+        target_cursor = QTextCursor(figure)
+        target_cursor.movePosition(
+            QTextCursor.MoveOperation.EndOfBlock,
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+        target = targeted_merope_image(target_cursor)
+        if target is None or target.run.image_align == alignment:
+            return
+        kept_position = cursor.position()
+        kept_anchor = cursor.anchor()
+        replace_merope_image(
+            editor.document(),
+            target,
+            replace(target.run, image_align=alignment),
+        )
+        restored = QTextCursor(editor.document())
+        restored.setPosition(kept_anchor)
+        restored.setPosition(kept_position, QTextCursor.MoveMode.KeepAnchor)
+        editor.setTextCursor(restored)
+        return
     # A caption follows its image's alignment on its own.
     blocks = [
         block
@@ -263,6 +301,33 @@ def set_alignment(editor: QTextEdit, alignment: str) -> None:
     cursor.endEditBlock()
 
 
+def _figure_for_alignment(cursor: QTextCursor) -> tuple[QTextBlock | None, bool]:
+    """Resolve one figure-only selection, and report any figure contact."""
+
+    blocks = list(_selected_blocks(cursor.document(), cursor))
+    figures: list[QTextBlock] = []
+    touches_figure = False
+    for block in blocks:
+        figure = None
+        if is_figure_block(block):
+            figure = block
+        elif is_caption_block(block) and is_figure_block(block.previous()):
+            figure = block.previous()
+        if figure is not None:
+            touches_figure = True
+            if not any(existing == figure for existing in figures):
+                figures.append(figure)
+    if not touches_figure:
+        return None, False
+    if len(figures) != 1:
+        return None, True
+    figure = figures[0]
+    caption = figure.next() if is_caption_block(figure.next()) else None
+    if any(block != figure and block != caption for block in blocks):
+        return None, True
+    return figure, True
+
+
 def toggle_justify(editor: QTextEdit) -> None:
     """Toggle only the caret's paragraph between left and justified."""
 
@@ -272,6 +337,7 @@ def toggle_justify(editor: QTextEdit) -> None:
         not block.isValid()
         or is_raw_block(block)
         or is_caption_block(block)
+        or is_figure_block(block)
         or block.textList() is not None
         or selection_touches_qt_table(selection)
     ):
