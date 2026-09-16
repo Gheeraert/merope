@@ -728,15 +728,6 @@ button:focus-visible {
   margin-right: auto;
 }
 
-/* An author-set width ("50%") arrives as an inline max-width on the figure:
-   a ceiling relative to the text column, never an enlargement. On narrow
-   screens a 30% figure would be unreadable, so it may use the full column. */
-@media (max-width: 40rem) {
-  .article-figure[data-width] {
-    max-width: 100% !important;
-  }
-}
-
 .figure-image-link,
 .article-figure img {
   display: block;
@@ -1180,7 +1171,7 @@ button:focus-visible {
 
 @media (max-width: 980px) {
   .page-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1.2rem;
     margin-top: 1.2rem;
   }
@@ -1191,6 +1182,7 @@ button:focus-visible {
 
   .main-content {
     order: 1;
+    min-width: 0;
   }
 
   .main-content > * {
