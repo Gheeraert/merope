@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from dataclasses import asdict
 from pathlib import Path
 from tkinter import Misc, Variable, ttk
 
@@ -11,6 +12,7 @@ import pytest
 
 from bloggen.config.defaults import build_default_config
 from bloggen.config.io import load_config, save_config
+from bloggen.config.models import NotesRenderingConfig
 from bloggen.ui.main_window import MainWindow
 
 
@@ -158,3 +160,32 @@ def test_new_config_enables_publishing_flags_by_default(window: MainWindow) -> N
     assert collected.blog.generate_rss_feed == defaults.blog.generate_rss_feed is True
     assert collected.build.generate_sitemap == defaults.build.generate_sitemap is True
     assert collected.build.generate_robots_txt == defaults.build.generate_robots_txt is True
+
+
+def test_notes_settings_survive_json_gui_json_and_new_config_uses_defaults(
+    window: MainWindow, tmp_path: Path
+) -> None:
+    config = build_default_config()
+    legacy = NotesRenderingConfig(
+        mode="legacy-mode",
+        enable_margin_notes=True,
+        enable_footnotes=False,
+        margin_excerpt_words=17,
+        margin_excerpt_chars=143,
+        prefer_words_over_chars=False,
+        footnotes_location="legacy-location",
+    )
+    config.notes_rendering = legacy
+    config_path = tmp_path / "site.json"
+    save_config(config, config_path)
+
+    window._load_into_form(load_config(config_path))
+    collected = window._collect_from_form()
+    save_config(collected, config_path)
+
+    assert collected.notes_rendering == legacy
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["notes_rendering"] == asdict(legacy)
+
+    window.new_config()
+    assert window._collect_from_form().notes_rendering == NotesRenderingConfig()

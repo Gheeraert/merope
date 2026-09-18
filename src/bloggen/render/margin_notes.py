@@ -29,8 +29,8 @@ def apply_notes_rendering(
     # itself, so in practice the "margin" notes just ended up rendered at
     # the bottom like ordinary footnotes. Disabled unconditionally here,
     # regardless of notes_rendering.enable_margin_notes, until the layout
-    # problem is actually solved — the rest of this module (and the config
-    # field/UI checkbox) is left in place to revisit later.
+    # problem is actually solved — the rest of this module and the config
+    # field remain for compatibility.
     enable_margin_notes = False
 
     root = html.fragment_fromstring(html_fragment, create_parent="div")
