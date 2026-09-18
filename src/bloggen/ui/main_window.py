@@ -308,6 +308,7 @@ class MainWindow(tk.Tk):
             bool_fields=[
                 ("enabled", "Activer blog", True),
                 ("generate_archive_page", "Générer archive", True),
+                ("generate_rss_feed", "Générer le flux RSS", True),
                 ("sort_descending_by_date", "Tri décroissant par date", True),
             ],
             intro=(
@@ -332,6 +333,12 @@ class MainWindow(tk.Tk):
                 "generate_archive_page": (
                     "Si activé, une page listant tous les billets est générée à l'adresse "
                     "définie par « Chemin archive »."
+                ),
+                "generate_rss_feed": (
+                    "Si activé, MÉROPE génère un fichier feed.xml pour les billets du blog, "
+                    "à condition que le blog soit activé. Le flux RSS nécessite une Base URL "
+                    "renseignée dans l'onglet Site. Si la Base URL manque, le flux n'est pas "
+                    "généré et un avertissement est affiché."
                 ),
                 "sort_descending_by_date": (
                     "Si activé, les billets les plus récents apparaissent en premier "
@@ -449,6 +456,8 @@ class MainWindow(tk.Tk):
             bool_fields=[
                 ("clean_output_dir", "Nettoyer dossier de sortie", True),
                 ("copy_assets", "Copier assets", True),
+                ("generate_sitemap", "Générer sitemap.xml", True),
+                ("generate_robots_txt", "Générer robots.txt", True),
                 ("fail_on_missing_assets", "Échouer si assets manquants", False),
                 (
                     "check_broken_links",
@@ -482,6 +491,17 @@ class MainWindow(tk.Tk):
                 "copy_assets": (
                     "Si activé, le dossier assets (onglet Chemins) est copié vers la sortie "
                     "à chaque génération."
+                ),
+                "generate_sitemap": (
+                    "Si activé, MÉROPE génère sitemap.xml avec les URL publiques du site. "
+                    "La génération du sitemap nécessite une Base URL renseignée dans l'onglet "
+                    "Site. Si la Base URL manque, le sitemap n'est pas généré et un "
+                    "avertissement est affiché."
+                ),
+                "generate_robots_txt": (
+                    "Si activé, MÉROPE génère robots.txt à la racine du site. Ce fichier peut "
+                    "être généré même sans Base URL. Une référence au sitemap y est ajoutée "
+                    "seulement si sitemap.xml est activé et qu'une Base URL est renseignée."
                 ),
                 "fail_on_missing_assets": (
                     "Si activé, la génération s'arrête en erreur lorsqu'un fichier "

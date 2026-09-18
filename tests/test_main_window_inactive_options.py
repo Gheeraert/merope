@@ -1,11 +1,11 @@
-"""Inactive settings stay in site.json without taking space in the GUI."""
+"""GUI configuration controls and JSON round-trips."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from tkinter import Misc, ttk
+from tkinter import Misc, Variable, ttk
 
 import pytest
 
@@ -95,3 +95,66 @@ def test_new_config_restores_dataclass_defaults_for_hidden_values(window: MainWi
     defaults = build_default_config()
     for section, key in _HIDDEN_VALUES:
         assert getattr(getattr(collected, section), key) == getattr(getattr(defaults, section), key)
+
+
+def _publishing_checkboxes(window: MainWindow) -> list[tuple[ttk.Checkbutton, Variable]]:
+    fields = (
+        (window.blog_tab, window.blog_vars, "generate_rss_feed", "Générer le flux RSS"),
+        (window.build_tab, window.build_vars, "generate_sitemap", "Générer sitemap.xml"),
+        (window.build_tab, window.build_vars, "generate_robots_txt", "Générer robots.txt"),
+    )
+    result = []
+    for tab, vars_map, key, label in fields:
+        matches = [
+            child
+            for child in tab.winfo_children()
+            if isinstance(child, ttk.Checkbutton) and child.cget("text") == label
+        ]
+        assert len(matches) == 1
+        assert str(matches[0].cget("variable")) == str(vars_map[key])
+        result.append((matches[0], vars_map[key]))
+    return result
+
+
+def test_publishing_controls_are_visible_and_bound_to_model_vars(window: MainWindow) -> None:
+    assert len(_publishing_checkboxes(window)) == 3
+
+
+def test_disabled_publishing_flags_survive_json_gui_json_and_can_be_enabled(
+    window: MainWindow, tmp_path: Path
+) -> None:
+    config = build_default_config()
+    config.blog.generate_rss_feed = False
+    config.build.generate_sitemap = False
+    config.build.generate_robots_txt = False
+    config_path = tmp_path / "site.json"
+    save_config(config, config_path)
+
+    window._load_into_form(load_config(config_path))
+    checkboxes = _publishing_checkboxes(window)
+    assert all(variable.get() is False for _, variable in checkboxes)
+
+    collected = window._collect_from_form()
+    save_config(collected, config_path)
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["blog"]["generate_rss_feed"] is False
+    assert saved["build"]["generate_sitemap"] is False
+    assert saved["build"]["generate_robots_txt"] is False
+
+    for _, variable in checkboxes:
+        variable.set(True)
+    enabled = window._collect_from_form()
+    assert enabled.blog.generate_rss_feed is True
+    assert enabled.build.generate_sitemap is True
+    assert enabled.build.generate_robots_txt is True
+
+
+def test_new_config_enables_publishing_flags_by_default(window: MainWindow) -> None:
+    window.new_config()
+    assert all(variable.get() is True for _, variable in _publishing_checkboxes(window))
+
+    collected = window._collect_from_form()
+    defaults = build_default_config()
+    assert collected.blog.generate_rss_feed == defaults.blog.generate_rss_feed is True
+    assert collected.build.generate_sitemap == defaults.build.generate_sitemap is True
+    assert collected.build.generate_robots_txt == defaults.build.generate_robots_txt is True
