@@ -15,22 +15,23 @@ Google Docs → Markdown → XML-TEI → HTML
 - configuration JSON chargeable / sauvegardable
 - menu horizontal supérieur
 - menu latéral hiérarchique simple
-- bannière horizontale supérieure
+- bandeau institutionnel et bannière éditoriale
 - billets et pages fixes
 - conversion Markdown → XML-TEI via Pandoc
 - transformation TEI → HTML via XSLT
 - images avec lightbox type Fancybox
-- notes complètes en bas d'article (amorces en marge prévues mais désactivées pour le moment, voir `docs/ROADMAP.md`)
+- notes complètes en bas d'article
 - recherche plein texte statique côté client
 - RSS, sitemap, robots.txt et méta SEO de base
 - génération en ligne de commande (headless), en plus de l'interface graphique
+- publication FTP/FTPS depuis l'interface
 
 Détail complet des fonctionnalités livrées : `docs/ROADMAP.md`.
 
 ## Philosophie
 
 Le projet n’est **pas** un CMS.  
-C’est un outil de préparation, de configuration et de génération de site statique éditorial.
+C’est un outil de préparation, d’édition, de configuration et de génération de site statique éditorial.
 
 ## Dépendances prévues
 
@@ -42,37 +43,54 @@ C’est un outil de préparation, de configuration et de génération de site st
 - Pandoc installé dans le système
 - pytest
 
-## Arborescence de départ
+## Documentation
 
-Voir :
+Pour utiliser MÉROPE sans entrer dans son architecture interne :
+
+- `docs/GUIDE_UI.md` — **manuel utilisateur**, organisé selon le parcours réel : créer un projet, écrire, organiser, générer et publier ;
+- `docs/REFERENCE_CONFIGURATION.md` — **référence exhaustive de la configuration**, y compris les options masquées de compatibilité ;
+- `docs/SPEC_JSON_CONFIG_V1.md` — contrat technique et invariants du format `site.json`.
+
+Pour le développement :
 
 - `docs/ARCHITECTURE_PROJET.md`
-- `docs/CODEX_BRIEF_V1.md`
+- `docs/QT_MIGRATION.md`
+- `docs/ROADMAP.md`
+- `docs/TABLE_CORRESPONDANCE_MD_TEI_HTML.md`
 
 ## État
 
-Le générateur est fonctionnel de bout en bout (configuration, éditeur de contenu, génération du
-site, CLI headless) et couvert par une suite de tests automatisés (`pytest`). Le suivi détaillé de
-l'avancement par version (V1 livrée, V1.1/V2 à venir) est tenu dans `docs/ROADMAP.md`.
+Le générateur est fonctionnel de bout en bout : configuration, édition de contenu, génération du site, contrôles, recherche statique, publication FTP/FTPS et CLI headless. La suite `pytest` couvre le comportement automatisable ; la recette visuelle des interfaces reste nécessaire.
 
 Deux éditeurs de contenu coexistent actuellement dans l’interface principale :
 
-- **Éditeur de contenu...** ouvre l’éditeur Tkinter historique, qui reste
-  l’éditeur principal et le fallback ;
-- **Éditeur Qt (expérimental)...** lance l’adaptateur Qt dans un processus
-  séparé. Son gros œuvre et ses outils courants disposent d’une couverture
-  automatisée, mais il reste en phase de recette et ne remplace pas encore
-  l’éditeur Tkinter.
+- **Éditeur de contenu...** ouvre l’éditeur Tkinter historique, qui reste le fallback ;
+- **Éditeur Qt (expérimental)...** lance l’adaptateur Qt dans un processus séparé. Il reste en phase de recette et ne remplace pas encore officiellement l’éditeur Tkinter.
 
-Les deux éditeurs lisent et écrivent le même modèle Mérope et les mêmes fichiers
-Markdown. Le détail utilisateur se trouve dans `docs/GUIDE_UI.md` et l’état de
-la migration Qt dans `docs/QT_MIGRATION.md`.
+Les deux éditeurs lisent et écrivent le même modèle MÉROPE et les mêmes fichiers Markdown.
 
-## Format Obligatoire Des Fichiers Markdown
+## Démarrage rapide
+
+```bash
+pip install -e .
+bloggen gui
+```
+
+Dans l’interface :
+
+1. **Nouveau projet...**
+2. renseigner au minimum le titre du site ;
+3. créer ou importer une page/un billet avec un éditeur de contenu ;
+4. **Générer le site** ;
+5. ouvrir le résultat dans le navigateur depuis le rapport de génération.
+
+Pour publier RSS et sitemap, renseigner aussi **Site > Base URL**.
+
+## Format obligatoire des fichiers Markdown
 
 Chaque fichier Markdown publié doit commencer par un front matter YAML.
 
-Exemple page:
+Exemple page :
 
 ```yaml
 ---
@@ -82,49 +100,38 @@ type: "page"
 ---
 ```
 
-Exemple billet:
+Exemple billet :
 
 ```yaml
 ---
 title: "Premier billet"
 slug: "premier-billet"
 type: "post"
-date: "2026-04-23"
+date: "2026-09-18"
 author: "Auteur facultatif"
 description: "Résumé facultatif"
 draft: false
 ---
 ```
 
-Règles:
-- `title`, `slug`, `type` obligatoires pour tous les contenus.
-- `type` doit valoir `page` ou `post`.
-- `date` obligatoire pour `type: post` (format `YYYY-MM-DD`).
-- `draft: true` exclut le contenu de la génération (HTML/TEI non produits).
+Règles principales :
 
-## Procédure Conseillée Après Export Google Docs
+- `title`, `slug`, `type` obligatoires ;
+- `type` vaut `page` ou `post` ;
+- `date` obligatoire pour `type: post` au format `YYYY-MM-DD` ;
+- `draft: true` exclut le contenu de la génération.
 
-1. Exporter le document en Markdown.
-2. Ajouter en tête un front matter YAML complet (obligatoire).
-3. Placer les images locales dans le dossier d'assets du projet (par exemple `assets/images/`) et vérifier les chemins dans le Markdown.
-4. Lancer la génération du site depuis l'interface ou le pipeline de build.
+Les éditeurs graphiques remplissent ces métadonnées par formulaire : il n’est normalement pas nécessaire de saisir ce YAML à la main.
 
 ## Génération en ligne de commande
 
-En plus de l'interface Tkinter, le site peut être généré sans interface graphique :
-
-```
+```bash
 pip install -e .
 bloggen build --config chemin/vers/config/site.json
 ```
 
-Le code de sortie vaut `0` en cas de succès, `1` sinon (configuration invalide ou erreurs de
-build). Utile pour scripter la génération ou l'intégrer à un pipeline CI.
-
-Pour ouvrir l'interface graphique équivalente : `bloggen gui` (ou `python -m bloggen.app`).
+Le code de sortie vaut `0` en cas de succès, `1` sinon. Pour ouvrir l’interface graphique : `bloggen gui` ou `python -m bloggen.app`.
 
 ## RSS, sitemap et thème
 
-Voir `docs/SPEC_JSON_CONFIG_V1.md` pour :
-- la génération automatique de `feed.xml` et `sitemap.xml` (nécessite `site.base_url`) ;
-- la surcharge du CSS/JS et des gabarits HTML via `paths.theme_dir` / `paths.templates_dir`.
+Voir `docs/GUIDE_UI.md` pour l’usage courant et `docs/REFERENCE_CONFIGURATION.md` pour les clés exactes. La personnalisation du thème et les invariants techniques sont décrits dans `docs/SPEC_JSON_CONFIG_V1.md`.
