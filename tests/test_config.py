@@ -5,6 +5,7 @@ import pytest
 from bloggen.config.defaults import build_default_config
 from bloggen.config.io import ConfigValidationError, load_config, parse_config, save_config, serialize_config
 from bloggen.config.models import ProjectConfig, TopBannerConfig
+from bloggen.config.validator import validate_config_dict
 
 
 def test_load_valid_json_config():
@@ -59,6 +60,20 @@ def test_from_dict_ignores_unknown_keys_in_every_section():
 
     config = ProjectConfig.from_dict(base)
     assert isinstance(config, ProjectConfig)
+
+
+def test_obsolete_home_enabled_is_ignored_and_dropped_on_save(tmp_path):
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["home"]["enabled"] = "legacy-value"
+    assert validate_config_dict(raw) == []
+
+    path = tmp_path / "site.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_config(path)
+    assert not hasattr(config.home, "enabled")
+
+    save_config(config, path)
+    assert "enabled" not in json.loads(path.read_text(encoding="utf-8"))["home"]
 
 
 def test_top_banner_defaults_are_disabled_and_empty():

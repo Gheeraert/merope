@@ -218,10 +218,11 @@ class SearchConfig:
 class FtpConfig:
     """Publishing settings for the FTP/FTPS transfer of the generated site.
 
-    ``password`` is never written to the project's JSON config — see
-    bloggen.publish.ftp_credentials and config/io.py, which persist it to
-    the OS credential store instead and populate this field in memory
-    only for the duration of a load/publish."""
+    ``password`` is kept in memory and MEROPE attempts to persist it in the
+    OS credential store. On success, it is cleared from the saved JSON; if
+    storage fails, it can remain in plaintext in site.json to avoid losing
+    it. Callers collecting save warnings are notified of this fallback.
+    """
 
     host: str = ""
     port: int = 21

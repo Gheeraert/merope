@@ -40,10 +40,10 @@ def parse_config(raw: Any, validate: bool = True) -> ProjectConfig:
 def _resolve_ftp_password(config: ProjectConfig, raw: dict[str, Any]) -> None:
     """Populates ``config.ftp.password`` in memory for this session.
 
-    A password found in ``raw`` means it's a legacy plaintext site.json —
-    migrate it into the OS credential store so the very next save leaves
-    it out of the file for good (see ``_strip_ftp_password_for_disk``).
-    Otherwise (the normal case going forward) it comes from there.
+    For a plaintext password in ``raw``, attempt to migrate it to the OS
+    credential store. A successful store allows the next save to remove it
+    from JSON; if storage fails, the plaintext fallback may be retained.
+    Otherwise, load the password from the credential store.
     """
     ftp = config.ftp
     if ftp.password:

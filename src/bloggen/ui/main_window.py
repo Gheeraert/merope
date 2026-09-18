@@ -173,9 +173,11 @@ class MainWindow(tk.Tk):
                 ("tei_dir", "Dossier TEI", "build/tei"),
             ],
             intro=(
-                "Emplacements de tous les dossiers utilisés par le générateur. "
-                "Les chemins sont relatifs à la « racine projet », sauf celle-ci qui peut être "
-                "absolue. Ces dossiers n'ont pas besoin d'exister à l'avance : MEROPE les crée si besoin."
+                "Emplacements des dossiers utilisés par le générateur. Les chemins relatifs sont "
+                "résolus depuis la « racine projet » ; celle-ci et les autres chemins peuvent aussi "
+                "être absolus. Tous les dossiers ne sont pas créés automatiquement : les dossiers "
+                "de contenu doivent exister pour être lus ; les dossiers de sortie et certains "
+                "dossiers intermédiaires sont créés lorsque la génération en a besoin."
             ),
             help_texts={
                 "project_root": (
@@ -440,8 +442,10 @@ class MainWindow(tk.Tk):
                     "de page."
                 ),
                 "show_last_build_date": (
-                    "Si activé, la date de la dernière modification éditoriale du contenu "
-                    "(pas la date de génération technique) est affichée dans le pied de page."
+                    "Si activé, une date de mise à jour du site est affichée dans le pied de page. "
+                    "MÉROPE utilise la date « updated » des contenus lorsqu'elle est disponible ; "
+                    "à défaut, il peut utiliser la date de modification du fichier source, puis la "
+                    "date de publication. Ce n'est pas la date technique de génération du site."
                 ),
             },
         )

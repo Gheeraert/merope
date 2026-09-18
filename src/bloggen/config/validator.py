@@ -56,7 +56,6 @@ BOOLEAN_FIELDS: tuple[tuple[str, str], ...] = (
     ("banner", "show_title_overlay"),
     ("content", "use_front_matter"),
     ("content", "copy_linked_assets"),
-    ("home", "enabled"),
     ("blog", "enabled"),
     ("blog", "generate_archive_page"),
     ("blog", "sort_descending_by_date"),
