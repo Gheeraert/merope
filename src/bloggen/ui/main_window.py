@@ -248,14 +248,12 @@ class MainWindow(tk.Tk):
         self.content_tab, self.content_vars = _create_form_tab(
             self.notebook,
             [
-                ("source_format", "Format source", "markdown"),
                 ("markdown_origin", "Origine markdown", "google_docs_export"),
                 ("default_page_layout", "Layout page", "page"),
                 ("default_post_layout", "Layout billet", "post"),
                 ("slugify_mode", "Mode slugification", "ascii"),
             ],
             bool_fields=[
-                ("use_front_matter", "Utiliser front matter", True),
                 ("copy_linked_assets", "Copier assets liés", True),
             ],
             intro=(
@@ -263,11 +261,6 @@ class MainWindow(tk.Tk):
                 "avant de les transformer en pages web."
             ),
             help_texts={
-                "source_format": (
-                    "Format des fichiers sources à importer. Actuellement seul le Markdown "
-                    "est pris en charge.\n"
-                    "Valeur attendue : markdown"
-                ),
                 "markdown_origin": (
                     "Outil d'où proviennent vos fichiers Markdown, pour adapter le nettoyage "
                     "et la conversion (ex. suppression des artefacts d'export Google Docs).\n"
@@ -291,17 +284,15 @@ class MainWindow(tk.Tk):
                     "sans accents ni caractères spéciaux.\n"
                     "Exemple : ascii"
                 ),
-                "use_front_matter": (
-                    "Paramètre de compatibilité actuellement sans effet : les fichiers Markdown "
-                    "de MÉROPE doivent toujours comporter un front matter contenant leurs "
-                    "métadonnées."
-                ),
                 "copy_linked_assets": (
                     "Si activé, les images et fichiers référencés depuis vos billets/pages "
                     "sont automatiquement copiés dans le site généré."
                 ),
             },
         )
+        # Kept internally for lossless GUI round-trips of existing site.json files.
+        self.content_vars["source_format"] = tk.StringVar(value=ContentConfig().source_format)
+        self.content_vars["use_front_matter"] = tk.BooleanVar(value=ContentConfig().use_front_matter)
         self.notebook.add(self.content_tab, text="Contenus")
 
         self._build_home_tab()
@@ -359,15 +350,12 @@ class MainWindow(tk.Tk):
         self.render_tab, self.render_vars = _create_form_tab(
             self.notebook,
             [
-                ("theme_name", "Nom thème", "default"),
                 ("html_template", "Template page", "page.html"),
                 ("post_template", "Template billet", "post.html"),
                 ("home_template", "Template accueil", "home.html"),
                 ("tei_to_html_xslt", "Fichier XSLT", "tei_to_html.xsl"),
-                ("lightbox_engine", "Moteur lightbox", "fancybox"),
             ],
             bool_fields=[
-                ("pretty_print_html", "HTML lisible", True),
                 ("generate_tei_files", "Conserver TEI", True),
                 ("validate_commons_publishing", "Diagnostic TEI Commons Publishing", True),
                 ("enable_lightbox", "Activer lightbox", True),
@@ -377,11 +365,6 @@ class MainWindow(tk.Tk):
                 "et options d'affichage des images (lightbox)."
             ),
             help_texts={
-                "theme_name": (
-                    "Nom du thème actif, à titre indicatif/documentaire (n'affecte pas "
-                    "directement les chemins, définis dans l'onglet Chemins).\n"
-                    "Exemple : default"
-                ),
                 "html_template": (
                     "Nom de fichier du gabarit HTML utilisé pour les pages, cherché dans "
                     "le dossier templates (onglet Chemins).\n"
@@ -399,14 +382,6 @@ class MainWindow(tk.Tk):
                     "Nom de fichier de la feuille XSLT qui transforme le TEI intermédiaire "
                     "en HTML, cherché dans le dossier XSLT (onglet Chemins).\n"
                     "Exemple : tei_to_html.xsl"
-                ),
-                "lightbox_engine": (
-                    "Bibliothèque JavaScript utilisée pour agrandir les images cliquées.\n"
-                    "Exemple : fancybox"
-                ),
-                "pretty_print_html": (
-                    "Si activé, le HTML généré est indenté et lisible (plus volumineux mais "
-                    "plus facile à relire/déboguer)."
                 ),
                 "generate_tei_files": (
                     "Si activé, les fichiers TEI intermédiaires sont conservés dans le "
@@ -427,6 +402,11 @@ class MainWindow(tk.Tk):
                 ),
             },
         )
+        # Kept internally for lossless GUI round-trips of existing site.json files.
+        render_defaults = RenderConfig()
+        self.render_vars["theme_name"] = tk.StringVar(value=render_defaults.theme_name)
+        self.render_vars["pretty_print_html"] = tk.BooleanVar(value=render_defaults.pretty_print_html)
+        self.render_vars["lightbox_engine"] = tk.StringVar(value=render_defaults.lightbox_engine)
         self.notebook.add(self.render_tab, text="Rendu")
 
         self.media_panel = MediaPanel(self.notebook, resolve_project_root=lambda: self._resolve_assets_root()[0])
@@ -470,7 +450,6 @@ class MainWindow(tk.Tk):
                 ("clean_output_dir", "Nettoyer dossier de sortie", True),
                 ("copy_assets", "Copier assets", True),
                 ("fail_on_missing_assets", "Échouer si assets manquants", False),
-                ("fail_on_invalid_config", "Échouer si config invalide", True),
                 (
                     "check_broken_links",
                     "Vérifier liens/médias, pages orphelines, canoniques, données structurées et métadonnées SEO",
@@ -508,10 +487,6 @@ class MainWindow(tk.Tk):
                     "Si activé, la génération s'arrête en erreur lorsqu'un fichier "
                     "(image, PDF...) référencé dans le contenu est introuvable. Si désactivé, "
                     "un avertissement est affiché mais la génération continue."
-                ),
-                "fail_on_invalid_config": (
-                    "Paramètre historique actuellement sans effet : la configuration est "
-                    "toujours validée avant la génération dans l'interface et en ligne de commande."
                 ),
                 "check_broken_links": (
                     "Si activé, chaque génération vérifie : que tous les liens et images "
@@ -555,6 +530,10 @@ class MainWindow(tk.Tk):
                     "Exemple : 160"
                 ),
             },
+        )
+        # Kept internally for lossless GUI round-trips of existing site.json files.
+        self.build_vars["fail_on_invalid_config"] = tk.BooleanVar(
+            value=BuildConfig().fail_on_invalid_config
         )
         self.notebook.add(self.build_tab, text="Génération")
 
@@ -612,18 +591,8 @@ class MainWindow(tk.Tk):
         )
         source_browse.grid(row=0, column=2, sticky="w", padx=(0, 8), pady=4)
 
-        layout_var = tk.StringVar(value="home")
-        self.home_vars["layout"] = layout_var
-        layout_label = ttk.Label(self.home_page_frame, text="Layout accueil")
-        layout_label.grid(row=1, column=0, sticky="w", padx=8, pady=4)
-        layout_entry = ttk.Entry(self.home_page_frame, textvariable=layout_var, width=_FIELD_WIDTH)
-        layout_entry.grid(row=1, column=1, sticky="w", padx=8, pady=4)
-        layout_help = (
-            "Paramètre historique actuellement sans effet sur le rendu. "
-            "Le gabarit de la page d'accueil est défini dans l'onglet Rendu > Template accueil."
-        )
-        add_tooltip(layout_label, layout_help)
-        add_tooltip(layout_entry, layout_help)
+        # Kept internally for lossless GUI round-trips of existing site.json files.
+        self.home_vars["layout"] = tk.StringVar(value=HomeConfig().layout)
 
         self.home_recent_frame = ttk.Frame(frame)
         self.home_recent_frame.grid(row=3, column=0, columnspan=3, sticky="w")

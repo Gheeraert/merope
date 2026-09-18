@@ -20,6 +20,7 @@ class MediaPanel(ttk.Frame):
         """
         super().__init__(master)
         self._resolve_project_root = resolve_project_root
+        # Kept internally for lossless GUI round-trips of existing site.json files.
         self.strategy_var = tk.StringVar(value="copy_local_assets")
         self.images_dir_var = tk.StringVar(value="assets/images")
         self.copy_media_var = tk.BooleanVar(value=True)
@@ -40,16 +41,7 @@ class MediaPanel(ttk.Frame):
             foreground="#444444",
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10))
 
-        strategy_entry = _add_row(self, 1, "Stratégie", self.strategy_var)
-        add_tooltip(
-            strategy_entry,
-            "Méthode de récupération des médias référencés dans le contenu : "
-            "« copy_local_assets » copie les fichiers déjà présents localement vers "
-            "le dossier images de sortie.\n"
-            "Exemple : copy_local_assets",
-        )
-
-        images_entry = _add_row(self, 2, "Dossier images", self.images_dir_var)
+        images_entry = _add_row(self, 1, "Dossier images", self.images_dir_var)
         add_tooltip(
             images_entry,
             "Dossier du projet utilisé par les éditeurs de contenu pour enregistrer les "
@@ -58,13 +50,13 @@ class MediaPanel(ttk.Frame):
             "Exemple : assets/images",
         )
         images_browse = ttk.Button(self, text="Parcourir...", command=self._browse_images_dir)
-        images_browse.grid(row=2, column=2, sticky="w", padx=(0, 8), pady=4)
+        images_browse.grid(row=1, column=2, sticky="w", padx=(0, 8), pady=4)
         add_tooltip(images_browse, "Ouvre un sélecteur pour choisir un dossier existant sur le disque.")
 
         copy_cb = ttk.Checkbutton(
             self, text="Copier les médias vers la sortie", variable=self.copy_media_var
         )
-        copy_cb.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        copy_cb.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=4)
         add_tooltip(
             copy_cb,
             "Si activé, les images sont copiées dans le dossier de sortie à chaque "
@@ -76,7 +68,7 @@ class MediaPanel(ttk.Frame):
             text="Figures cliquables",
             variable=self.clickable_figures_var,
         )
-        clickable_cb.grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        clickable_cb.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=4)
         add_tooltip(
             clickable_cb,
             "Si activé, chaque image insérée dans un article devient cliquable pour "
@@ -86,12 +78,12 @@ class MediaPanel(ttk.Frame):
         group_cb = ttk.Checkbutton(
             self, text="Regrouper les figures par article", variable=self.group_posts_var
         )
-        group_cb.grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        group_cb.grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=4)
         add_tooltip(
             group_cb,
             "Si activé, les images d'un même article forment un groupe dans la "
             "visionneuse : on peut naviguer entre elles avec les flèches sans en "
-            "sortir. Nécessite le moteur lightbox « fancybox » (onglet Rendu).",
+            "sortir. Nécessite « Activer lightbox » (onglet Rendu) et « Figures cliquables ».",
         )
 
         caption_cb = ttk.Checkbutton(
@@ -99,7 +91,7 @@ class MediaPanel(ttk.Frame):
             text="Utiliser les légendes comme légendes lightbox",
             variable=self.caption_var,
         )
-        caption_cb.grid(row=6, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        caption_cb.grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=4)
         add_tooltip(
             caption_cb,
             "Si activé, la légende Markdown d'une image (texte sous l'image) est "
