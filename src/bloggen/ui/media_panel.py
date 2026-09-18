@@ -52,8 +52,9 @@ class MediaPanel(ttk.Frame):
         images_entry = _add_row(self, 2, "Dossier images", self.images_dir_var)
         add_tooltip(
             images_entry,
-            "Dossier (relatif à la racine projet) où sont copiées les images utilisées "
-            "dans le site généré.\n"
+            "Dossier du projet utilisé par les éditeurs de contenu pour enregistrer les "
+            "images insérées ou collées. Ce réglage ne détermine pas à lui seul "
+            "l'emplacement des images dans le site généré.\n"
             "Exemple : assets/images",
         )
         images_browse = ttk.Button(self, text="Parcourir...", command=self._browse_images_dir)

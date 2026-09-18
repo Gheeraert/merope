@@ -70,8 +70,10 @@ class FtpPublishDialog(tk.Toplevel):
             (
                 "Mot de passe",
                 self.password_var,
-                "Mot de passe FTP (enregistré dans le gestionnaire d'identifiants de Windows, "
-                "jamais dans le fichier de configuration du projet).",
+                "Mot de passe FTP. MÉROPE tente de l'enregistrer dans le gestionnaire "
+                "d'identifiants du système. Si ce stockage sécurisé est indisponible, le mot "
+                "de passe peut être conservé en clair dans le fichier de configuration ; un "
+                "avertissement est alors affiché.",
             ),
             ("Dossier distant", self.remote_dir_var, "Dossier distant dans lequel transférer le site, ex. /www ou public_html/monsite."),
             ("URL du site publié", self.site_url_var, "Adresse à ouvrir une fois la publication terminée, ex. https://monsite.fr"),

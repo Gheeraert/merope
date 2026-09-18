@@ -66,8 +66,8 @@ class BannerPanel(ttk.Frame):
         image_entry = _add_entry_row(self, 2, "Image", self.image_var)
         add_tooltip(
             image_entry,
-            "Chemin de l'image de bannière, relatif au dossier assets (onglet Chemins).\n"
-            "Exemple : assets/images/banniere.jpg",
+            "Chemin de l'image de bannière, relatif à la racine du projet.\n"
+            "Exemple : assets/banner/banniere.jpg",
         )
         image_browse = ttk.Button(self, text="Parcourir...", command=self._browse_image)
         image_browse.grid(row=2, column=2, sticky="w", padx=(0, 8), pady=4)
@@ -112,8 +112,9 @@ class BannerPanel(ttk.Frame):
         overlay_cb.grid(row=6, column=0, columnspan=2, sticky="w", padx=8, pady=6)
         add_tooltip(
             overlay_cb,
-            "Si activé, le titre du site (onglet Site) est superposé en texte sur "
-            "la bannière plutôt qu'affiché séparément en dessous.",
+            "Si activé, le titre du site et, s'il existe, son sous-titre sont superposés "
+            "à l'image de bannière. Si désactivé, ce bloc de titre n'est pas ajouté "
+            "par la bannière.",
         )
         self.grid_columnconfigure(3, weight=1)
 

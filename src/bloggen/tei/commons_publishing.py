@@ -1,21 +1,16 @@
-"""Diagnostic validation of generated TEI against the TEI Commons
-Publishing RelaxNG schema.
+"""Validation of generated TEI against the TEI Commons Publishing
+RelaxNG schema and its embedded Schematron rules.
 
 Status, as of the phase 2/3 work (teiHeader enrichment, then replacing
 Pandoc's div/@type="levelN" with the profile's own "sectionN" — see the
 commit history and bloggen.tei.postprocess): ordinary editorial content
-(headings up to 6 levels deep via '#'-style Markdown, paragraphs,
+(ATX and Setext headings, paragraphs,
 lists, blockquotes, tables, footnotes, links, figures, inline
-formatting) now validates. Three Markdown constructs remain outside
-what this profile can represent and are known to still fail validation
-when present: fenced code blocks, horizontal rules, and Setext-style
-headings ("Titre\\n===", as opposed to "# Titre") — see
-bloggen.tei.postprocess's module docstring for the first two, and its
-_HEADING_LINE_RE for why the third isn't picked up by the heading-depth
-fixup. None of this is enforced: a page using any of the three still
-builds successfully, with only a warning (see build_site's use of this
-module) — "validate_commons_publishing" is named and worded as a
-diagnostic precisely because it does not gate the build.
+formatting) now validates in the tested cases. Fenced code blocks and
+horizontal rules can still produce TEI outside this profile (see
+bloggen.tei.postprocess's module docstring). A validation issue produces
+a warning by default; when build.fail_on_invalid_commons_publishing is
+enabled, it fails the build (see build_site).
 
 This validates both the RelaxNG grammar and the schema's embedded
 Schematron assertions (9 <sch:assert>/<sch:report> rules, extracted via

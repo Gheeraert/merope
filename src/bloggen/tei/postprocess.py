@@ -253,7 +253,7 @@ def apply_paragraph_alignment_in_tei_file(tei_path: Path) -> bool:
 
 
 def extract_heading_levels(markdown_text: str) -> list[int]:
-    """Return the literal ATX heading levels (1-6), in document order.
+    """Return the literal ATX and Setext heading levels (1-6), in document order.
 
     Pandoc's TEI writer shifts every heading level so that the shallowest
     heading in the whole document becomes ``div/@type="level1"`` (and so

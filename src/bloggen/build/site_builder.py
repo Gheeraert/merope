@@ -268,10 +268,10 @@ def _ensure_archive_path_is_safe(archive_path: str) -> None:
     never goes through ``slugify()``, so a value such as
     ``../../ailleurs`` reaches the filesystem as-is. Confirmed
     exploitable: a build with this set actually wrote a file outside the
-    project. Enforced here unconditionally (not only when
-    ``config/validator.py``'s structural check runs — that's opt-out via
-    ``build.fail_on_invalid_config``, and a caller can hand ``build_site``
-    a ``ProjectConfig`` that was never validated at all).
+    project. Enforced here unconditionally, including when a caller hands
+    ``build_site`` a ``ProjectConfig`` that was never validated. The GUI
+    and CLI run ``config/validator.py`` before calling the builder;
+    ``build.fail_on_invalid_config`` does not control that validation.
     """
     stripped = archive_path.strip("/")
     if not stripped:

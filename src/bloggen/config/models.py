@@ -19,8 +19,8 @@ class SiteConfig:
     # known Creative Commons license (see bloggen.tei.licenses), resolves
     # automatically and overrides license_name/license_url — those two
     # stay as a free-text fallback for any other license. All three blank
-    # means "no license declared", both in the TEI teiHeader and in the
-    # HTML <meta>.
+    # means "no license declared" in the TEI teiHeader. HTML does not
+    # currently expose these license fields.
     license_spdx_id: str = ""
     license_name: str = ""
     license_url: str = ""
@@ -196,13 +196,12 @@ class BuildConfig:
     check_broken_links: bool = True
     fail_on_broken_links: bool = False
     generate_redirects: bool = True
-    # Off by default, like fail_on_broken_links above: three Markdown
-    # constructs (fenced code blocks, horizontal rules, Setext headings)
-    # are still known not to be representable in the Commons Publishing
-    # profile at all (see bloggen.tei.commons_publishing's module
-    # docstring) — a project using any of them would otherwise have every
-    # build start failing the moment this is turned on. Meaningless when
-    # render.validate_commons_publishing is off (see build_site).
+    # Off by default, like fail_on_broken_links above: fenced code blocks
+    # and horizontal rules can still produce TEI outside the Commons
+    # Publishing profile (see bloggen.tei.commons_publishing's module
+    # docstring), which would fail the build when this is on. This flag
+    # has no effect when render.validate_commons_publishing is off (see
+    # build_site).
     fail_on_invalid_commons_publishing: bool = False
 
 

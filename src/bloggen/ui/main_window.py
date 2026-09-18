@@ -122,7 +122,9 @@ class MainWindow(tk.Tk):
                     "Exemple : https://moncarnet.example.org"
                 ),
                 "author": (
-                    "Nom affiché comme auteur du site (métadonnées, footer).\n"
+                    "Nom utilisé comme auteur par défaut dans les métadonnées du site et des "
+                    "contenus lorsqu'aucun auteur propre n'est défini. Il n'est pas ajouté "
+                    "automatiquement au pied de page.\n"
                     "Exemple : Jeanne Dupont"
                 ),
                 "description": (
@@ -131,10 +133,11 @@ class MainWindow(tk.Tk):
                     "Exemple : Carnet de recherche sur les archives orales du XIXe siècle."
                 ),
                 "license_spdx_id": (
-                    "Identifiant SPDX d'une licence Creative Commons connue : son nom et son URL "
-                    "sont alors résolus automatiquement (dans le TEI et le HTML), et les deux "
-                    "champs ci-dessous sont ignorés. Laisser vide si la licence n'est pas une CC "
-                    "standard, ou si aucune licence n'est déclarée.\n"
+                    "Un identifiant SPDX Creative Commons reconnu permet de résoudre "
+                    "automatiquement le nom et l'URL de la licence dans les métadonnées TEI. "
+                    "Les champs libres nom/URL servent de repli si l'identifiant n'est pas "
+                    "reconnu. Le site HTML n'affiche actuellement pas automatiquement cette "
+                    "licence.\n"
                     "Exemple : CC-BY-4.0"
                 ),
                 "license_name": (
@@ -271,14 +274,16 @@ class MainWindow(tk.Tk):
                     "Exemple : google_docs_export"
                 ),
                 "default_page_layout": (
-                    "Nom du template utilisé par défaut pour une page qui ne précise pas "
-                    "de layout dans son en-tête (front matter).\n"
-                    "Exemple : page (correspond à theme/templates/page.html)"
+                    "Valeur de layout par défaut enregistrée dans les métadonnées d'une page. "
+                    "Elle ne sélectionne pas actuellement le gabarit HTML de rendu ; celui-ci "
+                    "est défini dans l'onglet Rendu > Template page.\n"
+                    "Exemple : page"
                 ),
                 "default_post_layout": (
-                    "Nom du template utilisé par défaut pour un billet qui ne précise pas "
-                    "de layout dans son en-tête (front matter).\n"
-                    "Exemple : post (correspond à theme/templates/post.html)"
+                    "Valeur de layout par défaut enregistrée dans les métadonnées d'un billet. "
+                    "Elle ne sélectionne pas actuellement le gabarit HTML de rendu ; celui-ci "
+                    "est défini dans l'onglet Rendu > Template billet.\n"
+                    "Exemple : post"
                 ),
                 "slugify_mode": (
                     "Méthode de fabrication des identifiants d'URL (slugs) à partir des "
@@ -287,8 +292,9 @@ class MainWindow(tk.Tk):
                     "Exemple : ascii"
                 ),
                 "use_front_matter": (
-                    "Si activé, MEROPE lit les métadonnées (titre, date, layout...) placées "
-                    "en tête de chaque fichier Markdown, entre deux lignes « --- »."
+                    "Paramètre de compatibilité actuellement sans effet : les fichiers Markdown "
+                    "de MÉROPE doivent toujours comporter un front matter contenant leurs "
+                    "métadonnées."
                 ),
                 "copy_linked_assets": (
                     "Si activé, les images et fichiers référencés depuis vos billets/pages "
@@ -407,15 +413,13 @@ class MainWindow(tk.Tk):
                     "dossier TEI au lieu d'être supprimés après génération."
                 ),
                 "validate_commons_publishing": (
-                    "Si activé, chaque génération vérifie le TEI produit contre le schéma "
-                    "normatif TEI Commons Publishing (grammaire RelaxNG uniquement — les "
-                    "règles Schematron du schéma ne sont pas évaluées) et affiche un "
-                    "avertissement s'il ne s'y conforme pas. Purement diagnostique : "
-                    "n'affecte jamais le résultat de la génération. Un contenu éditorial "
-                    "ordinaire est désormais conforme ; un avertissement reste attendu "
-                    "seulement pour trois cas non représentables dans ce profil : blocs de "
-                    "code, règles horizontales, et titres au style Setext (« Titre » suivi "
-                    "d'une ligne de =, plutôt que « # Titre »)."
+                    "Si activé, chaque génération vérifie le TEI produit contre le profil TEI "
+                    "Commons Publishing à l'aide des règles RelaxNG et Schematron embarquées. "
+                    "Par défaut, une non-conformité est signalée par un avertissement. Si "
+                    "« Échouer si le TEI généré ne respecte pas le profil Commons Publishing » "
+                    "est activé dans l'onglet Génération, elle fait échouer le build. "
+                    "Les blocs de code et les règles horizontales peuvent encore produire un "
+                    "TEI hors profil ; les titres Setext sont pris en charge dans les cas testés."
                 ),
                 "enable_lightbox": (
                     "Si activé, les images des articles s'ouvrent en grand dans une visionneuse "
@@ -506,8 +510,8 @@ class MainWindow(tk.Tk):
                     "un avertissement est affiché mais la génération continue."
                 ),
                 "fail_on_invalid_config": (
-                    "Si activé, la génération est bloquée tant que la configuration contient "
-                    "des erreurs de validation (voir les messages d'erreur affichés)."
+                    "Paramètre historique actuellement sans effet : la configuration est "
+                    "toujours validée avant la génération dans l'interface et en ligne de commande."
                 ),
                 "check_broken_links": (
                     "Si activé, chaque génération vérifie : que tous les liens et images "
@@ -532,9 +536,8 @@ class MainWindow(tk.Tk):
                     "la génération s'arrête en erreur dès qu'une page ou un billet produit un "
                     "TEI non conforme au profil Commons Publishing. Si désactivé (par défaut), "
                     "un avertissement est affiché mais la génération continue — utile tant que "
-                    "le contenu du projet peut légitimement contenir l'une des trois "
-                    "constructions encore non représentables dans ce profil (blocs de code, "
-                    "règles horizontales, titres au style Setext)."
+                    "le contenu du projet peut légitimement contenir des blocs de code ou des "
+                    "règles horizontales, susceptibles de produire un TEI hors profil."
                 ),
                 "generate_redirects": (
                     "Si activé, renommer le slug d'une page ou d'un billet génère "
@@ -616,8 +619,8 @@ class MainWindow(tk.Tk):
         layout_entry = ttk.Entry(self.home_page_frame, textvariable=layout_var, width=_FIELD_WIDTH)
         layout_entry.grid(row=1, column=1, sticky="w", padx=8, pady=4)
         layout_help = (
-            "Nom du template HTML utilisé pour la page d'accueil.\n"
-            "Exemple : home (correspond à theme/templates/home.html)"
+            "Paramètre historique actuellement sans effet sur le rendu. "
+            "Le gabarit de la page d'accueil est défini dans l'onglet Rendu > Template accueil."
         )
         add_tooltip(layout_label, layout_help)
         add_tooltip(layout_entry, layout_help)
