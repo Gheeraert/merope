@@ -37,6 +37,14 @@ class BannerConfig:
 
 
 @dataclass(slots=True)
+class TopBannerConfig:
+    enabled: bool = False
+    image: str = ""
+    alt: str = ""
+    link: str = ""
+
+
+@dataclass(slots=True)
 class PathsConfig:
     project_root: str = "."
     content_dir: str = "content"
@@ -230,6 +238,7 @@ class FtpConfig:
 class ProjectConfig:
     version: str = "1.0"
     site: SiteConfig = field(default_factory=SiteConfig)
+    top_banner: TopBannerConfig = field(default_factory=TopBannerConfig)
     banner: BannerConfig = field(default_factory=BannerConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     content: ContentConfig = field(default_factory=ContentConfig)
@@ -254,6 +263,7 @@ class ProjectConfig:
         # older site.json must be dropped, not raise a raw TypeError out of
         # the dataclass constructor (see _filtered_fields' docstring).
         site = SiteConfig(**_filtered_fields(SiteConfig, _dict_or_empty(raw.get("site"))))
+        top_banner = TopBannerConfig(**_filtered_fields(TopBannerConfig, _dict_or_empty(raw.get("top_banner"))))
         banner = BannerConfig(**_filtered_fields(BannerConfig, _dict_or_empty(raw.get("banner"))))
         paths = PathsConfig(**_filtered_fields(PathsConfig, _dict_or_empty(raw.get("paths"))))
         content = ContentConfig(**_filtered_fields(ContentConfig, _dict_or_empty(raw.get("content"))))
@@ -274,6 +284,7 @@ class ProjectConfig:
         return cls(
             version=str(raw.get("version", "1.0")),
             site=site,
+            top_banner=top_banner,
             banner=banner,
             paths=paths,
             content=content,

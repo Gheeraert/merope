@@ -88,6 +88,29 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+.top-banner {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 0.7rem 1.5rem;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.top-banner-link {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.top-banner-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 72px;
+}
+
 .site-banner {
   position: relative;
   overflow: hidden;
@@ -1227,6 +1250,10 @@ button:focus-visible {
 }
 
 @media (max-width: 640px) {
+  .top-banner {
+    padding: 0.6rem 1rem;
+  }
+
   .top-menu {
     flex: 1 1 100%;
     margin-left: 0;

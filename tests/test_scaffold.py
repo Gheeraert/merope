@@ -35,6 +35,8 @@ def test_scaffolded_config_is_valid_and_loadable(tmp_path: Path):
 
     assert config.home.source == "content/pages/bienvenue.md"
     assert config.paths.project_root == "."
+    assert config.top_banner.enabled is False
+    assert config.top_banner.image == ""
 
 
 def test_scaffolded_content_loads_without_warnings_or_errors(tmp_path: Path):

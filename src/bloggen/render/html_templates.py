@@ -36,6 +36,7 @@ def render_page_document(
     canonical_path: str | None = None,
     site_last_updated: str | None = None,
 ) -> str:
+    top_banner_html = _render_top_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     banner_html = _render_banner(config, asset_prefix=asset_prefix, current_path=current_path)
     top_menu_html = build_top_menu_html(config.menus.top, current_path=current_path)
     side_menu_html = build_side_menu_html(
@@ -100,6 +101,7 @@ def render_page_document(
             seo_meta=seo_html,
             css_href=escape(css_href),
             lightbox_enabled=lightbox_enabled_attr,
+            top_banner=top_banner_html,
             banner=banner_html,
             top_menu=top_menu_html,
             side_menu=side_menu_html,
@@ -126,6 +128,7 @@ def render_page_document(
         f"    <link rel=\"stylesheet\" href=\"{escape(css_href)}\">\n"
         "  </head>\n"
         f"  <body data-lightbox-enabled=\"{lightbox_enabled_attr}\">\n"
+        f"    {top_banner_html}\n"
         f"    {banner_html}\n"
         f"    {masthead_html}\n"
         f"    <div class=\"page-layout {side_class}\">\n"
@@ -314,6 +317,22 @@ def _normalize_archive_item(
     label, url, date = item
     normalized_date = (date or "").strip() or None
     return label, url, normalized_date
+
+
+def _render_top_banner(config: ProjectConfig, *, asset_prefix: str, current_path: str) -> str:
+    if not config.top_banner.enabled or not (config.top_banner.image or "").strip():
+        return ""
+
+    image = _asset_url(config.top_banner.image, asset_prefix=asset_prefix)
+    image_html = (
+        f'<img class="top-banner-image" src="{escape(image)}" '
+        f'alt="{escape(config.top_banner.alt or "")}">'
+    )
+    link = (config.top_banner.link or "").strip()
+    if link:
+        href = resolve_navigation_href(link, current_path=current_path)
+        image_html = f'<a class="top-banner-link" href="{escape(href)}">{image_html}</a>'
+    return f'<div class="top-banner">{image_html}</div>'
 
 
 def _render_banner(config: ProjectConfig, *, asset_prefix: str, current_path: str) -> str:

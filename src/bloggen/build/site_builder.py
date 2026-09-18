@@ -368,6 +368,7 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
         # stays identical across repeated builds of unchanged content.
         site_last_updated = _compute_site_last_updated(loaded)
 
+        _guard_top_banner_asset(runtime_config, project_root=project_root, report=report)
         _guard_banner_asset(runtime_config, project_root=project_root, report=report)
         _generate_external_link_pages(
             runtime_config,
@@ -1369,6 +1370,30 @@ def _lightbox_group_name(item: ContentItem, config: ProjectConfig) -> str:
     if config.media_handling.fancybox_group_posts:
         return f"{item.kind}-{item.metadata.slug}"
     return "site"
+
+
+def _guard_top_banner_asset(config: ProjectConfig, *, project_root: Path, report: BuildReport) -> None:
+    if not config.top_banner.enabled:
+        return
+
+    image = (config.top_banner.image or "").strip()
+    if not image:
+        config.top_banner.enabled = False
+        report.warnings.append("Bandeau supérieur désactivé: chemin d'image vide.")
+        return
+
+    if _URI_SCHEME_RE.match(image) or image.startswith("//"):
+        return
+
+    candidate = Path(image)
+    if not candidate.is_absolute():
+        candidate = (project_root / image.lstrip("/\\")).resolve()
+
+    if candidate.exists():
+        return
+
+    config.top_banner.enabled = False
+    report.warnings.append(f"Bandeau supérieur désactivé: image introuvable ({candidate}).")
 
 
 def _guard_banner_asset(config: ProjectConfig, *, project_root: Path, report: BuildReport) -> None:

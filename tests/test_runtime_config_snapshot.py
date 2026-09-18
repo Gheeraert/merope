@@ -25,6 +25,10 @@ def _rich_config() -> ProjectConfig:
     config.site.author = "Bossuet"
     config.banner.enabled = True
     config.banner.image = "assets/banner.jpg"
+    config.top_banner.enabled = True
+    config.top_banner.image = "assets/top-banner/institution.png"
+    config.top_banner.alt = "Institution"
+    config.top_banner.link = "/index.html"
     config.paths.project_root = "projet"
     config.content.slugify_mode = "unicode"
     config.menus.top = [MenuLink("Accueil", "/index.html")]
@@ -65,6 +69,7 @@ def test_runtime_snapshot_round_trip_preserves_renderer_configuration():
     restored_dict = restored.to_dict()
     for section in (
         "site",
+        "top_banner",
         "banner",
         "paths",
         "content",

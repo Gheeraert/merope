@@ -51,6 +51,7 @@ HOME_MODES = ("page", "recent_posts")
 TARGET_TYPES = ("internal", "external")
 
 BOOLEAN_FIELDS: tuple[tuple[str, str], ...] = (
+    ("top_banner", "enabled"),
     ("banner", "enabled"),
     ("banner", "show_title_overlay"),
     ("content", "use_front_matter"),

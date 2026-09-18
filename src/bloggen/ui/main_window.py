@@ -48,6 +48,7 @@ from bloggen.ui.qt_editor_launcher import (
 )
 from bloggen.ui.qt_editor_protocol import ProtocolEvent
 from bloggen.ui.site_preview import SitePreviewServer
+from bloggen.ui.top_banner_panel import TopBannerPanel
 from bloggen.ui.tooltip import add_tooltip
 
 _HOME_MODE_PAGE = "page"
@@ -147,6 +148,9 @@ class MainWindow(tk.Tk):
             },
         )
         self.notebook.add(self.site_tab, text="Site")
+
+        self.top_banner_panel = TopBannerPanel(self.notebook, resolve_assets_root=self._resolve_assets_root)
+        self.notebook.add(self.top_banner_panel, text="Bandeau supérieur")
 
         self.banner_panel = BannerPanel(self.notebook, resolve_assets_root=self._resolve_assets_root)
         self.notebook.add(self.banner_panel, text="Bannière")
@@ -1131,6 +1135,7 @@ class MainWindow(tk.Tk):
 
     def _load_into_form(self, config: ProjectConfig) -> None:
         _set_vars(self.site_vars, config.site)
+        self.top_banner_panel.set_data(config.top_banner)
         self.banner_panel.set_data(config.banner)
         _set_vars(self.paths_vars, config.paths)
         _set_vars(self.content_vars, config.content)
@@ -1184,6 +1189,7 @@ class MainWindow(tk.Tk):
         return ProjectConfig(
             version="1.0",
             site=site,
+            top_banner=self.top_banner_panel.get_data(),
             banner=self.banner_panel.get_data(),
             paths=paths,
             content=content,

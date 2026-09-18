@@ -3,7 +3,8 @@ import json
 import pytest
 
 from bloggen.config.defaults import build_default_config
-from bloggen.config.io import ConfigValidationError, load_config, parse_config, serialize_config
+from bloggen.config.io import ConfigValidationError, load_config, parse_config, save_config, serialize_config
+from bloggen.config.models import ProjectConfig, TopBannerConfig
 
 
 def test_load_valid_json_config():
@@ -40,6 +41,7 @@ def test_from_dict_ignores_unknown_keys_in_every_section():
     base = json.loads(serialize_config(build_default_config()))
     for section in (
         "site",
+        "top_banner",
         "banner",
         "paths",
         "content",
@@ -57,6 +59,55 @@ def test_from_dict_ignores_unknown_keys_in_every_section():
 
     config = ProjectConfig.from_dict(base)
     assert isinstance(config, ProjectConfig)
+
+
+def test_top_banner_defaults_are_disabled_and_empty():
+    assert ProjectConfig().top_banner == TopBannerConfig()
+    assert ProjectConfig().top_banner.enabled is False
+    assert ProjectConfig().top_banner.image == ""
+    assert ProjectConfig().top_banner.alt == ""
+    assert ProjectConfig().top_banner.link == ""
+
+
+def test_top_banner_round_trip_through_save_and_load(tmp_path):
+    config = build_default_config()
+    config.top_banner = TopBannerConfig(
+        enabled=True,
+        image="assets/top-banner/institution.png",
+        alt="Institution & université",
+        link="https://example.org/",
+    )
+    path = tmp_path / "site.json"
+
+    save_config(config, path)
+    loaded = load_config(path)
+
+    assert loaded.top_banner == config.top_banner
+
+
+def test_legacy_site_json_without_top_banner_loads_and_saves(tmp_path):
+    raw = json.loads(serialize_config(build_default_config()))
+    del raw["top_banner"]
+    path = tmp_path / "site.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = load_config(path)
+    assert loaded.top_banner == TopBannerConfig()
+    save_config(loaded, path)
+    assert load_config(path).top_banner.enabled is False
+
+
+def test_top_banner_ignores_unknown_keys():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["top_banner"] = {
+        "enabled": True,
+        "image": "assets/top-banner/institution.png",
+        "legacy_option": "x",
+    }
+
+    assert parse_config(raw).top_banner == TopBannerConfig(
+        enabled=True, image="assets/top-banner/institution.png"
+    )
 
 
 def test_default_config_generation():
