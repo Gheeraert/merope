@@ -31,6 +31,7 @@ class MenuLinkDialog(simpledialog.Dialog):
         self.label_var = tk.StringVar(value=self.initial.label)
         self.target_var = tk.StringVar(value=self.initial.target)
         self.enabled_var = tk.BooleanVar(value=self.initial.enabled)
+        self.new_tab_var = tk.BooleanVar(value=self.initial.new_tab)
         self.pointing_type_var = tk.StringVar(
             value=self._POINTING_EXTERNAL if self.initial.target_type == "external" else self._POINTING_INTERNAL
         )
@@ -114,6 +115,17 @@ class MenuLinkDialog(simpledialog.Dialog):
             "Si décoché, ce lien est conservé dans la configuration mais n'apparaît "
             "pas dans le menu du site généré.",
         )
+        self._new_tab_checkbox = ttk.Checkbutton(
+            master, text="Ouvrir dans un nouvel onglet", variable=self.new_tab_var
+        )
+        self._new_tab_checkbox.grid(row=5, column=0, columnspan=2, sticky="w", padx=4, pady=4)
+        add_tooltip(
+            self._new_tab_checkbox,
+            "Si coché, le lien s'ouvre dans un nouvel onglet du navigateur. MÉROPE ajoute "
+            "les attributs de sécurité adaptés au lien généré. Pour un lien externe intégré, "
+            "le nouvel onglet ouvre la page d'intégration générée par MÉROPE, pas directement "
+            "le site externe.",
+        )
         master.grid_columnconfigure(1, weight=1)
         self._update_picker_visibility()
         return label_entry
@@ -145,7 +157,7 @@ class MenuLinkDialog(simpledialog.Dialog):
             target=self.target_var.get().strip(),
             target_type=target_type,
             enabled=self.enabled_var.get(),
-            new_tab=False,
+            new_tab=self.new_tab_var.get(),
         )
 
 

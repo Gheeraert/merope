@@ -7,13 +7,17 @@ other Tkinter-heavy UI code in this project.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import tkinter as tk
 
 import pytest
 
+from bloggen.config.defaults import build_default_config
+from bloggen.config.io import load_config, save_config
 from bloggen.config.models import MenuLink, SideMenuSection, SideMenuSubSection
 from bloggen.ui.dialogs import MenuLinkDialog, SideSectionDialog, SideSubSectionDialog
-from bloggen.ui.menu_editor import SideMenuEditor
+from bloggen.ui.menu_editor import SideMenuEditor, TopMenuEditor
 
 
 @pytest.fixture(scope="module")
@@ -81,6 +85,7 @@ def test_picker_preselects_matching_label_when_editing(root):
 
 def test_apply_produces_internal_link_with_new_tab_false(root):
     dialog = _make_dialog(root, MenuLink(label="", target=""))
+    assert dialog.new_tab_var.get() is False
     dialog.label_var.set("Accueil")
     dialog.target_var.set("/index.html")
     dialog.apply()
@@ -103,6 +108,61 @@ def test_apply_produces_external_link_with_new_tab_false(root):
         enabled=True,
         new_tab=False,
     )
+
+
+def test_existing_new_tab_survives_dialog_and_json_round_trip(root, tmp_path: Path):
+    config = build_default_config()
+    config.menus.top = [MenuLink(label="Exemple", target="/exemple/index.html", new_tab=True)]
+    config_path = tmp_path / "site.json"
+    save_config(config, config_path)
+    loaded = load_config(config_path)
+
+    dialog = _make_dialog(root, loaded.menus.top[0])
+    assert dialog.new_tab_var.get() is True
+    assert dialog._new_tab_checkbox.cget("text") == "Ouvrir dans un nouvel onglet"
+    assert str(dialog._new_tab_checkbox.cget("variable")) == str(dialog.new_tab_var)
+    assert dialog.validate() is True
+    dialog.apply()
+
+    assert dialog.result.new_tab is True
+    loaded.menus.top[0] = dialog.result
+    save_config(loaded, config_path)
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["menus"]["top"][0]["new_tab"] is True
+
+
+def test_new_tab_can_be_disabled_and_enabled_in_dialog(root):
+    existing = _make_dialog(root, MenuLink(label="Exemple", target="/index.html", new_tab=True))
+    existing.new_tab_var.set(False)
+    existing.apply()
+    assert existing.result.new_tab is False
+
+    new = _make_dialog(root, MenuLink(label="Exemple", target="/index.html"))
+    assert new.new_tab_var.get() is False
+    new.new_tab_var.set(True)
+    new.apply()
+    assert new.result.new_tab is True
+
+
+def test_new_tab_survives_top_and_side_menu_editor_round_trips(root):
+    link = MenuLink(label="Exemple", target="/exemple/index.html", new_tab=True)
+    top = TopMenuEditor(root)
+    top.set_items([link])
+    assert top.get_items()[0].new_tab is True
+
+    side = SideMenuEditor(root)
+    side.set_sections(
+        [
+            SideMenuSection(
+                label="Navigation",
+                children=[link],
+                subsections=[SideMenuSubSection(label="Groupe", children=[link])],
+            )
+        ]
+    )
+    sections = side.get_sections()
+    assert sections[0].children[0].new_tab is True
+    assert sections[0].subsections[0].children[0].new_tab is True
 
 
 def _make_section_dialog(root: tk.Tk, initial: SideMenuSection, content_targets=None) -> SideSectionDialog:

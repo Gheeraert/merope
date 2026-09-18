@@ -38,6 +38,17 @@ def test_top_menu_basic_manipulation():
     assert len(items) == 1
 
 
+def test_toggling_menu_links_preserves_new_tab():
+    link = MenuLink(label="Exemple", target="/exemple/index.html", new_tab=True)
+    top = [link]
+    toggle_top_menu_item(top, 0)
+    assert top[0].new_tab is True
+
+    side = SideMenuSection(label="Navigation", children=[link])
+    toggle_side_child(side, 0)
+    assert side.children[0].new_tab is True
+
+
 def test_side_menu_basic_manipulation():
     sections: list[SideMenuSection] = []
     first = SideMenuSection(label="Section A")

@@ -1,6 +1,6 @@
 ﻿from bloggen.config.models import MenuLink, SideMenuSection, SideMenuSubSection
 from bloggen.render.html_templates import render_archive_fragment
-from bloggen.render.navigation import build_side_menu_html, resolve_navigation_href
+from bloggen.render.navigation import build_side_menu_html, build_top_menu_html, resolve_navigation_href
 
 
 def test_resolve_navigation_href_keeps_external_and_anchor_links():
@@ -16,6 +16,17 @@ def test_resolve_navigation_href_converts_root_internal_links_to_relative():
 
 def test_resolve_navigation_href_keeps_already_relative_links():
     assert resolve_navigation_href("../index.html", current_path="/billets/premier-billet/index.html") == "../index.html"
+
+
+def test_menu_links_open_new_tab_with_security_attributes_in_top_and_side_menus():
+    link = MenuLink(label="Exemple", target="/exemple/index.html", new_tab=True)
+    top_html = build_top_menu_html([link], current_path="/index.html")
+    side_html = build_side_menu_html(
+        [SideMenuSection(label="Navigation", children=[link])], current_path="/index.html"
+    )
+
+    for html in (top_html, side_html):
+        assert 'target="_blank" rel="noopener noreferrer"' in html
 
 
 def test_render_archive_fragment_relativizes_only_internal_root_links():
