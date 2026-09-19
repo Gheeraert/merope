@@ -198,6 +198,144 @@ def test_span_with_bold_style_google_docs():
     assert _export('<p><span style="font-weight:700">Gras</span> normal.</p>') == "**Gras** normal.\n"
 
 
+# -- opaque script/style/noscript/template content -------------------------
+
+
+def test_script_tag_content_is_fully_dropped():
+    html = "<p>Avant</p><script>alert('x')</script><p>Après</p>"
+    assert _export(html) == "Avant\n\nAprès\n"
+
+
+def test_style_tag_content_is_fully_dropped():
+    html = "<p>Avant</p><style>body { display:none }</style><p>Après</p>"
+    assert _export(html) == "Avant\n\nAprès\n"
+
+
+def test_noscript_tag_content_is_fully_dropped():
+    html = "<p>Avant</p><noscript>contenu alternatif</noscript><p>Après</p>"
+    assert _export(html) == "Avant\n\nAprès\n"
+
+
+def test_template_tag_content_is_fully_dropped():
+    html = "<p>Avant</p><template><p>contenu caché</p></template><p>Après</p>"
+    assert _export(html) == "Avant\n\nAprès\n"
+
+
+def test_opaque_tags_in_different_case_are_also_dropped():
+    html = "<p>Avant</p><SCRIPT>alert('x')</SCRIPT><p>Après</p>"
+    assert _export(html) == "Avant\n\nAprès\n"
+
+
+def test_nested_tags_inside_an_opaque_element_are_also_ignored():
+    html = "<p>Avant</p><template><div><p>un</p><ul><li>deux</li></ul></div></template><p>Après</p>"
+    assert _export(html) == "Avant\n\nAprès\n"
+
+
+def test_successive_opaque_blocks_are_each_dropped_and_parsing_resumes_normally():
+    html = (
+        "<p>Un</p>"
+        "<script>alert(1)</script>"
+        "<p>Deux</p>"
+        "<style>a{}</style>"
+        "<p>Trois</p>"
+    )
+    assert _export(html) == "Un\n\nDeux\n\nTrois\n"
+
+
+def test_unrecognized_tag_still_keeps_its_visible_text_alongside_opaque_tags():
+    html = "<script>evil()</script><customtag>Contenu conservé</customtag>"
+    assert _export(html) == "Contenu conservé\n"
+
+
+def test_reject_tags_still_wins_over_the_opaque_content_mechanism():
+    with pytest.raises(UnsupportedHtmlStructureError, match="<script>"):
+        html_to_blocks("<p>Avant</p><script>alert(1)</script>", reject_tags={"script"})
+
+
+# -- dangerous href filtering ------------------------------------------------
+
+
+def test_javascript_href_becomes_plain_text_without_a_link():
+    html = '<p><a href="javascript:alert(1)">Cliquez ici</a></p>'
+    blocks = html_to_blocks(html)
+    run = blocks[0].runs[0]
+    assert run.link_href is None
+    assert run.text == "Cliquez ici"
+    assert _export(html) == "Cliquez ici\n"
+
+
+def test_javascript_href_case_variant_is_also_blocked():
+    html = '<p><a href="JaVaScRiPt:alert(1)">Cliquez ici</a></p>'
+    md = _export(html)
+    assert "javascript:" not in md.lower()
+    assert md == "Cliquez ici\n"
+
+
+def test_data_href_is_blocked():
+    html = '<p><a href="data:text/html,<script>alert(1)</script>">Voir</a></p>'
+    md = _export(html)
+    assert "data:" not in md
+    assert md == "Voir\n"
+
+
+def test_vbscript_href_is_blocked():
+    html = '<p><a href="vbscript:msgbox(1)">Voir</a></p>'
+    md = _export(html)
+    assert "vbscript:" not in md
+    assert md == "Voir\n"
+
+
+def test_href_with_control_characters_that_normalize_to_a_dangerous_scheme_is_blocked():
+    html = '<p><a href="java\tscript:alert(1)">Cliquez ici</a></p>'
+    md = _export(html)
+    assert "script:" not in md
+    assert md == "Cliquez ici\n"
+
+
+def test_href_with_leading_and_trailing_whitespace_around_a_dangerous_scheme_is_blocked():
+    html = '<p><a href="  javascript:alert(1)  ">Cliquez ici</a></p>'
+    md = _export(html)
+    assert "javascript:" not in md
+    assert md == "Cliquez ici\n"
+
+
+def test_https_href_is_preserved():
+    assert _export('<p><a href="https://example.org/page">lien</a></p>') == "[lien](https://example.org/page)\n"
+
+
+def test_http_href_is_preserved():
+    assert _export('<p><a href="http://example.org/page">lien</a></p>') == "[lien](http://example.org/page)\n"
+
+
+def test_mailto_href_is_preserved():
+    assert _export('<p><a href="mailto:nom@example.org">lien</a></p>') == "[lien](mailto:nom@example.org)\n"
+
+
+def test_tel_href_is_preserved():
+    assert _export('<p><a href="tel:+33123456789">lien</a></p>') == "[lien](tel:+33123456789)\n"
+
+
+def test_relative_href_is_preserved():
+    assert _export('<p><a href="/chemin/interne">lien</a></p>') == "[lien](/chemin/interne)\n"
+    assert _export('<p><a href="../page">lien</a></p>') == "[lien](../page)\n"
+    assert _export('<p><a href="page.html">lien</a></p>') == "[lien](page.html)\n"
+
+
+def test_fragment_href_is_preserved():
+    assert _export('<p><a href="#ancre">lien</a></p>') == "[lien](#ancre)\n"
+
+
+def test_protocol_relative_href_is_preserved():
+    assert _export('<p><a href="//example.org/page">lien</a></p>') == "[lien](//example.org/page)\n"
+
+
+def test_dangerous_href_filter_does_not_affect_data_uri_images(tmp_path: Path):
+    html = f'<p><img src="data:image/png;base64,{_TINY_PNG_BASE64}"></p>'
+    blocks = html_to_blocks(html, images_dir=tmp_path)
+    run = blocks[0].runs[0]
+    assert run.image_src is not None
+
+
 def test_typography_curly_quotes_converted():
     html = "<p>Il a dit “bonjour” hier!</p>"
     result = _export(html)

@@ -81,6 +81,24 @@ _IMAGE_SUBTYPE_EXTENSIONS = {
 }
 _WHITESPACE_RE = re.compile(r"\s+")
 _BOLD_WEIGHTS = {"bold", "bolder", "600", "700", "800", "900"}
+# Unlike an ordinary unrecognized tag (whose visible text is kept, degraded
+# to plain prose), these four are never editorial content: their entire
+# subtree is inert-by-convention-only (script/style are only inert because
+# browsers don't render them as text; a naive importer that unwraps unknown
+# tags would happily surface their contents as prose) or explicitly hidden
+# (noscript/template). They and everything inside them are dropped.
+_OPAQUE_CONTENT_TAGS = {"script", "style", "noscript", "template"}
+# Deliberately small: only schemes that cannot execute code or embed
+# arbitrary payloads in a browser context. Everything else (javascript:,
+# data:, vbscript:, and any scheme not on this list) is refused rather than
+# enumerated, since an allowlist here is the only way to be sure a new or
+# obscure active scheme doesn't slip through unnoticed.
+_ALLOWED_LINK_SCHEMES = {"http", "https", "mailto", "tel"}
+# Trivial obfuscation (stray control characters within or around the
+# scheme, e.g. "java\tscript:") is stripped before the scheme is judged, so
+# that normalizing away the noise can't turn a rejected scheme into an
+# accepted one.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 class UnsupportedHtmlStructureError(ValueError):
@@ -178,6 +196,12 @@ class _HtmlBlockBuilder(HTMLParser):
         self.result: list[Block] = []
         self.frame_stack: list[_Frame] = []
         self.inline_stack: list[dict] = []
+        # Stack of every start tag seen while inside an opaque
+        # (script/style/noscript/template) subtree, so nested tags of any
+        # kind — including another opaque tag — are tracked and normal
+        # parsing only resumes once the opaque element that started it is
+        # itself closed.
+        self.ignore_stack: list[str] = []
 
     # -- inline formatting state --------------------------------------
 
@@ -407,9 +431,20 @@ class _HtmlBlockBuilder(HTMLParser):
     def _handle_start(self, tag: str, attrs: list[tuple[str, str | None]], *, self_closing: bool) -> None:
         tag = tag.lower()
         if tag in self.reject_tags:
+            # An explicit reject_tags request always wins, even for a tag
+            # that would otherwise be swallowed as opaque content below —
+            # the caller asked to know about it, not to have it silently
+            # disappear.
             raise UnsupportedHtmlStructureError(
                 f"La structure HTML <{tag}> n’est pas encore prise en charge par l’éditeur Qt"
             )
+        if self.ignore_stack or tag in _OPAQUE_CONTENT_TAGS:
+            # Self-closing tags (`<template/>`) never get a matching
+            # handle_endtag, so they must not be pushed: nothing would ever
+            # pop them back off, and parsing would stay "ignoring" forever.
+            if not self_closing:
+                self.ignore_stack.append(tag)
+            return
         attrs_dict = {k.lower(): (v or "") for k, v in attrs}
 
         if tag == "img":
@@ -431,7 +466,10 @@ class _HtmlBlockBuilder(HTMLParser):
             self._open_block(tag)
             return
         if tag == "a":
-            self._push_inline(link_href=attrs_dict.get("href") or None)
+            href = attrs_dict.get("href") or None
+            if href is not None:
+                href = _sanitize_link_href(href)
+            self._push_inline(link_href=href)
             return
         # Google Docs in particular wraps whole documents in a
         # `<b id="docs-internal-guid-..." style="font-weight:normal">`
@@ -456,6 +494,13 @@ class _HtmlBlockBuilder(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
+        if self.ignore_stack:
+            # LIFO pop regardless of name match: real-world pasted HTML is
+            # not always perfectly well-formed, and getting stuck
+            # permanently "ignoring" on a mismatched close tag would be far
+            # worse than an occasional off-by-one on malformed input.
+            self.ignore_stack.pop()
+            return
         if tag in ("img", "br"):
             return
         if self.allow_vml_images and tag in ("v:imagedata", "v:shape"):
@@ -466,6 +511,8 @@ class _HtmlBlockBuilder(HTMLParser):
         self._pop_inline()
 
     def handle_data(self, data: str) -> None:
+        if self.ignore_stack:
+            return
         collapsed = _WHITESPACE_RE.sub(" ", data)
         if collapsed.strip() == "" and self._current_leaf_frame() is None:
             return
@@ -518,6 +565,25 @@ def _style_is_underline(style: dict[str, str]) -> bool:
 
 def _style_is_superscript(style: dict[str, str]) -> bool:
     return style.get("vertical-align", "") == "super"
+
+
+def _sanitize_link_href(href: str) -> str | None:
+    """Validates a pasted `<a href>` before it can become ``InlineRun.link_href``.
+
+    An allowlist of schemes (rather than a blocklist of dangerous ones) is
+    used deliberately: it is the only way to be sure some obscure or
+    future active scheme isn't simply missing from the list. A link with
+    no scheme at all (relative path, ``#fragment``, protocol-relative
+    ``//host/...``) is always accepted, matching the historical behaviour
+    for ordinary editorial links.
+    """
+    cleaned = _CONTROL_CHARS_RE.sub("", href).strip()
+    if not cleaned:
+        return None
+    scheme = urlparse(cleaned).scheme.lower()
+    if scheme and scheme not in _ALLOWED_LINK_SCHEMES:
+        return None
+    return cleaned
 
 
 def _positive_dimension(value: str | None) -> str | None:
