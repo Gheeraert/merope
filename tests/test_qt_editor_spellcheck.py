@@ -35,6 +35,7 @@ import bloggen.ui.qt_editor.spellcheck as spellcheck_module
 from bloggen.ui.qt_editor.spellcheck import (
     FrenchSpellChecker,
     SpellingIssue,
+    match_case,
     spellcheck_available,
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
@@ -392,3 +393,34 @@ def test_live_correction_removes_the_spelling_underline():
 
     assert editor.document().begin().text() == "bonjour"
     assert _spell_ranges(editor.document().begin()) == []
+
+
+def test_suggestions_ranks_a_correction_first_for_a_typo():
+    checker = FrenchSpellChecker()
+
+    assert "bonjour" in checker.suggestions("bonjor")
+
+
+def test_suggestions_is_empty_for_an_already_correct_word():
+    checker = FrenchSpellChecker()
+
+    assert checker.suggestions("bonjour") == []
+
+
+def test_suggestions_is_capped_at_the_requested_limit():
+    checker = FrenchSpellChecker()
+
+    assert len(checker.suggestions("bonjor", limit=2)) <= 2
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "expected"),
+    [
+        ("boujour", "bonjour", "bonjour"),
+        ("Boujour", "bonjour", "Bonjour"),
+        ("BOUJOUR", "bonjour", "BONJOUR"),
+        ("B", "bonjour", "Bonjour"),
+    ],
+)
+def test_match_case_carries_the_original_capitalization(original, replacement, expected):
+    assert match_case(original, replacement) == expected

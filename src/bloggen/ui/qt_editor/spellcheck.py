@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import (
     QColor,
     QSyntaxHighlighter,
+    QTextBlock,
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
@@ -106,6 +107,21 @@ class FrenchSpellChecker:
             self._known_cache[key] = known
         return known
 
+    def suggestions(self, word: str, *, limit: int = 5) -> list[str]:
+        """Ranked correction candidates for a misspelled word, best first.
+
+        Empty if the checker is unavailable, the word is already known, or
+        the dictionary has nothing within its edit-distance budget.
+        """
+
+        if self._spellchecker is None or self.is_known(word):
+            return []
+        candidates = self._spellchecker.candidates(word)
+        if not candidates:
+            return []
+        ranked = sorted(candidates, key=lambda candidate: self._spellchecker[candidate], reverse=True)
+        return ranked[:limit]
+
     def issues(self, text: str) -> list[SpellingIssue]:
         if self._spellchecker is None:
             return []
@@ -168,6 +184,42 @@ def _range_overlaps_any(
     )
 
 
+def block_is_editorial(block: QTextBlock) -> bool:
+    """Whether *block* is prose the spellchecker should look at — shared by
+    the highlighter (which blocks to underline) and the context menu (which
+    blocks may offer a correction), so both draw the same line around
+    tables/captions/raw source.
+    """
+    if not block.isValid():
+        return False
+    block_format = block.blockFormat()
+    if block_format.hasProperty(RAW_BLOCK_KIND_PROPERTY):
+        return False
+
+    table = QTextCursor(block).currentTable()
+    if table is not None:
+        table_format = table.format()
+        return table_format.hasProperty(MEROPE_TABLE_PROPERTY) and bool(
+            table_format.property(MEROPE_TABLE_PROPERTY)
+        )
+
+    kind = block_format.property(BLOCK_KIND_PROPERTY)
+    return (kind or "") in _EDITORIAL_BLOCK_KINDS
+
+
+def match_case(original: str, replacement: str) -> str:
+    """Carry *original*'s capitalization pattern onto *replacement*.
+
+    pyspellchecker's candidates always come back lowercase, so a suggestion
+    for "Boujour" or "BOUJOUR" would otherwise silently lowercase it.
+    """
+    if len(original) > 1 and original.isupper():
+        return replacement.upper()
+    if original[:1].isupper():
+        return replacement[:1].upper() + replacement[1:]
+    return replacement
+
+
 class FrenchSpellHighlighter(QSyntaxHighlighter):
     """Underline spelling issues without changing canonical character formats."""
 
@@ -185,25 +237,7 @@ class FrenchSpellHighlighter(QSyntaxHighlighter):
         self.issue_format.setUnderlineColor(QColor(Qt.GlobalColor.red))
 
     def highlightBlock(self, text: str) -> None:  # noqa: N802 - Qt virtual API
-        if not self._current_block_is_editorial():
+        if not block_is_editorial(self.currentBlock()):
             return
         for issue in self.checker.issues(text):
             self.setFormat(issue.start, issue.length, self.issue_format)
-
-    def _current_block_is_editorial(self) -> bool:
-        block = self.currentBlock()
-        if not block.isValid():
-            return False
-        block_format = block.blockFormat()
-        if block_format.hasProperty(RAW_BLOCK_KIND_PROPERTY):
-            return False
-
-        table = QTextCursor(block).currentTable()
-        if table is not None:
-            table_format = table.format()
-            return table_format.hasProperty(MEROPE_TABLE_PROPERTY) and bool(
-                table_format.property(MEROPE_TABLE_PROPERTY)
-            )
-
-        kind = block_format.property(BLOCK_KIND_PROPERTY)
-        return (kind or "") in _EDITORIAL_BLOCK_KINDS

@@ -45,7 +45,7 @@ Fonctionnalités couvertes par l’adaptateur Qt, avec tests automatisés :
 - raccourci `((note))` conservé comme texte éditable, converti en note Pandoc uniquement à la normalisation d’aperçu/génération ;
 - typographie française à la frappe et sur sélection (guillemets, espaces insécables, ligatures, ordinaux de siècles) via le module pur partagé `markdown/typography.py` ;
 - collage riche Word/Google Docs (HTML, image native, fichiers locaux) via le même importeur partagé que Tkinter ;
-- recherche/remplacement, collage en texte brut, insertion manuelle de U+00A0, zoom visuel, correcteur orthographique visuel (soulignement uniquement, sans modification du modèle) ;
+- recherche/remplacement, collage en texte brut, insertion manuelle de U+00A0, zoom visuel, correcteur orthographique visuel (soulignement) avec suggestions de correction dans le menu contextuel du mot souligné ;
 - workflow projet complet : navigateur de contenus, création, import, métadonnées, conversion page ↔ billet, suppression.
 
 Ce qui reste **explicitement refusé** par l’adaptateur Qt (erreur avant toute mutation du document, fichier ni réécrit ni archivé) :

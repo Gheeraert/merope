@@ -174,7 +174,11 @@ from bloggen.ui.qt_editor.image_selection import (
     merope_image_at_position,
     replace_merope_image,
 )
-from bloggen.ui.qt_editor.spellcheck import FrenchSpellHighlighter
+from bloggen.ui.qt_editor.spellcheck import (
+    FrenchSpellHighlighter,
+    block_is_editorial,
+    match_case,
+)
 
 
 _OE_PAIR_RE = re.compile("oe", re.IGNORECASE)
@@ -471,6 +475,7 @@ class MeropeTextEdit(QTextEdit):
             self.setTextCursor(target.cursor(self.document()))
             self.viewport().update()
         menu = self._create_merope_context_menu(event.pos())
+        self._add_spelling_suggestions_menu(menu, event.pos())
         if target is not None:
             menu.addSeparator()
             caption_action = menu.addAction("Légende...")
@@ -581,6 +586,64 @@ class MeropeTextEdit(QTextEdit):
         delete_table.setObjectName("table-remove")
         delete_table.triggered.connect(
             lambda _checked=False: self._run_table_structure_action(remove_table)
+        )
+
+    def _spelling_issue_at_viewport_point(
+        self, point: QPoint
+    ) -> tuple[int, int, str] | None:
+        """(absolute start, length, word) of the misspelling under *point*,
+        or ``None`` if the checker is unavailable or the click missed one.
+        """
+
+        checker = self._spell_highlighter.checker
+        if not checker.available:
+            return None
+        hit_cursor = self.cursorForPosition(point)
+        block = hit_cursor.block()
+        if not block_is_editorial(block):
+            return None
+        offset = hit_cursor.position() - block.position()
+        for issue in checker.issues(block.text()):
+            if issue.start <= offset < issue.start + issue.length:
+                return block.position() + issue.start, issue.length, issue.word
+        return None
+
+    def _add_spelling_suggestions_menu(self, menu: QMenu, position: QPoint) -> None:
+        """Insert correction suggestions (if any) at the top of *menu*,
+        ahead of the standard Cut/Copy/Paste actions, mirroring how word
+        processors surface spellcheck corrections in the context menu.
+        """
+
+        issue = self._spelling_issue_at_viewport_point(position)
+        if issue is None:
+            return
+        start, length, word = issue
+        suggestions = self._spell_highlighter.checker.suggestions(word)
+        before = menu.actions()[0] if menu.actions() else None
+        actions: list[QAction] = []
+        if not suggestions:
+            no_suggestion = QAction("Aucune suggestion", menu)
+            no_suggestion.setEnabled(False)
+            actions.append(no_suggestion)
+        else:
+            for suggestion in suggestions:
+                action = QAction(match_case(word, suggestion), menu)
+                action.triggered.connect(
+                    lambda _checked=False, replacement=suggestion: (
+                        self._replace_spelling_issue(start, length, word, replacement)
+                    )
+                )
+                actions.append(action)
+        menu.insertActions(before, actions)
+        menu.insertSeparator(before)
+
+    def _replace_spelling_issue(
+        self, start: int, length: int, original: str, replacement: str
+    ) -> None:
+        replacement_text = match_case(original, replacement)
+        char_format = self._format_for_edit(start, start + length)
+        self._joined_with_previous_edit(
+            lambda: self._replace_range(start, start + length, replacement_text, char_format)
         )
 
     def copy_current_table(self, _checked: bool = False) -> bool:
