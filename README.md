@@ -60,6 +60,7 @@ C’est un outil de préparation, d’édition, de configuration et de générat
 - Python 3.11+
 - Tkinter
 - PySide6 optionnel pour l’éditeur Qt (`pip install -e ".[qt_editor]"`)
+- pyspellchecker optionnel, même extra, pour le correcteur orthographique visuel de l’éditeur Qt
 - lxml
 - Pillow
 - Pandoc installé dans le système

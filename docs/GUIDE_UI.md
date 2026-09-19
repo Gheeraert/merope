@@ -62,7 +62,7 @@ Deux éditeurs ouvrent les mêmes fichiers Markdown et utilisent le même modèl
 - **Éditeur de contenu...** : éditeur Tkinter historique, stable et conservé comme solution de repli ;
 - **Éditeur Qt (expérimental)...** : nouvelle interface, plus moderne, encore en phase de recette.
 
-L’éditeur Qt nécessite PySide6 : `pip install -e ".[qt_editor]"`.
+L’éditeur Qt nécessite PySide6 : `pip install -e ".[qt_editor]"`. Cette même commande installe aussi `pyspellchecker`, qui alimente le correcteur orthographique visuel (soulignement) de l’éditeur Qt ; s’il manque, l’éditeur reste utilisable mais le prévient au démarrage plutôt que de laisser le soulignement silencieusement absent.
 
 ### Métadonnées
 

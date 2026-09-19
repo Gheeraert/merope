@@ -4,3 +4,7 @@ pytest>=9.0.3
 # keyring>=24.0 — optional, only needed to save an FTP password in the OS
 # credential store (see pyproject.toml's "ftp_credentials" extra and
 # publish/ftp_credentials.py, which already imports it tolerantly).
+# PySide6>=6.8, pyspellchecker>=0.9.0 — optional, only needed for the
+# experimental Qt content editor and its spellcheck underline (see
+# pyproject.toml's "qt_editor" extra). The Tkinter editor, CLI, and build
+# pipeline never import either.
