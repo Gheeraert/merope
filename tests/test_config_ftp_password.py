@@ -102,13 +102,14 @@ def test_password_persistence_delegates_host_and_username_as_is(tmp_path, fake_k
     assert fake_keyring == {("", ""): "orphaned"}
 
 
-def test_a_credential_store_failure_keeps_the_password_on_disk_instead_of_losing_it(
+def test_a_credential_store_failure_never_writes_the_password_to_disk(
     tmp_path, monkeypatch
 ):
     """If the OS credential store is unavailable (no backend configured,
     a headless environment, ...), save_password silently fails — but the
-    password must NOT then be blanked out of site.json too, or the
-    secret is gone from both places at once (see the external audit)."""
+    password must NEVER be persisted to site.json as a fallback (see the
+    external audit): the file is written without it either way, and the
+    caller is warned that it only survives for this session in memory."""
     monkeypatch.setattr(config_io.ftp_credentials, "save_password", lambda *_a, **_k: False)
 
     config = build_default_config()
@@ -121,9 +122,93 @@ def test_a_credential_store_failure_keeps_the_password_on_disk_instead_of_losing
     save_config(config, path, warnings=warnings)
 
     on_disk = json.loads(path.read_text(encoding="utf-8"))
-    assert on_disk["ftp"]["password"] == "s3cret"
+    assert on_disk["ftp"]["password"] == ""
+    # The in-memory config object is untouched — the password is still
+    # usable for the rest of this session, just never written to disk.
+    assert config.ftp.password == "s3cret"
     assert len(warnings) == 1
     assert "trousseau" in warnings[0].lower()
+    assert "clair" not in warnings[0].lower()
+
+
+def test_the_keyring_package_being_entirely_absent_never_writes_the_password_to_disk(
+    tmp_path, monkeypatch
+):
+    """Same invariant when the ``keyring`` package itself isn't installed
+    (an optional dependency — see ftp_credentials.py), not just when a
+    backend is misconfigured."""
+    monkeypatch.setattr(config_io.ftp_credentials, "keyring", None)
+
+    config = build_default_config()
+    config.ftp.host = "ftp.example.org"
+    config.ftp.username = "alice"
+    config.ftp.password = "s3cret"
+
+    path = tmp_path / "site.json"
+    warnings: list[str] = []
+    save_config(config, path, warnings=warnings)
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk["ftp"]["password"] == ""
+    assert config.ftp.password == "s3cret"
+    assert len(warnings) == 1
+
+
+def test_missing_host_or_username_never_writes_the_password_to_disk(tmp_path):
+    """Without a host/username to key the credential-store entry by,
+    ftp_credentials.save_password can't persist the password anywhere —
+    but that must still never fall back to writing it into site.json.
+    Uses the real ftp_credentials.save_password (not the fake_keyring
+    fixture): it returns False on a missing host/username before it ever
+    touches a backend, so this doesn't hit the real OS credential store.
+    """
+    config = build_default_config()
+    config.ftp.host = ""
+    config.ftp.username = "alice"
+    config.ftp.password = "s3cret"
+
+    path = tmp_path / "site.json"
+    warnings: list[str] = []
+    save_config(config, path, warnings=warnings)
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk["ftp"]["password"] == ""
+    assert config.ftp.password == "s3cret"
+    assert len(warnings) == 1
+
+
+def test_a_dict_config_never_writes_the_password_to_disk(tmp_path, monkeypatch):
+    """serialize_config()/save_config() also accept a plain dict (rather
+    than a ProjectConfig) — the same invariant must hold there too."""
+    monkeypatch.setattr(config_io.ftp_credentials, "save_password", lambda *_a, **_k: False)
+
+    raw_config = build_default_config().to_dict()
+    raw_config["ftp"]["host"] = "ftp.example.org"
+    raw_config["ftp"]["username"] = "alice"
+    raw_config["ftp"]["password"] = "s3cret"
+
+    path = tmp_path / "site.json"
+    warnings: list[str] = []
+    save_config(raw_config, path, warnings=warnings)
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk["ftp"]["password"] == ""
+    assert len(warnings) == 1
+
+
+def test_an_empty_password_produces_no_warning(tmp_path, fake_keyring):
+    config = build_default_config()
+    config.ftp.host = "ftp.example.org"
+    config.ftp.username = "alice"
+    config.ftp.password = ""
+
+    path = tmp_path / "site.json"
+    warnings: list[str] = []
+    save_config(config, path, warnings=warnings)
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk["ftp"]["password"] == ""
+    assert warnings == []
 
 
 def test_a_credential_store_recovery_does_strip_the_password_again(tmp_path, monkeypatch):

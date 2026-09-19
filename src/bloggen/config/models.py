@@ -219,9 +219,11 @@ class FtpConfig:
     """Publishing settings for the FTP/FTPS transfer of the generated site.
 
     ``password`` is kept in memory and MEROPE attempts to persist it in the
-    OS credential store. On success, it is cleared from the saved JSON; if
-    storage fails, it can remain in plaintext in site.json to avoid losing
-    it. Callers collecting save warnings are notified of this fallback.
+    OS credential store. It is never written to the saved JSON, whether or
+    not that credential-store persistence succeeds; if it fails, the
+    password stays usable for the current session only, and callers
+    collecting save warnings are notified that it will need to be
+    re-entered next time.
     """
 
     host: str = ""

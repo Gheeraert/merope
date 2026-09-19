@@ -40,10 +40,12 @@ def parse_config(raw: Any, validate: bool = True) -> ProjectConfig:
 def _resolve_ftp_password(config: ProjectConfig, raw: dict[str, Any]) -> None:
     """Populates ``config.ftp.password`` in memory for this session.
 
-    For a plaintext password in ``raw``, attempt to migrate it to the OS
-    credential store. A successful store allows the next save to remove it
-    from JSON; if storage fails, the plaintext fallback may be retained.
-    Otherwise, load the password from the credential store.
+    For a plaintext password in ``raw`` (e.g. a legacy ``site.json``
+    written before this module existed), attempt to migrate it to the OS
+    credential store. Whether or not that migration succeeds, the very
+    next save strips the password from JSON regardless (see
+    ``_strip_ftp_password_for_disk``). Otherwise, load the password from
+    the credential store.
     """
     ftp = config.ftp
     if ftp.password:
@@ -72,12 +74,12 @@ def save_config(
 
 def serialize_config(config: ProjectConfig | dict[str, Any], *, warnings: list[str] | None = None) -> str:
     password_persisted = _persist_ftp_password(config)
-    data = _strip_ftp_password_for_disk(_to_dict(config), keep_password=not password_persisted)
+    data = _strip_ftp_password_for_disk(_to_dict(config))
     if not password_persisted and warnings is not None:
         warnings.append(
-            "Le mot de passe FTP n'a pas pu être enregistré dans le trousseau du système "
-            "(trousseau indisponible) : il reste stocké en clair dans ce fichier de "
-            "configuration pour ne pas être perdu."
+            "Le mot de passe FTP n'a pas pu être enregistré dans le trousseau du système. "
+            "Il reste disponible pour cette session uniquement et devra être saisi de nouveau "
+            "lors d'une prochaine ouverture."
         )
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
@@ -85,8 +87,9 @@ def serialize_config(config: ProjectConfig | dict[str, Any], *, warnings: list[s
 def _persist_ftp_password(config: ProjectConfig | dict[str, Any]) -> bool:
     """Returns whether the password is safely persisted somewhere other
     than this JSON file (the OS credential store, or there simply wasn't
-    one to persist) — see ``_strip_ftp_password_for_disk``, which must
-    NOT blank the password out of the file unless this is True."""
+    one to persist). ``site.json`` is stripped of the password either
+    way (see ``_strip_ftp_password_for_disk``); this return value only
+    controls whether a warning is raised for the caller."""
     if isinstance(config, ProjectConfig):
         host, username, password = config.ftp.host, config.ftp.username, config.ftp.password
     else:
@@ -95,18 +98,15 @@ def _persist_ftp_password(config: ProjectConfig | dict[str, Any]) -> bool:
     return ftp_credentials.save_password(host, username, password)
 
 
-def _strip_ftp_password_for_disk(data: dict[str, Any], *, keep_password: bool) -> dict[str, Any]:
-    """``site.json`` must never carry the FTP password when it's safely
-    stored elsewhere (see ``_persist_ftp_password``/``ftp_credentials``).
-
-    ``keep_password`` is True only when that persistence could NOT be
-    confirmed (e.g. no credential-store backend available) — in that
-    case the plaintext password is deliberately left in the JSON as a
-    fallback: silently blanking it here as before would otherwise lose
-    the secret outright, since it isn't in the credential store either.
+def _strip_ftp_password_for_disk(data: dict[str, Any]) -> dict[str, Any]:
+    """``site.json`` must never carry the FTP password in plaintext,
+    regardless of whether OS credential-store persistence succeeded (see
+    ``_persist_ftp_password``/``ftp_credentials``) — a plaintext fallback
+    on disk is exactly the vulnerability this module exists to close.
+    When the store is unavailable, the password simply isn't persisted
+    anywhere between sessions; it stays usable in memory (on the
+    ``ProjectConfig`` object) for the current session only.
     """
-    if keep_password:
-        return data
     ftp = data.get("ftp")
     if isinstance(ftp, dict) and ftp.get("password"):
         data = dict(data)
