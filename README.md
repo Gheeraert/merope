@@ -1,10 +1,32 @@
-# Blog Static Generator — V1
+# MÉROPE
 
-Générateur maison de site statique pour carnet académique, inspiré par un usage de type Hypothèses, mais fondé sur une chaîne entièrement statique.
+Générateur de site statique pour carnet académique, inspiré par un usage de type Hypothèses, mais fondé sur une chaîne entièrement statique : pas de serveur applicatif, pas de base de données, un site HTML autonome en sortie.
 
-## Chaîne cible
+## Chaîne de publication
 
-Google Docs → Markdown → XML-TEI → HTML
+```text
+configuration JSON (site.json)
+     +
+contenus Markdown
+     ↓
+Pandoc
+     ↓
+XML-TEI
+     ↓
+post-traitements et validation
+     ↓
+XSLT
+     ↓
+HTML statique
+```
+
+MÉROPE se présente sous trois formes complémentaires :
+
+- une **application desktop** (Tkinter, avec un éditeur de contenu Qt en complément — voir plus bas) pour préparer, écrire et générer un site sans toucher au JSON ni au Markdown à la main ;
+- une **CLI headless** (`bloggen build --config ...`) pour générer un site en ligne de commande, sans interface graphique ;
+- un **module de publication FTP/FTPS** pour déployer le site généré vers un hébergement distant.
+
+MÉROPE ne génère que des fichiers statiques : il n’y a pas de CMS, pas de back-office web, pas de partie serveur à héberger.
 
 ## Objectifs V1
 
@@ -49,14 +71,16 @@ Pour utiliser MÉROPE sans entrer dans son architecture interne :
 
 - `docs/GUIDE_UI.md` — **manuel utilisateur**, organisé selon le parcours réel : créer un projet, écrire, organiser, générer et publier ;
 - `docs/REFERENCE_CONFIGURATION.md` — **référence exhaustive de la configuration**, y compris les options masquées de compatibilité ;
-- `docs/SPEC_JSON_CONFIG_V1.md` — contrat technique et invariants du format `site.json`.
+- `docs/CONTRATS_DONNEES.md` — ce que MÉROPE préserve, refuse ou transforme, et pourquoi.
 
 Pour le développement :
 
-- `docs/ARCHITECTURE_PROJET.md`
-- `docs/QT_MIGRATION.md`
-- `docs/ROADMAP.md`
-- `docs/TABLE_CORRESPONDANCE_MD_TEI_HTML.md`
+- `docs/ARCHITECTURE_PROJET.md` — architecture du code et frontières de sécurité ;
+- `docs/SPEC_JSON_CONFIG_V1.md` — contrat technique et invariants du format `site.json` ;
+- `docs/QT_MIGRATION.md` — état de la migration de l’éditeur vers Qt ;
+- `docs/TABLE_CORRESPONDANCE_MD_TEI_HTML.md` — correspondance Markdown → TEI → HTML ;
+- `docs/ROADMAP.md` — livré, dette connue et prévisions ;
+- `AUDIT.md` — historique des audits de sécurité et de robustesse.
 
 ## État
 

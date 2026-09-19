@@ -13,6 +13,63 @@ Le système est organisé en modules correspondant au pipeline réel :
 7. assemblage du site
 8. interface graphique
 
+Tous les modules listés ci-dessous vivent sous `src/bloggen/` (par exemple `src/bloggen/config/`, `src/bloggen/ui/qt_editor/`).
+
+## Flux de publication
+
+```text
+site.json
++ Markdown
++ thème
+     ↓
+validation de la configuration
+     ↓
+normalisation Markdown
+     ↓
+Pandoc
+     ↓
+XML-TEI
+     ↓
+post-traitement TEI (sécurisé)
+     ↓
+validation (TEI Commons Publishing, liens/médias, etc.)
+     ↓
+XSLT
+     ↓
+HTML
+     ↓
+assemblage transactionnel du site
+```
+
+L’assemblage final est transactionnel : le site est construit dans un dossier de préparation (« staging »), puis ce dossier remplace l’ancien site de sortie par une opération atomique avec repli automatique en cas d’échec (`_replace_directory` / `_restore_backup` dans `build/site_builder.py`). Le TEI intermédiaire suit le même remplacement que le site, comme une seule unité.
+
+## Flux d’édition
+
+```text
+Markdown
+  ↕
+Block / InlineRun
+  ↕
+adaptateur Tkinter ou adaptateur Qt
+```
+
+Les deux éditeurs de contenu (Tkinter historique, Qt expérimental) partagent le même modèle `Block`/`InlineRun`, les mêmes importeurs/exporteurs et les mêmes services métier ; ils ne dupliquent que l’adaptateur vers leur toolkit graphique respectif. Ce chemin d’édition n’intervient jamais dans le pipeline de publication ci-dessus, qui reste exclusivement basé sur Pandoc.
+
+## Frontières de sécurité
+
+- **`link_safety`** (`markdown/link_safety.py`) : allowlist stricte de schémas de liens (`http`, `https`, `mailto`, `tel`) ; toute autre destination est retirée du lien publié, texte visible conservé.
+- **`xml_safety`** (`tei/xml_safety.py`) : parseur XML durci pour le TEI (aucun accès réseau, aucune DTD chargée, tout `DOCTYPE` rejeté explicitement), en cohérence avec le durcissement déjà appliqué dans `render/xslt_runner.py` et `tei/commons_publishing.py`.
+- **Timeout des sous-processus** (`utils/subprocesses.py`) : tout appel externe (Pandoc notamment) est borné par un délai par défaut de 120 secondes, converti en échec de build propre plutôt qu’en blocage indéfini.
+- **`atomic_write`** (`content/atomic_write.py`) : écriture par fichier temporaire voisin + `flush`/`fsync` + remplacement atomique (`os.replace`), utilisée pour la configuration comme pour les contenus.
+- **Confinement des chemins** : chaque chemin configuré dans `paths` est résolu puis vérifié comme restant à l’intérieur de `project_root` ; un chemin qui en sortirait est refusé par le builder, indépendamment de la détection lexicale de collisions faite par le validateur.
+- **Gestionnaire d’identifiants FTP** (`publish/ftp_credentials.py`) : le mot de passe FTP est stocké via `keyring` (trousseau du système) et n’est jamais écrit en clair dans `site.json` par le code de sauvegarde courant.
+
+## Sauvegarde et fidélité des données
+
+- **Versioning** (`content/versioning.py`) : archivage horodaté dans `.versions` avant écrasement d’un contenu déjà enregistré ; purge uniquement après confirmation utilisateur.
+- **`VERBATIM`** : toute construction Markdown que l’éditeur ne reconnaît pas avec confiance est conservée telle quelle plutôt que devinée ou perdue (détail dans `docs/CONTRATS_DONNEES.md`).
+- **Configuration lossless** : les clés JSON inconnues d’une version de MÉROPE sont préservées lors d’un cycle chargement → modification → sauvegarde (détail dans `docs/SPEC_JSON_CONFIG_V1.md`).
+
 ## Modules
 
 ### `config/`

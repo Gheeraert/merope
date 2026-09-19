@@ -11,7 +11,7 @@ Les valeurs indiquées sont les valeurs par défaut du modèle Python de la bran
 - **masqué** : conservé dans le modèle et dans les anciens JSON, mais retiré de l’interface principale ; la ligne précise séparément si le paramètre agit encore sur le logiciel ;
 - **interne** : champ technique ou structure de données, généralement manipulé par l’interface plutôt qu’à la main.
 
-Les clés inconnues appartenant à d’anciens JSON sont ignorées au chargement et disparaissent lors d’une sauvegarde si elles ne font plus partie du modèle. Les clés encore valides mais masquées sont au contraire préservées par l’interface.
+Les clés inconnues appartenant à d’anciens ou de futurs JSON ne sont pas interprétées au chargement, mais elles sont **préservées** lors d’un cycle chargement → modification → sauvegarde plutôt que supprimées silencieusement. Les clés encore valides mais masquées dans l’interface sont, elles aussi, préservées. Voir la section « Compatibilité ascendante et clés inconnues » ci-dessous et `docs/SPEC_JSON_CONFIG_V1.md` pour le détail du mécanisme.
 
 ## Racine
 
@@ -35,6 +35,10 @@ Les clés inconnues appartenant à d’anciens JSON sont ignorées au chargement
 | `ftp` | objet | dialogue | Publication FTP/FTPS. |
 
 Le validateur exige actuellement les sections racine principales sauf `top_banner` et `ftp`, qui peuvent être absentes d’un ancien fichier et reprendre leurs valeurs par défaut.
+
+## Compatibilité ascendante et clés inconnues
+
+MÉROPE conserve toute clé JSON qu’une version donnée ne connaît pas ou n’affiche pas, à la racine comme dans une section connue, plutôt que de la supprimer silencieusement lors d’une sauvegarde. Ce mécanisme s’appuie sur un détail interne du modèle Python (un champ `unknown_data` par section) : ce n’est pas une clé à écrire soi-même dans `site.json`, seulement la garantie que ce que vous y avez déjà écrit — ou qu’une future version y écrira — n’est pas perdu par la version courante. Le détail complet (menus, priorité aux champs connus, cas `Nouveau`/`Enregistrer sous`) est décrit dans `docs/SPEC_JSON_CONFIG_V1.md`.
 
 ## `site`
 
@@ -249,7 +253,7 @@ Ces champs sont édités dans **Publier (FTP)...**.
 | `passive_mode` | `true` | dialogue | Utilise le mode passif. |
 | `site_url` | `""` | dialogue | URL HTTP(S) publique proposée à l’ouverture après publication. |
 
-MÉROPE tente de stocker `password` dans le gestionnaire d’identifiants du système. Si cette opération réussit, le mot de passe est retiré du JSON sauvegardé. Si elle échoue, il peut rester en clair dans `site.json` afin d’éviter sa perte ; le code de sauvegarde émet alors un avertissement. Un fichier de configuration ayant subi ce repli doit donc être considéré comme sensible.
+MÉROPE tente de stocker `password` dans le gestionnaire d’identifiants du système (`keyring`). Ce champ est retiré du JSON sauvegardé **dans tous les cas**, que ce stockage sécurisé réussisse ou non : ce n’est jamais une clé passthrough du contrat lossless décrit plus haut. Si le stockage échoue, le mot de passe reste utilisable en mémoire pour la session en cours et un avertissement est émis, mais il devra être ressaisi à la prochaine ouverture puisqu’il n’a été conservé nulle part sur disque.
 
 ## Validation du JSON
 

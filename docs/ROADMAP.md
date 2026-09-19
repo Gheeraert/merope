@@ -1,52 +1,48 @@
 # Roadmap
 
-## État actuel des éditeurs
+## Livré et stabilisé
 
-L’application principale reste en Tkinter et propose actuellement deux éditeurs
-de contenu : l’éditeur Tkinter historique et un éditeur Qt expérimental lancé
-dans un processus séparé. La parité fonctionnelle automatisée du socle Qt est
-atteinte ; la prochaine étape est une recette humaine et l’inventaire des écarts
-observés. Aucune bascule de l’éditeur principal vers Qt n’est planifiée à ce
-stade.
+- configuration JSON avec préservation lossless des clés inconnues, écriture atomique ;
+- interface Tkinter complète, menus éditables (supérieur + latéral à 3 niveaux, numérotation automatique optionnelle) ;
+- bandeau institutionnel et bannière éditoriale ;
+- TEI comme pivot, transformation XSLT → HTML ;
+- images avec lightbox, notes finales en bas d’article (ancre de défilement doux vers l’appel) ;
+- CLI headless (`bloggen build --config ...`) ;
+- RSS (`feed.xml`), sitemap (`sitemap.xml` avec `lastmod`), `robots.txt`, méta SEO (Open Graph, Twitter Card, JSON-LD BlogPosting/WebSite) ;
+- surcharge de thème (CSS/JS) et de gabarits HTML par projet ;
+- éditeur de contenu WYSIWYG intégré (Tkinter), import Markdown et copier-coller nettoyé depuis Word/Google Docs ;
+- exposants, conversion automatique des ordinaux de siècle, typographie française (guillemets, espaces insécables, ligatures) ;
+- recherche plein texte statique côté client (index JSON généré au build) ;
+- alignement de paragraphe (gauche/centré/droite/justifié) reporté sur le site généré ;
+- sélecteur de page/billet pour les liens de menu internes ; liens externes intégrés en iframe conservant menus et bannière ;
+- thème du site généré inspiré de Twenty Fourteen ;
+- raccourci `((note))` (convention Hypothèses), converti en note Pandoc à la normalisation d’aperçu/génération ;
+- renumérotation automatique des notes à l’enregistrement selon leur ordre d’apparition ;
+- copie TEI complète conservée à côté de chaque source Markdown, indépendamment du réglage « Conserver TEI » ;
+- conversion en un clic d’une page en billet (ou l’inverse) ;
+- aperçu local du site généré (serveur HTTP intégré) proposé depuis le rapport de génération ;
+- pagination réelle de l’archive des billets ;
+- validation diagnostique du TEI généré contre le profil TEI Commons Publishing (RelaxNG + Schematron), option pour la rendre bloquante ;
+- versionnement des contenus (`.versions`) et récupération après incident (`.merope-recovery/draft.json`) ;
+- durcissement sécurité : timeout des sous-processus externes, parseur XML anti-XXE pour le TEI, allowlist de schémas de liens, mot de passe FTP jamais écrit en clair dans `site.json` — détail dans `AUDIT.md`.
 
-## V1
-- config JSON
-- interface Tkinter
-- menus éditables
-- bannière
-- TEI pivot
-- XSLT HTML
-- images + lightbox
-- notes finales (bas d'article), avec ancre de défilement doux entre l'appel de note et la note — notes *marginales* désactivées pour le moment (voir V1.1)
-- CLI headless (`bloggen build --config ...`)
-- RSS (`feed.xml`), sitemap (`sitemap.xml`, avec `lastmod`), `robots.txt` et méta SEO (Open Graph, Twitter Card, JSON-LD BlogPosting/WebSite) — sitemap/RSS si `site.base_url` renseigné
-- surcharge de thème (CSS/JS) et de gabarits HTML par projet
-- éditeur de contenu WYSIWYG intégré (création/édition de pages et billets sans quitter l'application)
-- import Markdown et copier-coller nettoyé depuis Word/Google Docs dans l'éditeur
-- exposants et conversion automatique des ordinaux de siècle (« Ier siècle », « XXIe siècle »)
-- recherche plein texte statique côté client (index JSON généré au build, sans serveur ni base de données)
-- alignement de paragraphe (gauche/centré/droite/justifié) dans l'éditeur, reporté sur le site généré
-- sélecteur de page/billet existant pour les liens de menu internes ; les liens externes s'ouvrent intégrés (iframe) en conservant menus et bannière
-- sections de premier niveau du menu latéral pouvant pointer directement vers une page/un billet/un site externe, sans sous-menu obligatoire
-- menu latéral à 3 niveaux (sections, sous-sections, billets) avec numérotation automatique optionnelle (I., II.../A., B...) pour les plans structurés
-- thème du site généré inspiré de Twenty Fourteen (bandeau noir, accent vert, typographie sans-serif) ; recherche intégrée au bandeau, menu latéral en tons clairs sur fond noir accolé au bandeau et au texte sans espace, fond noir étiré jusqu'en bas de la colonne, titre de menu facultatif (ex. « Menu »)
-- raccourci `((note))` (convention Hypothèses) conservé comme texte éditable à la frappe, au collage et à l’enregistrement, puis converti en note Pandoc uniquement pendant la normalisation d’aperçu/génération, y compris collé à la ponctuation
-- suppression fiable d'une note (y compris vide) depuis le panneau de notes, et renumérotation automatique des notes à l'enregistrement selon leur ordre d'apparition dans le texte
-- espace insécable automatique après « p. »/« pp. » devant un numéro de page, et normalisée dans les guillemets chevrons déjà présents au collage
-- copie TEI complète (avec teiHeader) conservée à côté de chaque source Markdown, indépendamment du réglage « Conserver TEI »
-- barre de mise en forme de l'éditeur à icônes (type TinyMCE/Word) plutôt qu'à boutons texte
-- conversion en un clic d'une page en billet (ou l'inverse) depuis l'éditeur, sans réécrire le contenu à la main
-- aperçu local du site généré (serveur HTTP intégré, sans sous-processus ni installation) proposé directement depuis le rapport de génération
-- redimensionnement/copie de l'image de bannière proposé au moment de l'import
-- pagination réelle de l'archive des billets (`blog.posts_per_page`, une page HTML par tranche)
-- validation diagnostique du TEI généré contre le profil TEI Commons Publishing (grammaire RelaxNG *et* règles Schematron embarquées), avec option pour la rendre bloquante (`build.fail_on_invalid_commons_publishing`) plutôt que purement informative
-- aperçu HTML par le pipeline de génération réel : ponctuel ou live dans l’éditeur Tkinter, ponctuel seulement dans l’éditeur Qt à ce stade — voir « Éditeurs de contenu » dans `docs/GUIDE_UI.md`
+## Migration Qt
+
+Un éditeur de contenu Qt coexiste avec l’éditeur Tkinter historique, en phase expérimentale. Statut détaillé, architecture et parité fonctionnelle : `docs/QT_MIGRATION.md`. Tkinter reste l’éditeur principal et le repli officiel ; aucune bascule n’est planifiée à ce stade.
+
+## Dette connue
+
+- **Recovery multi-éditeur sans verrou** : si Tk et Qt sont ouverts simultanément sur le même projet et que l’un des deux plante, le brouillon de récupération proposé au redémarrage peut être celui écrit par l’autre éditeur. Aucune perte permanente constatée — priorité basse (détail dans `AUDIT.md` et `docs/QT_MIGRATION.md`).
+- **`content.slugify_mode` sans validation d’enum stricte** : le champ a un effet réel sur la génération de slug, mais une valeur incorrecte n’est pas rejetée par le validateur — comportement de repli sûr, mais qui ne fait pas ce que l’utilisateur croit configurer. Priorité basse.
 
 ## V1.1
-- amélioration responsive
-- notes marginales (désactivées en V1 : ne tenaient pas de façon fiable à côté du texte selon la largeur de l'écran, voir `render/margin_notes.py`)
-- meilleure gestion des images issues de Google Docs
+
+- amélioration responsive ;
+- notes marginales (désactivées depuis V1 : ne tenaient pas de façon fiable à côté du texte selon la largeur de l’écran, voir `render/margin_notes.py`) ;
+- meilleure gestion des images issues de Google Docs ;
+- recette humaine de l’éditeur Qt (notamment collage Word/Google Docs) et inventaire des écarts observés avec Tkinter.
 
 ## V2
-- enrichissements TEI supplémentaires
-- meilleure automatisation des médias
+
+- enrichissements TEI supplémentaires ;
+- meilleure automatisation des médias.

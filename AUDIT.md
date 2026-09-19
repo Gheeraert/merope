@@ -131,6 +131,18 @@ note non numériques.
 
 ---
 
+## Passe « lossless configuration »
+
+Une passe corrective ultérieure a traité un risque distinct des points ci-dessus : la disparition silencieuse, lors d’un cycle chargement → modification → sauvegarde, de clés JSON que la version courante de MÉROPE ne connaît pas ou n’affiche pas dans l’interface (anciennes clés de compatibilité, clés d’une version future).
+
+- **Mécanisme** : chaque dataclass de section du modèle (`config/models.py`) porte désormais un champ `unknown_data` qui capture toute clé non reconnue à la construction du modèle, et la réinjecte telle quelle à la sérialisation. Les champs connus restent toujours prioritaires sur une valeur opaque homonyme.
+- **Propagation aux menus/UI** : les objets de menu (`MenuLink`, `SideMenuSection`, `SideMenuSubSection`) portent chacun leurs propres données inconnues, attachées à l’objet et non à sa position — elles suivent un réordonnancement, disparaissent avec la suppression de leur objet, et ne se propagent jamais à un autre objet ni entre projets ouverts successivement (`Nouveau`, ouverture d’un projet A puis B).
+- **Exception explicite** : `ftp.password` reste hors de ce contrat — il est systématiquement retiré du JSON écrit sur disque, que le stockage dans le trousseau système ait réussi ou non. Le contrat lossless ne s’applique jamais à la persistance en clair d’un secret.
+- **Atomicité** : la sauvegarde de `site.json` passe par le même helper d’écriture atomique (`content/atomic_write.py`, tempfile voisin + `fsync` + `os.replace`) que les contenus.
+- **Tests** : `tests/test_config_lossless.py` (racine, section connue, types opaques, réordonnancement/suppression/modification de menu, non-contamination d’un champ devenu réel, non-capture du mot de passe FTP) et `tests/test_config_ftp_password.py`.
+
+Détail du contrat pour l’utilisateur et le développeur : `docs/SPEC_JSON_CONFIG_V1.md` et `docs/CONTRATS_DONNEES.md`.
+
 ## Dette différée
 
 Deux points mineurs restent sciemment différés, sans urgence :

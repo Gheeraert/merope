@@ -157,7 +157,9 @@ Le bouton **Publier (FTP)...** envoie le contenu du dossier de sortie vers un se
 
 Renseignez l’hôte, le port, l’utilisateur, le dossier distant et éventuellement l’URL publique. FTPS et le mode passif sont activés par défaut.
 
-Pour le mot de passe, MÉROPE **tente d’utiliser le gestionnaire d’identifiants du système**. Si ce stockage sécurisé réussit, le mot de passe n’est pas conservé dans `site.json`. S’il est indisponible ou échoue, MÉROPE peut conserver le mot de passe en clair dans le JSON pour ne pas le perdre et affiche alors un avertissement. Il faut donc traiter `site.json` comme un fichier sensible lorsqu’un tel repli a eu lieu.
+Pour le mot de passe, MÉROPE **tente d’utiliser le gestionnaire d’identifiants du système** (`keyring`). Le mot de passe **n’est jamais écrit en clair dans `site.json`**, que ce stockage sécurisé réussisse ou non : avant chaque sauvegarde, MÉROPE retire systématiquement le mot de passe du JSON. Si le stockage sécurisé réussit, le mot de passe est retrouvé automatiquement à la prochaine ouverture. S’il échoue (trousseau indisponible ou `keyring` non installé), un avertissement s’affiche : le mot de passe reste utilisable pour la session en cours, mais il faudra le ressaisir à la prochaine ouverture du projet, puisqu’il n’a été conservé nulle part.
+
+Un ancien fichier `site.json` créé par une version antérieure peut encore contenir un mot de passe en clair : MÉROPE le lit et tente aussitôt de le migrer vers le trousseau du système. La sauvegarde suivante retire ce mot de passe du JSON dans tous les cas.
 
 Après une première publication réussie, un manifeste distant permet à MÉROPE de repérer les fichiers qu’il avait publiés auparavant mais qui n’existent plus localement. Leur suppression n’est effectuée qu’après confirmation ; le mécanisme n’essaie pas d’effacer les fichiers étrangers au manifeste MÉROPE.
 
@@ -173,11 +175,20 @@ Après une première publication réussie, un manifeste distant permet à MÉROP
 
 **Un site externe ne s’affiche pas dans une entrée de menu.** Certains sites interdisent leur intégration dans une iframe. Ce comportement dépend du site distant.
 
-**Le mot de passe FTP se retrouve dans `site.json`.** Le stockage sécurisé a probablement échoué ou n’est pas disponible. Installez/configurez `keyring`, puis enregistrez de nouveau la configuration après stockage réussi.
+**Le mot de passe FTP doit être ressaisi à chaque ouverture.** Le stockage sécurisé a probablement échoué ou `keyring` n’est pas disponible sur ce poste. Installez/configurez `keyring`, puis enregistrez de nouveau le mot de passe : il ne sera jamais écrit en clair dans `site.json`, mais sans trousseau fonctionnel il ne peut pas non plus être mémorisé d’une session à l’autre.
+
+## 9bis. Ce que MÉROPE fait pour protéger votre travail
+
+- **`.versions`** : avant d’écraser un fichier Markdown déjà enregistré, MÉROPE en archive une copie horodatée dans le dossier `.versions` voisin. Les versions les plus anciennes ne sont purgées qu’après confirmation explicite.
+- **Récupération après incident** : les éditeurs Tkinter et Qt enregistrent périodiquement un brouillon de secours (`.merope-recovery/draft.json`). Au redémarrage, MÉROPE propose de restaurer ce brouillon s’il en trouve un. Limite connue : si Tk et Qt sont ouverts simultanément sur le même projet, ils partagent ce même brouillon.
+- **Écriture atomique** : les fichiers de configuration et de contenu sont remplacés de manière atomique, afin qu’une sauvegarde interrompue (coupure, plantage) ne laisse pas normalement un fichier partiellement écrit.
+- **Conservation du Markdown non reconnu** : dans les éditeurs graphiques, toute construction Markdown que l’éditeur ne sait pas représenter fidèlement est conservée telle quelle en mode source (« verbatim ») plutôt que d’être devinée ou perdue.
+- **Conservation des clés de configuration inconnues** : un `site.json` créé par une version différente de MÉROPE peut contenir des réglages que la version actuelle ne connaît pas ou n’affiche pas. Ils sont préservés lors d’un cycle chargement → modification → sauvegarde plutôt que d’être silencieusement effacés.
 
 ## 10. Documentation complémentaire
 
 - `docs/REFERENCE_CONFIGURATION.md` : référence exhaustive des clés de configuration, valeurs par défaut et options cachées ;
+- `docs/CONTRATS_DONNEES.md` : ce que MÉROPE préserve, refuse ou transforme, et pourquoi ;
 - `docs/SPEC_JSON_CONFIG_V1.md` : contrat technique du format JSON et invariants de validation ;
 - `docs/ARCHITECTURE_PROJET.md` : architecture du code et du pipeline ;
 - `docs/QT_MIGRATION.md` : état détaillé de la migration de l’éditeur vers Qt ;
