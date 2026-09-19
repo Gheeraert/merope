@@ -11,6 +11,7 @@ from bloggen.tei.postprocess import (
     extract_heading_levels,
     postprocess_tei_xml,
     rewrite_graphic_urls_in_tei_xml,
+    sanitize_link_targets_in_tei_xml,
 )
 from bloggen.tei.validator import validate_tei_xml
 
@@ -298,6 +299,89 @@ def test_extract_heading_levels_ignores_a_thematic_break():
     directly after a non-blank paragraph line."""
     markdown = "Un paragraphe.\n\n---\n\nUn autre paragraphe.\n"
     assert extract_heading_levels(markdown) == []
+
+
+def test_sanitize_link_targets_keeps_an_allowed_ref_target():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        '<text><body><p><ref target="https://example.org">x</ref></p></body></text>'
+        "</TEI>"
+    )
+    rewritten = sanitize_link_targets_in_tei_xml(raw)
+    assert 'target="https://example.org"' in rewritten
+    assert ">x<" in rewritten
+
+
+def test_sanitize_link_targets_drops_a_dangerous_target_but_keeps_the_text():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        '<text><body><p><ref target="javascript:alert(1)">x</ref></p></body></text>'
+        "</TEI>"
+    )
+    rewritten = sanitize_link_targets_in_tei_xml(raw)
+    assert "javascript:" not in rewritten
+    root = ET.fromstring(rewritten)
+    ref = root.find(f".//{_TEI_NS}ref")
+    assert ref is not None
+    assert ref.get("target") is None
+    assert "".join(ref.itertext()) == "x"
+
+
+def test_sanitize_link_targets_preserves_nested_formatting_of_a_dropped_link():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        '<text><body><p><ref target="javascript:alert(1)">un '
+        '<hi rendition="simple:bold">texte</hi></ref></p></body></text>'
+        "</TEI>"
+    )
+    rewritten = sanitize_link_targets_in_tei_xml(raw)
+    root = ET.fromstring(rewritten)
+    ref = root.find(f".//{_TEI_NS}ref")
+    assert ref is not None
+    assert ref.get("target") is None
+    hi = ref.find(f"{_TEI_NS}hi")
+    assert hi is not None and hi.text == "texte" and hi.get("rendition") == "simple:bold"
+    assert "".join(ref.itertext()).strip() == "un texte"
+
+
+def test_sanitize_link_targets_normalizes_a_trivially_obfuscated_allowed_target():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        '<text><body><p><ref target="  https://example.org  ">x</ref></p></body></text>'
+        "</TEI>"
+    )
+    rewritten = sanitize_link_targets_in_tei_xml(raw)
+    root = ET.fromstring(rewritten)
+    ref = root.find(f".//{_TEI_NS}ref")
+    assert ref is not None
+    assert ref.get("target") == "https://example.org"
+
+
+def test_sanitize_link_targets_noop_when_nothing_to_change():
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        '<text><body><p><ref target="https://example.org">x</ref></p></body></text>'
+        "</TEI>"
+    )
+    assert sanitize_link_targets_in_tei_xml(raw) == raw
+
+
+def test_sanitized_dangerous_ref_target_still_validates_against_commons_publishing():
+    """The trade-off this whole mechanism exists to avoid: neutralizing a
+    dangerous link must never leave the TEI structurally invalid. @target
+    is optional on <ref> in Commons Publishing (att.pointing.attribute.target),
+    so dropping just the attribute keeps the document valid."""
+    raw = (
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<teiHeader><fileDesc><titleStmt><title>Test</title></titleStmt>"
+        "<publicationStmt><p>p</p></publicationStmt><sourceDesc><p>s</p></sourceDesc></fileDesc></teiHeader>"
+        '<text><body><p>Avant <ref target="javascript:alert(1)">cliquez</ref> apres.</p></body></text>'
+        "</TEI>"
+    )
+    rewritten = sanitize_link_targets_in_tei_xml(raw)
+    result = validate_commons_publishing_bytes(rewritten.encode("utf-8"))
+    assert result.valid is True
+    assert result.issues == ()
 
 
 def test_extract_heading_levels_ignores_a_table_separator_row():

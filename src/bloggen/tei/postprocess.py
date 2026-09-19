@@ -38,6 +38,7 @@ import xml.etree.ElementTree as ET
 
 _T = TypeVar("_T")
 
+from bloggen.markdown.link_safety import sanitize_link_href
 from bloggen.tei.header_builder import (
     TEI_NAMESPACE,
     TeiHeaderMetadata,
@@ -245,6 +246,70 @@ def apply_paragraph_alignment_in_tei_file(tei_path: Path) -> bool:
     source = Path(tei_path)
     original = source.read_text(encoding="utf-8")
     rewritten = apply_paragraph_alignment_in_tei_xml(original)
+    if rewritten == original:
+        return False
+
+    source.write_text(rewritten, encoding="utf-8")
+    return True
+
+
+def sanitize_link_targets_in_tei_xml(tei_xml: str) -> str:
+    """Applies :func:`bloggen.markdown.link_safety.sanitize_link_href` to
+    every ``<ref target="...">`` Pandoc produced from a Markdown link,
+    so a dangerous destination (``javascript:``, ``data:``...) can never
+    reach ``tei_to_html.xsl``'s ``tei:ref[@target]`` template, which turns
+    ``@target`` directly into an ``<a href>`` with no validation of its
+    own — Pandoc itself performs none either (confirmed by direct probing:
+    it carries any scheme through as-is, only trimming incidental
+    whitespace).
+
+    This is the publication boundary, not a source sanitizer: it acts on
+    the generated TEI, never on the Markdown file the editorial content
+    came from — a Markdown source containing a ``javascript:`` link is
+    left completely untouched on disk.
+
+    A rejected ``@target`` is dropped, not the ``<ref>`` element itself:
+    Commons Publishing's schema defines ``@target`` as optional on
+    ``<ref>`` (``att.pointing.attribute.target``), and with no
+    ``tei:ref[@target]``-specific template left to match, the XSLT's
+    built-in default template rule simply recurses into the element's
+    children — so the visible text and any inline formatting inside
+    (``<hi rendition="...">`` etc.) still renders, just without becoming
+    a clickable link. This preserves a structurally valid TEI document
+    instead of trading a link-safety problem for a schema-validity one.
+    """
+    try:
+        root = ET.fromstring(tei_xml)
+    except ET.ParseError as exc:
+        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+
+    changed = False
+    for element in root.iter():
+        if _local_name(element.tag) != "ref":
+            continue
+        target = element.get("target")
+        if target is None:
+            continue
+        safe_target = sanitize_link_href(target)
+        if safe_target is None:
+            del element.attrib["target"]
+            changed = True
+        elif safe_target != target:
+            element.set("target", safe_target)
+            changed = True
+
+    if not changed:
+        return tei_xml
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    return ET.tostring(root, encoding="unicode") + "\n"
+
+
+def sanitize_link_targets_in_tei_file(tei_path: Path) -> bool:
+    source = Path(tei_path)
+    original = source.read_text(encoding="utf-8")
+    rewritten = sanitize_link_targets_in_tei_xml(original)
     if rewritten == original:
         return False
 

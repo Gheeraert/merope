@@ -16,6 +16,7 @@ from bloggen.tei.postprocess import (
     apply_paragraph_alignment_in_tei_file,
     extract_heading_levels,
     postprocess_tei_file,
+    sanitize_link_targets_in_tei_file,
 )
 from bloggen.tei.validator import TeiValidationResult, validate_tei_file
 from bloggen.utils.subprocesses import CommandNotFoundError, run_command
@@ -147,6 +148,14 @@ def convert_markdown_file_to_tei(
             apply_image_attributes_in_tei_file(destination, image_attributes)
         if "{{align=" in normalized_body:
             apply_paragraph_alignment_in_tei_file(destination)
+        # Publication boundary: a Markdown source that never went through
+        # the rich-text editor's own href policy (hand-written, or
+        # produced by an external tool) can still carry a dangerous link
+        # scheme straight through Pandoc's TEI conversion unfiltered — see
+        # bloggen.tei.postprocess.sanitize_link_targets_in_tei_xml. Must
+        # run before validate_tei_file/the Commons Publishing pass and
+        # before this TEI is read for the sidecar or handed to the XSLT.
+        sanitize_link_targets_in_tei_file(destination)
         validation = validate_tei_file(destination)
 
         if not validation.valid:

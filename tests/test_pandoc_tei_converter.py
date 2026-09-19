@@ -282,3 +282,45 @@ def test_underline_span_survives_real_pandoc_conversion_to_html():
     )
     assert "<u>Bossuet</u>" in html
     assert '<u><a href="https://example.org"><strong>Meaux</strong></a></u>' in html
+
+
+def test_dangerous_markdown_link_never_reaches_tei_or_html_with_real_pandoc():
+    """Full pipeline regression for the publication-boundary fix: a
+    hand-written (never passed through the rich-text editor) Markdown
+    link with an active scheme must not survive real Pandoc conversion
+    into the TEI, nor the standard XSLT into the published HTML — while
+    the Markdown source itself is left untouched, and an ordinary HTTPS
+    link right next to it keeps working normally.
+    """
+    if shutil.which("pandoc") is None:
+        pytest.skip("Pandoc non disponible dans l'environnement de test.")
+
+    markdown_source = RUNTIME_DIR / "pipeline_dangerous_link_source.md"
+    source_text = (
+        "# Titre\n\n"
+        "Avant [cliquez](javascript:alert(1)) après.\n\n"
+        "Voir [ce lien](https://example.org).\n"
+    )
+    markdown_source.write_text(source_text, encoding="utf-8")
+
+    output_path = RUNTIME_DIR / "pipeline_dangerous_link_output.xml"
+    result = convert_markdown_file_to_tei(markdown_source, output_path, pandoc_command="pandoc")
+
+    assert result.success is True
+    assert result.validation.valid is True
+
+    # The Markdown source on disk is never rewritten by this mechanism.
+    assert markdown_source.read_text(encoding="utf-8") == source_text
+
+    tei_content = output_path.read_text(encoding="utf-8")
+    assert "cliquez" in tei_content
+    assert "javascript:" not in tei_content
+    assert 'target="https://example.org"' in tei_content
+
+    html = render_tei_file_to_html_fragment(
+        output_path, parameters={"article_slug": "dangerous-link"}
+    )
+    assert "cliquez" in html
+    assert "javascript:" not in html
+    assert "href=\"javascript" not in html
+    assert '<a href="https://example.org">ce lien</a>' in html
