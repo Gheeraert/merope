@@ -31,6 +31,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     extract_blocks,
     make_image_format,
     populate_document,
+    validate_footnote_definitions,
 )
 from bloggen.ui.qt_editor.constants import (
     BOLD_PROPERTY,
@@ -432,13 +433,53 @@ def test_irregular_table_is_rejected_before_populate_mutates_document(row_widths
 
 @pytest.mark.parametrize(
     "run",
-    [InlineRun(footnote_ref="non-numerique")],
+    [
+        InlineRun(footnote_ref=""),
+        InlineRun(footnote_ref="1", text="texte"),
+    ],
 )
 def test_invalid_inline_leaf_is_never_silently_lost(run: InlineRun):
     document = QTextDocument()
 
     with pytest.raises(UnsupportedInlineError):
         populate_document(document, [Block(kind=PARAGRAPH, runs=[run])])
+
+
+@pytest.mark.parametrize(
+    "definitions",
+    [
+        {"note": [InlineRun(text="Une note")]},
+        {"foo": [InlineRun(text="Une note")], "1": [InlineRun(text="Autre")]},
+    ],
+)
+def test_validate_footnote_definitions_accepts_non_numeric_ids(definitions):
+    validate_footnote_definitions(definitions)
+
+
+@pytest.mark.parametrize(
+    "definitions",
+    [
+        {"": [InlineRun(text="Identifiant vide")]},
+        {None: [InlineRun(text="Identifiant absent")]},
+    ],
+)
+def test_validate_footnote_definitions_still_rejects_empty_or_missing_ids(definitions):
+    with pytest.raises(UnsupportedInlineError):
+        validate_footnote_definitions(definitions)
+
+
+def test_non_numeric_footnote_reference_is_accepted_as_an_intermediate_state():
+    """rich_text_import.py's footnote grammar already accepts any
+    non-empty label (e.g. a Pandoc-style "[^note]"), not just digits — the
+    Qt model must be able to carry that same identifier at least as far as
+    save time, where plan_footnote_renumbering() canonicalizes every id to
+    "1", "2", "3"... regardless of its original shape.
+    """
+    document = QTextDocument()
+    populate_document(document, [Block(kind=PARAGRAPH, runs=[InlineRun(footnote_ref="note")])])
+
+    blocks = extract_blocks(document)
+    assert blocks[0].runs[0].footnote_ref == "note"
 
 
 @pytest.mark.parametrize(

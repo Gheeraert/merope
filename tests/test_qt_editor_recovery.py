@@ -187,6 +187,37 @@ def test_autosave_preserves_body_rich_note_image_and_deferred_shortcut(tmp_path)
     _dispose(window)
 
 
+def test_autosave_preserves_a_non_numeric_footnote_id_without_renumbering(tmp_path):
+    """Autosave's job is to faithfully preserve the session, not
+    canonicalize it: a source label like "note" (accepted by
+    rich_text_import.py, e.g. from a hand-written or externally produced
+    document) must reach the recovery draft exactly as-is, not
+    renumbered — renumbering only ever happens at save time."""
+    path = _path(tmp_path)
+    window = QtEditorWindow(path, project_root=tmp_path)
+    body = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="Corps"), InlineRun(footnote_ref="note")],
+        )
+    ]
+    populate_document(window.editor.document(), body)
+    window.footnote_store.load({"note": [InlineRun(text="Contenu de la note.")]})
+    window.editor.document().setModified(True)
+
+    window._autosave_tick()
+
+    draft = load_draft(tmp_path)
+    assert draft is not None
+    recovered_body, definitions = separate_footnote_definitions(
+        markdown_to_blocks(draft.body_markdown)
+    )
+    assert recovered_body == body
+    assert definitions == {"note": [InlineRun(text="Contenu de la note.")]}
+    assert "[^note]" in draft.body_markdown
+    _dispose(window)
+
+
 def test_external_current_path_is_never_written_to_draft(tmp_path):
     project_root = tmp_path / "project"
     outside = tmp_path / "outside.md"
@@ -347,6 +378,41 @@ def test_restore_accept_recovers_complete_model_and_remains_dirty(
     assert window.editor.document().baseUrl().toLocalFile().rstrip("/\\").endswith(
         "content/pages"
     )
+    _dispose(window)
+
+
+def test_restore_accept_recovers_a_non_numeric_footnote_id_without_exception(
+    tmp_path,
+    monkeypatch,
+):
+    """The recovery path (prepare_recovery_draft -> validate_footnote_definitions)
+    used to require every footnote id to be numeric — a draft carrying a
+    non-numeric label like "note" must now restore cleanly, keeping that
+    exact label until the next normal save canonicalizes it."""
+    path = _path(tmp_path)
+    draft = RecoveryDraft(
+        current_path="content/pages/article.md",
+        current_kind="page",
+        metadata={"title": "Récupéré", "slug": "recupere", "type": "page"},
+        body_markdown=(
+            "Corps[^note].\n\n"
+            "[^note]: Contenu de la note.\n"
+        ),
+    )
+    save_draft(tmp_path, draft)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args: QMessageBox.StandardButton.Yes,
+    )
+
+    window = QtEditorWindow(path, project_root=tmp_path)
+
+    blocks = extract_blocks(window.editor.document())
+    assert window.footnote_definitions == {
+        "note": [InlineRun(text="Contenu de la note.")]
+    }
+    assert any(run.footnote_ref == "note" for run in blocks[0].runs)
     _dispose(window)
 
 

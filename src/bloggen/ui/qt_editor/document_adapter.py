@@ -1750,9 +1750,16 @@ def _validate_runs(runs: Iterable[InlineRun]) -> None:
 
 
 def _validate_footnote_id(note_id: object) -> None:
-    if not isinstance(note_id, str) or not note_id or not note_id.isdigit():
+    # Deliberately not numeric-only: rich_text_import.py's footnote
+    # grammar (_scan_footnote_reference/_FOOTNOTE_DEF_RE) already accepts
+    # any non-empty label, including Pandoc-style ones like "[^note]" from
+    # a hand-written or externally produced document. The Qt model must be
+    # able to carry that same identifier at least until save time, where
+    # plan_footnote_renumbering() canonicalizes every id to "1", "2", "3"...
+    # — this only rejects what could never have come from that importer.
+    if not isinstance(note_id, str) or not note_id:
         raise UnsupportedInlineError(
-            f"Identifiant numérique de note Mérope invalide : {note_id!r}"
+            f"Identifiant de note Mérope invalide : {note_id!r}"
         )
 
 

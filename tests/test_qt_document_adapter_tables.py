@@ -246,6 +246,18 @@ def test_graphical_table_footnotes_are_atomic_and_renumbered_in_reading_order():
     assert footnote_reference_order(extract_blocks(document)) == ["1", "2"]
 
 
+def test_graphical_table_accepts_a_non_numeric_footnote_reference():
+    """A non-numeric footnote label (e.g. a Pandoc-style "[^note]") inside
+    a table cell must populate/extract exactly like a numeric one — it's
+    only canonicalized to a digit at save time, not rejected here."""
+    model = _table([[_cell(InlineRun(footnote_ref="note"))]])
+    document = QTextDocument()
+
+    populate_document(document, [model])
+
+    assert extract_blocks(document) == [model]
+
+
 def test_unmarked_qtexttable_is_rejected():
     document = QTextDocument()
     QTextCursor(document).insertTable(1, 1)

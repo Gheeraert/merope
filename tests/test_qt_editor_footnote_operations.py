@@ -463,6 +463,79 @@ def test_save_renumbers_duplicates_missing_definition_and_orphan(tmp_path):
     window.close()
 
 
+def test_open_save_reopen_canonicalizes_non_numeric_footnote_ids(tmp_path):
+    """Full real Qt window path for the fix in this pass: a document with
+    Pandoc-style non-numeric footnote ids — a referenced one, a reference
+    with no definition, and an orphan definition — must open without
+    UnsupportedInlineError, keep those source labels intact in the live
+    session until save, and be written back with Mérope's canonical
+    1, 2, 3... numbering, exactly like the numeric-id case above.
+    """
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[
+                InlineRun(footnote_ref="note"),
+                InlineRun(text=" "),
+                InlineRun(footnote_ref="missing"),
+            ],
+        ),
+        Block(
+            kind=FOOTNOTE_DEFINITION,
+            footnote_id="note",
+            runs=[InlineRun(text="Contenu de la note.")],
+        ),
+        Block(
+            kind=FOOTNOTE_DEFINITION,
+            footnote_id="orphan",
+            runs=[InlineRun(text="Définition orpheline.")],
+        ),
+    ]
+    path = write_content_file(
+        tmp_path,
+        "alpha.md",
+        {"title": "Alpha", "slug": "alpha"},
+        blocks_to_markdown(blocks),
+    )
+
+    window = QtEditorWindow(path)
+
+    # The live session still carries the source labels verbatim,
+    # unrenumbered, before any save happens.
+    live_before_save = extract_blocks(window.editor.document())
+    assert [run.footnote_ref for run in live_before_save[0].runs if run.footnote_ref] == [
+        "note",
+        "missing",
+    ]
+    assert window.footnote_definitions == {
+        "note": [InlineRun(text="Contenu de la note.")],
+        "orphan": [InlineRun(text="Définition orpheline.")],
+    }
+
+    assert window.save_document()
+
+    metadata, saved_body = read_content_file(path)
+    saved = markdown_to_blocks(saved_body)
+    body_blocks, definitions = separate_footnote_definitions(saved)
+    assert metadata == {"title": "Alpha", "slug": "alpha"}
+    assert [run.footnote_ref for run in body_blocks[0].runs if run.footnote_ref] == [
+        "1",
+        "2",
+    ]
+    assert definitions == {
+        "1": [InlineRun(text="Contenu de la note.")],
+        "3": [InlineRun(text="Définition orpheline.")],
+    }
+    assert window.footnote_definitions == definitions
+    assert not window.document_has_unsaved_changes
+
+    reopened = QtEditorWindow(path)
+    assert extract_blocks(reopened.editor.document()) == extract_blocks(window.editor.document())
+    assert reopened.footnote_definitions == definitions
+    reopened.close()
+    window.close()
+
+
 @pytest.mark.parametrize("prior_dirty", [False, True])
 def test_failed_save_restores_body_store_and_prior_modified_states(
     tmp_path,
