@@ -45,6 +45,7 @@ from bloggen.tei.header_builder import (
     ensure_minimal_tei_header,
     ensure_text_body,
 )
+from bloggen.tei.xml_safety import parse_xml_safely_for_elementtree
 
 _ALIGN_MARKER_RE = re.compile(r"^\{\{align=(left|center|right|justify)\}\}")
 _HEADING_LINE_RE = re.compile(r"^(#{1,6})\s+\S")
@@ -60,10 +61,7 @@ _SETEXT_UNDERLINE_RE = re.compile(r"^(=+|-+)\s*$")
 def postprocess_tei_xml(
     tei_xml: str, *, title: str | None = None, header_metadata: TeiHeaderMetadata | None = None
 ) -> str:
-    try:
-        root = ET.fromstring(tei_xml)
-    except ET.ParseError as exc:
-        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+    root = parse_xml_safely_for_elementtree(tei_xml)
 
     if _local_name(root.tag) != "TEI":
         raise ValueError("La racine XML doit être un élément TEI.")
@@ -99,10 +97,7 @@ def rewrite_graphic_urls_in_tei_xml(tei_xml: str, replacements: dict[str, str]) 
     if not replacements:
         return tei_xml
 
-    try:
-        root = ET.fromstring(tei_xml)
-    except ET.ParseError as exc:
-        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+    root = parse_xml_safely_for_elementtree(tei_xml)
 
     changed = False
     for element in root.iter():
@@ -159,10 +154,7 @@ def apply_image_attributes_in_tei_xml(tei_xml: str, attributes_by_src: dict[str,
     if not attributes_by_src:
         return tei_xml
 
-    try:
-        root = ET.fromstring(tei_xml)
-    except ET.ParseError as exc:
-        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+    root = parse_xml_safely_for_elementtree(tei_xml)
 
     changed = False
     for element in root.iter():
@@ -217,10 +209,7 @@ def apply_paragraph_alignment_in_tei_xml(tei_xml: str) -> str:
     ``<quote>``), so it is found directly on the element that carries it —
     no positional matching against the source Markdown is needed.
     """
-    try:
-        root = ET.fromstring(tei_xml)
-    except ET.ParseError as exc:
-        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+    root = parse_xml_safely_for_elementtree(tei_xml)
 
     changed = False
     for element in root.iter():
@@ -278,10 +267,7 @@ def sanitize_link_targets_in_tei_xml(tei_xml: str) -> str:
     a clickable link. This preserves a structurally valid TEI document
     instead of trading a link-safety problem for a schema-validity one.
     """
-    try:
-        root = ET.fromstring(tei_xml)
-    except ET.ParseError as exc:
-        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+    root = parse_xml_safely_for_elementtree(tei_xml)
 
     changed = False
     for element in root.iter():
@@ -364,10 +350,7 @@ def apply_heading_levels_in_tei_xml(tei_xml: str, levels: list[int]) -> str:
     if not levels:
         return tei_xml
 
-    try:
-        root = ET.fromstring(tei_xml)
-    except ET.ParseError as exc:
-        raise ValueError(f"XML TEI invalide (parse): {exc}") from exc
+    root = parse_xml_safely_for_elementtree(tei_xml)
 
     remaining = list(levels)
     changed = False

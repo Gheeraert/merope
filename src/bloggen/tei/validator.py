@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-import xml.etree.ElementTree as ET
+
+from lxml import etree
+
+from bloggen.tei.xml_safety import UnsafeXmlError, parse_xml_safely
 
 
 @dataclass(slots=True)
@@ -17,9 +20,9 @@ def validate_tei_xml(tei_xml: str) -> TeiValidationResult:
     errors: list[str] = []
 
     try:
-        root = ET.fromstring(tei_xml)
-    except ET.ParseError as exc:
-        return TeiValidationResult(valid=False, errors=[f"XML mal formé: {exc}"])
+        root = parse_xml_safely(tei_xml)
+    except UnsafeXmlError as exc:
+        return TeiValidationResult(valid=False, errors=[str(exc)])
 
     if _local_name(root.tag) != "TEI":
         errors.append("Racine TEI absente ou invalide.")
@@ -41,7 +44,7 @@ def validate_tei_file(path: str | Path) -> TeiValidationResult:
     return validate_tei_xml(content)
 
 
-def _find_first(parent: ET.Element, local_name: str) -> ET.Element | None:
+def _find_first(parent: etree._Element, local_name: str) -> etree._Element | None:
     for node in parent.iter():
         if _local_name(node.tag) == local_name:
             return node

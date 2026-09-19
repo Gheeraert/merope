@@ -2,6 +2,8 @@
 
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from bloggen.tei.commons_publishing import validate_commons_publishing_bytes
 from bloggen.tei.header_builder import TeiHeaderMetadata
 from bloggen.tei.postprocess import (
@@ -14,6 +16,7 @@ from bloggen.tei.postprocess import (
     sanitize_link_targets_in_tei_xml,
 )
 from bloggen.tei.validator import validate_tei_xml
+from bloggen.tei.xml_safety import UnsafeXmlError
 
 _TEI_NS = "{http://www.tei-c.org/ns/1.0}"
 
@@ -428,3 +431,37 @@ def test_strip_duplicate_figure_caption_survives_differing_whitespace():
     assert not any(
         " ".join("".join(p.itertext()).split()) == "Une légende en italique" for p in stray_paragraphs
     )
+
+
+def test_postprocess_tei_xml_rejects_a_doctype_declaration(tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("SECRET_FILE_CONTENT", encoding="utf-8")
+    xml = (
+        "<!DOCTYPE TEI [\n"
+        f'  <!ENTITY xxe SYSTEM "{secret.resolve().as_uri()}">\n'
+        "]>\n"
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        "<text><body><p>&xxe;</p></body></text></TEI>"
+    )
+
+    with pytest.raises(UnsafeXmlError, match="DOCTYPE") as excinfo:
+        postprocess_tei_xml(xml, title="Titre Test")
+
+    assert "SECRET_FILE_CONTENT" not in str(excinfo.value)
+
+
+def test_sanitize_link_targets_rejects_a_doctype_declaration(tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("SECRET_FILE_CONTENT", encoding="utf-8")
+    xml = (
+        "<!DOCTYPE TEI [\n"
+        f'  <!ENTITY xxe SYSTEM "{secret.resolve().as_uri()}">\n'
+        "]>\n"
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">'
+        '<text><body><p><ref target="https://example.org">&xxe;</ref></p></body></text></TEI>'
+    )
+
+    with pytest.raises(UnsafeXmlError, match="DOCTYPE") as excinfo:
+        sanitize_link_targets_in_tei_xml(xml)
+
+    assert "SECRET_FILE_CONTENT" not in str(excinfo.value)
