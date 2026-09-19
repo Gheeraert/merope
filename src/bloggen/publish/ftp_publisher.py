@@ -5,6 +5,7 @@ from __future__ import annotations
 import ftplib
 import io
 import json
+import ssl
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,24 @@ ProgressCallback = Callable[[int, int, str], None]
 # hand) must never be treated as MEROPE's to delete just because they
 # aren't part of this build (see the external audit).
 _MANIFEST_FILENAME = ".merope-manifest.json"
+
+
+def _make_ftp(config: FtpConfig) -> ftplib.FTP:
+    """Instantiates the right client for ``config.use_tls``. FTPS always
+    gets an explicit ``ssl.create_default_context()`` so certificate and
+    hostname verification are active — never an unverified context, and
+    never a silent fallback to plain FTP."""
+    if config.use_tls:
+        return ftplib.FTP_TLS(context=ssl.create_default_context(), timeout=30)
+    return ftplib.FTP(timeout=30)
+
+
+def _connect_and_login(ftp: ftplib.FTP, config: FtpConfig) -> None:
+    ftp.connect(config.host, config.port or 21)
+    ftp.login(config.username, config.password)
+    if config.use_tls:
+        ftp.prot_p()
+    ftp.set_pasv(config.passive_mode)
 
 
 class FtpPublishError(RuntimeError):
@@ -115,15 +134,10 @@ def publish_directory(
     if total == 0:
         raise FtpPublishError("Le dossier à publier ne contient aucun fichier à transférer.")
 
-    ftp_cls = ftplib.FTP_TLS if config.use_tls else ftplib.FTP
-    ftp = ftp_cls(timeout=30)
+    ftp = _make_ftp(config)
     try:
         try:
-            ftp.connect(config.host, config.port or 21)
-            ftp.login(config.username, config.password)
-            if config.use_tls:
-                ftp.prot_p()
-            ftp.set_pasv(config.passive_mode)
+            _connect_and_login(ftp, config)
             _ensure_and_cwd(ftp, config.remote_dir)
         except ftplib.all_errors as exc:
             raise FtpPublishError(f"Connexion FTP impossible : {exc}") from exc
@@ -317,15 +331,10 @@ def delete_remote_files(
     if not relative_paths:
         return DeleteResult()
 
-    ftp_cls = ftplib.FTP_TLS if config.use_tls else ftplib.FTP
-    ftp = ftp_cls(timeout=30)
+    ftp = _make_ftp(config)
     try:
         try:
-            ftp.connect(config.host, config.port or 21)
-            ftp.login(config.username, config.password)
-            if config.use_tls:
-                ftp.prot_p()
-            ftp.set_pasv(config.passive_mode)
+            _connect_and_login(ftp, config)
             _ensure_and_cwd(ftp, config.remote_dir)
         except ftplib.all_errors as exc:
             raise FtpPublishError(f"Connexion FTP impossible : {exc}") from exc

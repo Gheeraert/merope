@@ -150,6 +150,8 @@ class FtpPublishDialog(tk.Toplevel):
         config = self._collect_config()
         if config is None:
             return
+        if not config.use_tls and not self._confirm_plain_ftp():
+            return
         self._on_config_changed(config)
         self._last_config = config
 
@@ -182,6 +184,18 @@ class FtpPublishDialog(tk.Toplevel):
         self._worker = threading.Thread(target=run, daemon=True)
         self._worker.start()
         self.after(100, self._poll_queue)
+
+    def _confirm_plain_ftp(self) -> bool:
+        return messagebox.askyesno(
+            "Connexion FTP non chiffrée",
+            "La connexion sécurisée (FTPS) est désactivée.\n\n"
+            "L'identifiant, le mot de passe et le contenu du site vont circuler "
+            "en clair sur le réseau, sans aucun chiffrement.\n\n"
+            "Continuer quand même ?",
+            parent=self,
+            icon="warning",
+            default="no",
+        )
 
     def _cancel(self) -> None:
         self._cancel_event.set()

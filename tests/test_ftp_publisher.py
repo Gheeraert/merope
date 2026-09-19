@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ftplib
+import ssl
 from pathlib import Path
 
 import pytest
@@ -555,3 +556,70 @@ def test_delete_remote_files_raises_on_connection_failure(monkeypatch):
 
     with pytest.raises(FtpPublishError, match="Connexion FTP impossible"):
         delete_remote_files(_config(), ["stray.jpg"])
+
+
+# -- FTPS: certificate/hostname verification ---------------------------------
+
+
+class FakeFTPS(FakeFTP):
+    """Stand-in for ftplib.FTP_TLS: records the ``context`` it was built
+    with, so tests can assert it is a real, certificate-verifying
+    SSLContext rather than an unverified/absent one."""
+
+    def __init__(self, *, context=None, timeout=None) -> None:
+        super().__init__(timeout=timeout)
+        self.context = context
+
+
+def test_ftps_connection_uses_a_certificate_verifying_ssl_context(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+
+    def factory_fn(*, context=None, timeout=None):
+        instance = FakeFTPS(context=context, timeout=timeout)
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP_TLS", factory_fn)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config(use_tls=True))
+
+    assert result.ok is True
+    ftps = factory.created[0]
+    assert isinstance(ftps.context, ssl.SSLContext)
+    assert ftps.context.verify_mode == ssl.CERT_REQUIRED
+    assert ftps.context.check_hostname is True
+
+
+def test_delete_remote_files_over_ftps_also_uses_a_verifying_ssl_context(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+
+    def factory_fn(*, context=None, timeout=None):
+        instance = FakeFTPS(context=context, timeout=timeout)
+        _seed_remote(instance, ["/www/stray.jpg"])
+        factory.created.append(instance)
+        return instance
+
+    monkeypatch.setattr(module.ftplib, "FTP_TLS", factory_fn)
+
+    result = delete_remote_files(_config(use_tls=True), ["stray.jpg"])
+
+    assert result.ok is True
+    ftps = factory.created[0]
+    assert isinstance(ftps.context, ssl.SSLContext)
+    assert ftps.context.verify_mode == ssl.CERT_REQUIRED
+    assert ftps.context.check_hostname is True
+
+
+def test_use_tls_defaults_to_true():
+    assert FtpConfig().use_tls is True
+
+
+def test_plain_ftp_remains_available_when_use_tls_is_false(tmp_path, monkeypatch):
+    factory = _make_ftp_factory()
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    site = _make_site(tmp_path)
+    result = publish_directory(site, _config(use_tls=False))
+
+    assert result.ok is True
