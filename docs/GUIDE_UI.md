@@ -40,7 +40,7 @@ Le bouton **Parcourir...** copie les images choisies dans le projet. Pour la ban
 
 ### Chemins
 
-L’onglet **Chemins** décrit l’arborescence du projet. Les chemins relatifs sont résolus depuis **Racine projet** ; un chemin absolu est aussi accepté. Un projet créé par **Nouveau projet...** fournit déjà des valeurs cohérentes : il n’est normalement pas nécessaire de les modifier.
+L’onglet **Chemins** décrit l’arborescence du projet. Les chemins relatifs sont résolus depuis **Racine projet**. Une valeur syntaxiquement absolue est également comprise, mais le chemin résolu doit rester à l’intérieur de la racine du projet : le générateur refuse un dossier de contenu, de sortie ou d’assets situé ailleurs sur le disque. Un projet créé par **Nouveau projet...** fournit déjà des valeurs cohérentes : il n’est normalement pas nécessaire de les modifier.
 
 Les dossiers de contenu doivent exister pour être lus. Les dossiers de sortie et certains dossiers intermédiaires sont créés lorsque la génération en a besoin.
 
@@ -129,7 +129,7 @@ L’interface ne montre désormais qu’un réglage utile : **Afficher les notes
 
 ### Footer
 
-Le pied de page accepte un texte libre, la mention « généré avec MÉROPE » et une **date de mise à jour**. Cette dernière n’est pas la date technique du build : MÉROPE utilise d’abord une date `updated` lorsqu’elle existe, puis peut se rabattre sur la date de modification du fichier source ou la date de publication.
+Le pied de page accepte un texte libre, la mention « généré avec MÉROPE » et une **date de mise à jour**. Cette dernière n’est pas la date technique du build : MÉROPE utilise d’abord la date `updated` explicite des métadonnées lorsqu’elle existe, sinon la date de modification du fichier source, puis la date de publication. La date de modification du fichier est un indicateur technique qui peut changer sans modification éditoriale du contenu.
 
 ## 7. Générer et contrôler le site
 

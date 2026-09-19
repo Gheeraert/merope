@@ -8,7 +8,7 @@ Les valeurs indiquées sont les valeurs par défaut du modèle Python de la bran
 
 - **UI** : réglage visible dans la fenêtre principale ;
 - **dialogue** : visible dans une fenêtre spécialisée (menus ou publication FTP) ;
-- **masqué** : conservé dans le modèle et dans les anciens JSON, mais retiré de l’interface principale ;
+- **masqué** : conservé dans le modèle et dans les anciens JSON, mais retiré de l’interface principale ; la ligne précise séparément si le paramètre agit encore sur le logiciel ;
 - **interne** : champ technique ou structure de données, généralement manipulé par l’interface plutôt qu’à la main.
 
 Les clés inconnues appartenant à d’anciens JSON sont ignorées au chargement et disparaissent lors d’une sauvegarde si elles ne font plus partie du modèle. Les clés encore valides mais masquées sont au contraire préservées par l’interface.
@@ -74,7 +74,9 @@ Les champs de licence alimentent le `teiHeader`. Ils ne provoquent pas actuellem
 
 ## `paths`
 
-Tous les chemins peuvent être relatifs à `project_root` ou absolus. Les huit chemins requis par le validateur doivent être non vides et distincts.
+`project_root` établit la racine logique et peut lui-même être absolu. Les autres chemins peuvent être relatifs à cette racine ou syntaxiquement absolus, mais le builder exige qu’ils se résolvent à l’intérieur de `project_root`. Un chemin absolu extérieur au projet est refusé : ces réglages ne permettent pas de lire ou d’écrire dans un dossier quelconque du disque.
+
+Les huit chemins requis doivent être non vides et les différents rôles doivent être configurés vers des dossiers distincts. Le validateur détecte les collisions après sa normalisation textuelle actuelle (séparateurs et slash final notamment), sans résoudre toutes les équivalences possibles : deux alias tels que `content/pages` et `content/./pages` peuvent encore désigner le même dossier réel sans être signalés.
 
 | Clé | Défaut | Statut | Rôle |
 |---|---|---|---|
@@ -95,9 +97,9 @@ Les huit chemins explicitement requis par validation sont `pages_dir`, `posts_di
 
 | Clé | Défaut | Statut | Rôle |
 |---|---|---|---|
-| `source_format` | `"markdown"` | masqué | Format source historique ; seul Markdown est pris en charge. |
+| `source_format` | `"markdown"` | masqué, inerte | Champ historique conservé pour compatibilité ; sa valeur n’est pas lue par le pipeline et seul Markdown est pris en charge. |
 | `markdown_origin` | `"google_docs_export"` | UI | Origine des Markdown, utilisée pour adapter le nettoyage. |
-| `use_front_matter` | `true` | masqué | Compatibilité : le pipeline courant exige de toute façon un front matter valide. |
+| `use_front_matter` | `true` | masqué, inerte | Conservé pour compatibilité ; sa valeur ne permet pas de désactiver le front matter, toujours exigé par le pipeline. |
 | `default_page_layout` | `"page"` | UI | Valeur `layout` par défaut dans les métadonnées d’une page ; ne choisit pas le gabarit HTML. |
 | `default_post_layout` | `"post"` | UI | Valeur `layout` par défaut dans les métadonnées d’un billet ; ne choisit pas le gabarit HTML. |
 | `slugify_mode` | `"ascii"` | UI | Fabrication des slugs ; `ascii` translittère notamment les accents. |
@@ -109,7 +111,7 @@ Les huit chemins explicitement requis par validation sont `pages_dir`, `posts_di
 |---|---|---|---|
 | `mode` | `"page"` | UI | `page` ou `recent_posts`. |
 | `source` | `"content/pages/accueil.md"` | UI | Fichier Markdown de l’accueil en mode `page`. |
-| `layout` | `"home"` | masqué | Ancien réglage de layout ; le gabarit HTML réel est `render.home_template`. |
+| `layout` | `"home"` | masqué, inerte | Ancien réglage conservé pour compatibilité ; il n’est pas lu par le builder. Le gabarit HTML réel est `render.home_template`. |
 | `recent_posts_count` | `5` | UI | Nombre de billets en mode `recent_posts`, entier ≥ 0. |
 | `recent_posts_excerpt_length` | `2000` | UI | Longueur approximative de l’extrait de chaque billet, entier ≥ 0. |
 
@@ -159,22 +161,22 @@ Une `SideMenuSubSection` contient `label`, `enabled`, `target`, `target_type` et
 
 | Clé | Défaut | Statut | Rôle |
 |---|---:|---|---|
-| `theme_name` | `"default"` | masqué | Nom indicatif du thème ; les chemins réels sont dans `paths`. |
+| `theme_name` | `"default"` | masqué, inerte | Nom historique conservé pour compatibilité ; il n’est pas lu par le rendu. Les chemins réels sont dans `paths`. |
 | `html_template` | `"page.html"` | UI | Gabarit des pages. |
 | `post_template` | `"post.html"` | UI | Gabarit des billets. |
 | `home_template` | `"home.html"` | UI | Gabarit de l’accueil. |
 | `tei_to_html_xslt` | `"tei_to_html.xsl"` | UI | Feuille XSLT TEI → HTML. |
-| `pretty_print_html` | `true` | masqué | Indentation lisible du HTML. |
+| `pretty_print_html` | `true` | masqué, inerte | Conservé pour compatibilité ; il n’est actuellement pas lu par le pipeline et ne commande aucune indentation du HTML. |
 | `generate_tei_files` | `true` | UI | Conserve les TEI intermédiaires dans `paths.tei_dir`. |
 | `enable_lightbox` | `true` | UI | Active la visionneuse d’images. |
-| `lightbox_engine` | `"fancybox"` | masqué | Moteur historique ; Fancybox est le moteur pris en charge. |
+| `lightbox_engine` | `"fancybox"` | masqué, inerte | Nom de moteur historique conservé pour compatibilité ; sa valeur n’est pas lue et le moteur livré est fixe. |
 | `validate_commons_publishing` | `true` | UI | Vérifie le TEI avec le profil Commons Publishing ; avertissement par défaut. |
 
 ## `media_handling`
 
 | Clé | Défaut | Statut | Rôle |
 |---|---:|---|---|
-| `strategy` | `"copy_local_assets"` | masqué | Stratégie historique de copie des médias. |
+| `strategy` | `"copy_local_assets"` | masqué, inerte | Stratégie historique conservée pour compatibilité ; aucune branche du moteur ne lit actuellement sa valeur. |
 | `images_dir` | `"assets/images"` | UI | Dossier où les éditeurs enregistrent les images insérées/collées. |
 | `copy_media_to_output` | `true` | UI | Copie les médias dans la sortie. |
 | `generate_clickable_figures` | `true` | UI | Rend les figures cliquables. |
@@ -187,13 +189,13 @@ Seul `enable_footnotes` reste visible dans l’interface. Les autres clés sont 
 
 | Clé | Défaut | Statut | Rôle actuel |
 |---|---:|---|---|
-| `mode` | `"margin_excerpt_plus_footnote"` | masqué | Ancien mode global. |
-| `enable_margin_notes` | `false` | masqué | Conservé, mais les notes marginales sont actuellement désactivées dans le rendu quel que soit ce booléen. |
+| `mode` | `"margin_excerpt_plus_footnote"` | masqué, inerte | Ancien mode global conservé pour compatibilité ; il n’est pas lu par le rendu. |
+| `enable_margin_notes` | `false` | masqué, neutralisé | La valeur est transmise au post-traitement, qui force actuellement les notes marginales à être désactivées quel que soit ce booléen. |
 | `enable_footnotes` | `true` | UI | Conserve la liste complète des notes dans le HTML. |
-| `margin_excerpt_words` | `8` | masqué | Ancienne longueur d’amorce en mots. |
-| `margin_excerpt_chars` | `80` | masqué | Ancienne longueur d’amorce en caractères. |
-| `prefer_words_over_chars` | `true` | masqué | Ancien choix de mesure de l’amorce. |
-| `footnotes_location` | `"end_of_article"` | masqué | Emplacement historique des notes finales. |
+| `margin_excerpt_words` | `8` | masqué, neutralisé | La valeur est transmise à la branche des notes marginales, actuellement désactivée ; elle n’a donc aucun effet sur la sortie. |
+| `margin_excerpt_chars` | `80` | masqué, neutralisé | La valeur est transmise à la branche des notes marginales, actuellement désactivée ; elle n’a donc aucun effet sur la sortie. |
+| `prefer_words_over_chars` | `true` | masqué, neutralisé | La valeur est transmise à la branche des notes marginales, actuellement désactivée ; elle n’a donc aucun effet sur la sortie. |
+| `footnotes_location` | `"end_of_article"` | masqué, inerte | Emplacement historique conservé pour compatibilité ; il n’est pas lu par le rendu. |
 
 Les notes restent dans le TEI même si leur liste complète est retirée du HTML.
 
@@ -203,7 +205,7 @@ Les notes restent dans le TEI même si leur liste complète est retirée du HTML
 |---|---:|---|---|
 | `text` | `""` | UI | Texte libre du pied de page. |
 | `show_generation_info` | `true` | UI | Affiche la mention « généré avec MÉROPE ». |
-| `show_last_build_date` | `true` | UI | Affiche une date de mise à jour éditoriale, pas la date technique du build. |
+| `show_last_build_date` | `true` | UI | Affiche la valeur la plus récente parmi `updated` explicite, sinon le mtime du fichier source, sinon la date de publication. Ce n’est pas la date du build ; le mtime est un indicateur technique qui peut changer sans modification éditoriale. |
 
 ## `build`
 
@@ -212,7 +214,7 @@ Les notes restent dans le TEI même si leur liste complète est retirée du HTML
 | `clean_output_dir` | `true` | UI | Vide la sortie avant génération. |
 | `copy_assets` | `true` | UI | Copie le dossier d’assets dans la sortie. |
 | `fail_on_missing_assets` | `false` | UI | Rend les assets manquants bloquants. |
-| `fail_on_invalid_config` | `true` | masqué | Paramètre historique ; l’interface et la CLI valident toujours la configuration avant le build. |
+| `fail_on_invalid_config` | `true` | masqué, inerte | Paramètre historique conservé pour compatibilité ; il n’est pas lu par le builder et l’interface comme la CLI valident toujours avant le build. |
 | `pandoc_command` | `"pandoc"` | UI | Commande ou chemin de l’exécutable Pandoc. |
 | `generate_sitemap` | `true` | UI | Génère `sitemap.xml` si `site.base_url` existe. |
 | `generate_robots_txt` | `true` | UI | Génère `robots.txt`; la ligne Sitemap dépend de la Base URL et du sitemap. |
@@ -255,7 +257,7 @@ Le validateur impose notamment :
 
 - `version`, `site.title` et `site.language` non vides ;
 - `site.base_url` et `ftp.site_url`, lorsqu’ils sont renseignés, en HTTP(S) ;
-- les huit chemins requis de `paths` non vides et distincts ;
+- les huit chemins requis de `paths` non vides, avec détection des collisions selon la normalisation textuelle actuelle ; les rôles doivent viser des dossiers réellement distincts même si tous les alias équivalents ne sont pas détectés ;
 - `home.mode` égal à `page` ou `recent_posts` ;
 - les booléens réellement booléens et les champs numériques dans leurs bornes ;
 - `blog.archive_path` composé de segments de slug sûrs ;

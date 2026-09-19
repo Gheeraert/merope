@@ -38,7 +38,7 @@ La configuration doit respecter au minimum les règles suivantes :
 - `version` est une chaîne non vide ;
 - `site.title` et `site.language` sont non vides ;
 - `site.base_url` et `ftp.site_url`, lorsqu’ils sont renseignés, commencent par `http://` ou `https://` ;
-- les chemins requis `pages_dir`, `posts_dir`, `assets_dir`, `theme_dir`, `templates_dir`, `xslt_dir`, `output_dir` et `tei_dir` sont non vides et ne désignent pas le même dossier ;
+- les chemins requis `pages_dir`, `posts_dir`, `assets_dir`, `theme_dir`, `templates_dir`, `xslt_dir`, `output_dir` et `tei_dir` sont non vides ; les différents rôles doivent viser des dossiers distincts ;
 - `home.mode` vaut `page` ou `recent_posts` ;
 - les champs booléens sont de vrais booléens JSON ;
 - les tailles et compteurs numériques sont des entiers dans leurs bornes ;
@@ -48,6 +48,8 @@ La configuration doit respecter au minimum les règles suivantes :
 - le menu latéral ne dépasse pas section → sous-section → lien.
 
 L’interface graphique et la CLI exécutent cette validation avant la génération. Le champ historique `build.fail_on_invalid_config` est encore conservé dans le modèle pour compatibilité, mais ne désactive pas cette validation dans ces deux parcours.
+
+La détection des collisions de chemins repose sur la normalisation textuelle actuelle du validateur ; elle ne résout pas toutes les équivalences possibles, par exemple `content/pages` et `content/./pages`. Indépendamment de cette validation, le builder résout chaque chemin configuré et refuse ceux qui sortent de `project_root`. Une syntaxe absolue n’autorise donc pas l’accès à un dossier extérieur au projet.
 
 ## Front matter des contenus
 
