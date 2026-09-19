@@ -1225,7 +1225,7 @@ class MainWindow(tk.Tk):
         notes_rendering.unknown_data = copy.deepcopy(loaded.notes_rendering.unknown_data)
 
         return ProjectConfig(
-            version="1.0",
+            version=loaded.version,
             site=site,
             top_banner=top_banner,
             banner=banner,

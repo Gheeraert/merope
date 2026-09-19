@@ -262,3 +262,63 @@ def test_save_as_preserves_opaque_data_in_the_new_destination(
 
     saved_b = json.loads(path_b.read_text(encoding="utf-8"))
     assert saved_b["future_extension"] == {"kept": True}
+
+
+def test_loaded_config_version_survives_open_edit_and_collect(
+    window: MainWindow, tmp_path: Path
+) -> None:
+    raw = _base_raw()
+    raw["version"] = "2.0"
+    config_path = tmp_path / "site.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    window._load_into_form(load_config(config_path))
+    collected = window._collect_from_form()
+
+    assert collected.version == "2.0"
+
+
+def test_loaded_config_version_survives_full_save_round_trip(
+    window: MainWindow, tmp_path: Path
+) -> None:
+    raw = _base_raw()
+    raw["version"] = "2.0"
+    config_path = tmp_path / "site.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    window._load_into_form(load_config(config_path))
+    save_config(window._collect_from_form(), config_path)
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["version"] == "2.0"
+
+
+def test_new_config_still_uses_the_default_version(window: MainWindow) -> None:
+    window.new_config()
+    collected = window._collect_from_form()
+    assert collected.version == "1.0"
+
+
+def test_successive_loads_each_keep_their_own_version_not_the_previous_one(
+    window: MainWindow, tmp_path: Path
+) -> None:
+    raw_a = _base_raw()
+    raw_a["version"] = "2.0"
+    path_a = tmp_path / "a.json"
+    path_a.write_text(json.dumps(raw_a), encoding="utf-8")
+
+    raw_b = _base_raw()
+    raw_b["version"] = "3.0"
+    path_b = tmp_path / "b.json"
+    path_b.write_text(json.dumps(raw_b), encoding="utf-8")
+
+    window._load_into_form(load_config(path_a))
+    window._load_into_form(load_config(path_b))
+
+    collected = window._collect_from_form()
+    assert collected.version == "3.0"
+
+    save_config(collected, path_b)
+    saved_b = json.loads(path_b.read_text(encoding="utf-8"))
+    assert saved_b["version"] == "3.0"
+    assert saved_b["version"] != "2.0"

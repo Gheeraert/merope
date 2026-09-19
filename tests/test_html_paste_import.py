@@ -270,6 +270,41 @@ def test_nested_opaque_tags_are_both_dropped_until_the_outer_one_closes():
     assert _export(html) == "Avant\n\nAprès\n"
 
 
+def test_void_element_inside_template_does_not_keep_parser_stuck_in_opaque_mode():
+    html = "<template><img src=x></template><p>VISIBLE</p>"
+    result = _export(html)
+    assert "VISIBLE" in result
+    assert "template" not in result.lower()
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<template><br></template><p>VISIBLE</p>",
+        "<noscript><meta charset=utf-8></noscript><p>VISIBLE</p>",
+        "<template><input></template><p>VISIBLE</p>",
+        "<template><hr></template><p>VISIBLE</p>",
+        "<script><img src=x></script><p>VISIBLE</p>",
+    ],
+)
+def test_void_elements_of_various_kinds_do_not_swallow_content_after_an_opaque_block(html):
+    assert _export(html) == "VISIBLE\n"
+
+
+def test_foreign_closing_tag_after_a_void_element_inside_template_still_does_not_leak_content():
+    html = "<template><div>SECRET</div></span>ENCORE SECRET</template><p>VISIBLE</p>"
+    result = _export(html)
+    assert "SECRET" not in result
+    assert "ENCORE SECRET" not in result
+    assert result == "VISIBLE\n"
+
+
+def test_unclosed_template_with_void_element_ignores_rest_of_fragment():
+    html = "<p>AVANT</p><template><img src=x>SECRET<p>APRES"
+    result = _export(html)
+    assert result == "AVANT\n"
+
+
 # -- dangerous href filtering ------------------------------------------------
 
 

@@ -51,6 +51,8 @@ Comportement précis :
 
 Ce contrat ne s’applique pas à `ftp.password`, qui fait l’objet d’une exception de sécurité décrite plus bas.
 
+Le champ `version`, bien qu’il ne soit pas éditable dans l’interface, est préservé lors d’un aller-retour d’une configuration acceptée.
+
 ## Invariants de validation
 
 La configuration doit respecter au minimum les règles suivantes :

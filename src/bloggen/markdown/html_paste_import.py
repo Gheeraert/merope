@@ -89,6 +89,29 @@ _BOLD_WEIGHTS = {"bold", "bolder", "600", "700", "800", "900"}
 # tags would happily surface their contents as prose) or explicitly hidden
 # (noscript/template). They and everything inside them are dropped.
 _OPAQUE_CONTENT_TAGS = {"script", "style", "noscript", "template"}
+# HTML void elements never have a closing tag (`<img src=x>`, not
+# `<img src=x></img>`), so while inside an opaque subtree they must not be
+# pushed onto ``ignore_stack`` — nothing would ever pop them back off, and
+# a later closing tag that actually belongs to the opaque element itself
+# (e.g. `</template>`) would then fail to match the stack top, leaving the
+# parser ignoring the rest of the fragment forever and silently dropping
+# genuine editorial content that follows.
+_VOID_HTML_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
 
 
 class UnsupportedHtmlStructureError(ValueError):
@@ -432,7 +455,9 @@ class _HtmlBlockBuilder(HTMLParser):
             # Self-closing tags (`<template/>`) never get a matching
             # handle_endtag, so they must not be pushed: nothing would ever
             # pop them back off, and parsing would stay "ignoring" forever.
-            if not self_closing:
+            # Void elements (`<img>`, `<br>`, ...) are the same story even
+            # when written without a trailing slash — see _VOID_HTML_TAGS.
+            if not self_closing and tag not in _VOID_HTML_TAGS:
                 self.ignore_stack.append(tag)
             return
         attrs_dict = {k.lower(): (v or "") for k, v in attrs}
