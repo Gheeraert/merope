@@ -166,6 +166,39 @@ def test_real_space_key_does_not_change_words_ending_in_p(word):
     assert _document_text(editor) == f"{word} "
 
 
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [
+        ("Confessions, p.30", f"Confessions, p.{NBSP}30"),
+        ("Confessions p.30", f"Confessions p.{NBSP}30"),
+        ("Voir pp.12-15", f"Voir pp.{NBSP}12-15"),
+    ],
+)
+def test_page_number_gets_nbsp_the_instant_the_period_is_typed_without_a_space(typed, expected):
+    editor = _editor()
+
+    _type(editor, typed)
+
+    assert _document_text(editor) == expected
+
+
+@pytest.mark.parametrize("word", ["coup.30", "stop.30", "champ.30", "app.30"])
+def test_period_trigger_does_not_touch_words_ending_in_p(word):
+    editor = _editor()
+
+    _type(editor, word)
+
+    assert _document_text(editor) == word
+
+
+def test_typing_a_space_after_the_auto_inserted_nbsp_does_not_leave_a_double_gap():
+    editor = _editor()
+
+    _type(editor, "Voir p. 12")
+
+    assert _document_text(editor) == f"Voir p.{NBSP}12"
+
+
 def test_page_abbreviation_space_is_one_undo_step_with_spellcheck_active():
     editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text="p.")])])
     assert editor._spell_highlighter is not None

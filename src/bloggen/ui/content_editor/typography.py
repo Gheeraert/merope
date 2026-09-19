@@ -18,6 +18,8 @@ from bloggen.markdown.typography import (
     NBSP,
     OE_LIGATURE_TYPED_RE,
     OPENING_GUILLEMET,
+    PAGE_ABBREVIATION_COMPLETE_TYPED_RE,
+    PAGE_ABBREVIATION_REDUNDANT_SPACE_RE,
     PAGE_ABBREVIATION_TYPED_RE,
     SPACE_BEFORE_PERIOD_TYPED_RE,
     convert_curly_quotes_to_guillemets,
@@ -69,6 +71,7 @@ class TypographyMixin:
             self._autoformat_page_number_space(widget)
         elif char == ".":
             self._autoformat_period_spacing(widget)
+            self._autoformat_page_number_period(widget)
         elif char.isalpha():
             self._autoformat_oe_ligature(widget)
             if char == "e":
@@ -159,12 +162,34 @@ class TypographyMixin:
         cursor = widget.index("insert")
         line = int(cursor.split(".")[0])
         text_before = widget.get(f"{line}.0", cursor)
+        if PAGE_ABBREVIATION_REDUNDANT_SPACE_RE.search(text_before) is not None:
+            # "p."/"pp." already got its non-breaking space the instant its
+            # period was typed (see _autoformat_page_number_period) — this
+            # space is a redundant keystroke that would otherwise leave a
+            # visible "p.<NBSP> " double gap, so it's dropped rather than
+            # converted.
+            space_start = widget.index(f"{cursor}-1c")
+            widget.delete(space_start, cursor)
+            return
         if PAGE_ABBREVIATION_TYPED_RE.search(text_before) is None:
             return
         space_start = widget.index(f"{cursor}-1c")
         space_end = cursor
         widget.delete(space_start, space_end)
         widget.insert(space_start, NBSP)
+
+    def _autoformat_page_number_period(self, widget: tk.Text) -> None:
+        """Insert the non-breaking space right after standalone
+        ``p.``/``pp.`` the instant its period is typed — mirrors ``;:!?``
+        getting theirs as soon as they're typed, rather than waiting for
+        whatever the page number's own first character turns out to be.
+        """
+        cursor = widget.index("insert")
+        line = int(cursor.split(".")[0])
+        text_before = widget.get(f"{line}.0", cursor)
+        if PAGE_ABBREVIATION_COMPLETE_TYPED_RE.search(text_before) is None:
+            return
+        widget.insert(cursor, NBSP)
 
     def _autoformat_period_spacing(self, widget: tk.Text) -> None:
         """French typography never puts a space before a period, unlike

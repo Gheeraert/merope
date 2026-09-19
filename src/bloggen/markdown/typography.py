@@ -140,22 +140,35 @@ def fix_period_spacing(text: str) -> str:
 
 
 _LETTER_CLASS = "A-Za-zÀ-ÖØ-öø-ÿ"
-# "p."/"pp." (page reference abbreviations) immediately followed by a
-# regular ASCII space: matches "p. 12" or "pp. suivantes", but not
-# "p." used as some other abbreviation's ending or glued inside a longer
-# word (e.g. "app."). The abbreviation itself is captured (with its dot)
-# so the substitution only touches its immediately following ASCII space.
-PAGE_ABBREVIATION_RE = re.compile(rf"(?<![{_LETTER_CLASS}])(pp?\.) ")
+# "p."/"pp." (page reference abbreviations), optionally followed by a
+# regular ASCII space or an existing non-breaking space: matches "p. 12",
+# "pp.suivantes" or "p.<NBSP>12", but not "p." used as some other
+# abbreviation's ending or glued inside a longer word (e.g. "app."). The
+# abbreviation itself is captured (with its dot) so the substitution only
+# touches whatever (if anything) immediately follows it.
+PAGE_ABBREVIATION_RE = re.compile(rf"(?<![{_LETTER_CLASS}])(pp?\.)( |{NBSP})?")
 # Same shape, anchored to the end of the string: used to detect the pattern
 # as its following space is typed, one line-prefix at a time.
 PAGE_ABBREVIATION_TYPED_RE = re.compile(rf"(?<![{_LETTER_CLASS}])pp?\. $")
+# Anchored right at the completing "." itself — no trailing character yet
+# — so the non-breaking space can be inserted the instant "p."/"pp." is
+# typed, the same moment ``;:!?`` get theirs (see
+# ``_space_before_current_character``), rather than waiting for whatever
+# comes next.
+PAGE_ABBREVIATION_COMPLETE_TYPED_RE = re.compile(rf"(?<![{_LETTER_CLASS}])pp?\.$")
+# Detects a regular space typed right after a page abbreviation that
+# already got its non-breaking space from PAGE_ABBREVIATION_COMPLETE_TYPED_RE
+# — that keystroke is now redundant (it would otherwise leave a visible
+# "p.<NBSP> " double gap) and should be dropped rather than converted.
+PAGE_ABBREVIATION_REDUNDANT_SPACE_RE = re.compile(rf"(?<![{_LETTER_CLASS}])pp?\.{NBSP} $")
 
 
 def fix_page_number_spacing(text: str) -> str:
-    """Ensure a non-breaking space follows standalone "p."/"pp.".
-
-    Only an existing ASCII space is replaced. Once it is non-breaking, the
-    regex no longer applies, so the transformation is idempotent.
+    """Ensure a single non-breaking space follows standalone "p."/"pp.",
+    inserting one if none was typed at all — the same "insert if missing"
+    rule :func:`fix_double_punctuation_spacing` applies to ``;:!?``. Any
+    existing regular space is replaced; an existing non-breaking space is
+    left as-is, so the transformation is idempotent.
     """
     return PAGE_ABBREVIATION_RE.sub(rf"\1{NBSP}", text)
 

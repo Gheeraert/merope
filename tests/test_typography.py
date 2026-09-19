@@ -9,6 +9,8 @@ from bloggen.markdown.typography import (
     NBSP,
     OE_LIGATURE_TYPED_RE,
     OPENING_GUILLEMET,
+    PAGE_ABBREVIATION_COMPLETE_TYPED_RE,
+    PAGE_ABBREVIATION_REDUNDANT_SPACE_RE,
     PAGE_ABBREVIATION_TYPED_RE,
     apply_french_typography,
     convert_curly_quotes_to_guillemets,
@@ -234,10 +236,9 @@ def test_fix_page_number_spacing_ignores_p_glued_inside_a_word():
         "app. ",
         "galop. ",
         "beaucoup. ",
-        "p.12",
     ],
 )
-def test_fix_page_number_spacing_does_not_touch_words_or_insert_spaces(text):
+def test_fix_page_number_spacing_does_not_touch_word_endings(text):
     assert fix_page_number_spacing(text) == text
 
 
@@ -260,6 +261,18 @@ def test_fix_page_number_spacing_after_autonomous_abbreviation(text, expected):
 
 
 @pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("p.12", f"p.{NBSP}12"),
+        ("pp.12-15", f"pp.{NBSP}12-15"),
+        ("Confessions, p.30", f"Confessions, p.{NBSP}30"),
+    ],
+)
+def test_fix_page_number_spacing_inserts_a_missing_space(text, expected):
+    assert fix_page_number_spacing(text) == expected
+
+
+@pytest.mark.parametrize(
     "prefix",
     ["p. ", "pp. ", "voir p. ", "voir pp. ", "(p. ", "[p. ", "— p. ", "§ p. "],
 )
@@ -270,6 +283,25 @@ def test_page_abbreviation_typed_pattern_matches_autonomous_suffix(prefix):
 @pytest.mark.parametrize("prefix", ["coup. ", "stop. ", "champ. ", "app. "])
 def test_page_abbreviation_typed_pattern_rejects_word_endings(prefix):
     assert PAGE_ABBREVIATION_TYPED_RE.search(prefix) is None
+
+
+@pytest.mark.parametrize("prefix", ["p.", "pp.", "voir p.", "(p.", "Confessions, p."])
+def test_page_abbreviation_complete_typed_pattern_matches_right_after_the_period(prefix):
+    assert PAGE_ABBREVIATION_COMPLETE_TYPED_RE.search(prefix)
+
+
+@pytest.mark.parametrize("prefix", ["coup.", "stop.", "champ.", "app."])
+def test_page_abbreviation_complete_typed_pattern_rejects_word_endings(prefix):
+    assert PAGE_ABBREVIATION_COMPLETE_TYPED_RE.search(prefix) is None
+
+
+@pytest.mark.parametrize("prefix", [f"p.{NBSP} ", f"pp.{NBSP} ", f"voir p.{NBSP} "])
+def test_page_abbreviation_redundant_space_pattern_matches_a_stray_space_after_nbsp(prefix):
+    assert PAGE_ABBREVIATION_REDUNDANT_SPACE_RE.search(prefix)
+
+
+def test_page_abbreviation_redundant_space_pattern_does_not_match_a_normal_space():
+    assert PAGE_ABBREVIATION_REDUNDANT_SPACE_RE.search("p. ") is None
 
 
 def test_fix_page_number_spacing_multiple_occurrences():

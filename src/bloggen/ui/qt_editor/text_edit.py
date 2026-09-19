@@ -55,6 +55,8 @@ from bloggen.markdown.typography import (
     NBSP,
     OE_LIGATURE_TYPED_RE,
     OPENING_GUILLEMET,
+    PAGE_ABBREVIATION_COMPLETE_TYPED_RE,
+    PAGE_ABBREVIATION_REDUNDANT_SPACE_RE,
     PAGE_ABBREVIATION_TYPED_RE,
     SPACE_BEFORE_PERIOD_TYPED_RE,
     convert_curly_quotes_to_guillemets,
@@ -2127,6 +2129,7 @@ class MeropeTextEdit(QTextEdit):
             self._autoformat_page_number_space()
         elif char == ".":
             self._autoformat_period_spacing()
+            self._autoformat_page_number_period()
         elif char.isalpha():
             self._autoformat_oe_ligature()
             if char == "e":
@@ -2139,9 +2142,15 @@ class MeropeTextEdit(QTextEdit):
         candidate = prefix + char
         if char == "-" and typed_dash_replacement(candidate) is not None:
             return True
-        if char == " " and PAGE_ABBREVIATION_TYPED_RE.search(candidate):
+        if char == " " and (
+            PAGE_ABBREVIATION_TYPED_RE.search(candidate)
+            or PAGE_ABBREVIATION_REDUNDANT_SPACE_RE.search(candidate)
+        ):
             return True
-        if char == "." and SPACE_BEFORE_PERIOD_TYPED_RE.search(candidate):
+        if char == "." and (
+            SPACE_BEFORE_PERIOD_TYPED_RE.search(candidate)
+            or PAGE_ABBREVIATION_COMPLETE_TYPED_RE.search(candidate)
+        ):
             return True
         if char.isalpha() and OE_LIGATURE_TYPED_RE.search(candidate):
             return True
@@ -2222,6 +2231,18 @@ class MeropeTextEdit(QTextEdit):
 
     def _autoformat_page_number_space(self) -> None:
         block, prefix = self._current_block_prefix()
+        if PAGE_ABBREVIATION_REDUNDANT_SPACE_RE.search(prefix) is not None:
+            # "p."/"pp." already got its non-breaking space the instant its
+            # period was typed (see _autoformat_page_number_period) — this
+            # space is a redundant keystroke that would otherwise leave a
+            # visible "p.<NBSP> " double gap, so it's dropped rather than
+            # converted.
+            position = self.textCursor().position()
+            char_format = self._format_for_edit(position - 1, position)
+            self._joined_with_previous_edit(
+                lambda: self._replace_range(position - 1, position, "", char_format)
+            )
+            return
         match = PAGE_ABBREVIATION_TYPED_RE.search(prefix)
         if match is None:
             return
@@ -2232,6 +2253,22 @@ class MeropeTextEdit(QTextEdit):
         char_format = self._format_for_edit(start, start + 1)
         self._joined_with_previous_edit(
             lambda: self._replace_range(start, start + 1, NBSP, char_format)
+        )
+
+    def _autoformat_page_number_period(self) -> None:
+        """Insert the non-breaking space right after standalone "p."/"pp."
+        the instant its period is typed — mirrors ``;:!?`` getting theirs
+        as soon as they're typed (_space_before_current_character), rather
+        than waiting for whatever the page number's own first character
+        turns out to be.
+        """
+        _block, prefix = self._current_block_prefix()
+        if PAGE_ABBREVIATION_COMPLETE_TYPED_RE.search(prefix) is None:
+            return
+        position = self.textCursor().position()
+        char_format = self._format_for_edit(position - 1, position)
+        self._joined_with_previous_edit(
+            lambda: self._replace_range(position, position, NBSP, char_format)
         )
 
     def _autoformat_period_spacing(self) -> None:

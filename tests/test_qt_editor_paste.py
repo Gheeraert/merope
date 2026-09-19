@@ -145,6 +145,8 @@ def test_plain_text_paste_does_not_apply_live_dash_shortcuts():
         ("Voir pp. 12-15.", f"Voir pp.{NBSP}12-15."),
         ("Le dernier coup. ", "Le dernier coup. "),
         ("Un champ. ", "Un champ. "),
+        ("Confessions, p.30.", f"Confessions, p.{NBSP}30."),
+        ("Un champ.30", "Un champ.30"),
     ],
 )
 def test_html_paste_normalizes_only_autonomous_page_abbreviations(text, expected):
