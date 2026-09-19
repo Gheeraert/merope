@@ -108,22 +108,46 @@ def remove_footnote(definitions: FootnoteDefinitions, note_id: str) -> bool:
     return True
 
 
+def _as_int(note_id: str) -> int | None:
+    """Return ``note_id`` as an int if it's one of the numeric-ish forms
+    ``sorted(..., key=int)`` has always accepted (``"01"``, ``"+2"``...),
+    else ``None`` instead of letting ``int()`` raise. A ``try/except``
+    rather than e.g. ``str.isdigit()`` so that existing contract isn't
+    narrowed for identifiers that were historically treated as numeric.
+    """
+    try:
+        return int(note_id)
+    except ValueError:
+        return None
+
+
 def ordered_footnote_ids(
     definitions: FootnoteDefinitions,
     reference_order: list[str] | tuple[str, ...],
 ) -> list[str]:
-    """Return unique referenced ids followed by numeric orphan ids.
+    """Return unique referenced ids followed by orphan definition ids.
 
     References that have no definition are retained, matching the editor's
     historical behaviour: its visible marker can still be renumbered even
     when no corresponding panel row exists.
+
+    Orphans are ordered numerically first (the historical behaviour, for
+    ids ``int()`` accepts), then any non-numeric orphan id — e.g. a
+    Pandoc-style ``[^note]`` label, legal in Markdown but never
+    convertible to ``int`` — in ``definitions``' own insertion order,
+    rather than raising or imposing an arbitrary lexical order on them.
     """
     seen: list[str] = []
     for note_id in reference_order:
         if note_id not in seen:
             seen.append(note_id)
-    orphans = sorted((note_id for note_id in definitions if note_id not in seen), key=int)
-    return seen + orphans
+    remaining = [note_id for note_id in definitions if note_id not in seen]
+    numeric_orphans = sorted(
+        (note_id for note_id in remaining if _as_int(note_id) is not None),
+        key=_as_int,
+    )
+    non_numeric_orphans = [note_id for note_id in remaining if _as_int(note_id) is None]
+    return seen + numeric_orphans + non_numeric_orphans
 
 
 def plan_footnote_renumbering(
