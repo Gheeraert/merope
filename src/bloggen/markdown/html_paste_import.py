@@ -495,11 +495,17 @@ class _HtmlBlockBuilder(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
         if self.ignore_stack:
-            # LIFO pop regardless of name match: real-world pasted HTML is
-            # not always perfectly well-formed, and getting stuck
-            # permanently "ignoring" on a mismatched close tag would be far
-            # worse than an occasional off-by-one on malformed input.
-            self.ignore_stack.pop()
+            # Only a closing tag that actually matches the innermost open
+            # tag narrows the opaque region. A foreign or malformed closing
+            # tag (e.g. a stray `</div>` inside `<template>`) must never be
+            # allowed to pop the stack down to the opaque tag itself and
+            # reactivate handle_data() early — that would let content meant
+            # to stay inert (script/style/noscript/template) leak into the
+            # editorial model. If the opaque tag is never properly closed,
+            # the rest of the fragment stays ignored, which is the safe
+            # outcome.
+            if tag == self.ignore_stack[-1]:
+                self.ignore_stack.pop()
             return
         if tag in ("img", "br"):
             return

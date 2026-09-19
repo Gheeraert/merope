@@ -252,6 +252,24 @@ def test_reject_tags_still_wins_over_the_opaque_content_mechanism():
         html_to_blocks("<p>Avant</p><script>alert(1)</script>", reject_tags={"script"})
 
 
+def test_mismatched_closing_tag_inside_template_does_not_leak_content():
+    assert _export("<template></div>SECRET</template>") == ""
+
+
+def test_mismatched_closing_tag_inside_noscript_does_not_leak_content():
+    assert _export("<noscript></span>SECRET</noscript>") == ""
+
+
+def test_properly_closed_opaque_tag_still_resumes_normal_parsing():
+    html = "<template><div>SECRET</div></template><p>VISIBLE</p>"
+    assert _export(html) == "VISIBLE\n"
+
+
+def test_nested_opaque_tags_are_both_dropped_until_the_outer_one_closes():
+    html = "<p>Avant</p><template><script>alert(1)</script>caché</template><p>Après</p>"
+    assert _export(html) == "Avant\n\nAprès\n"
+
+
 # -- dangerous href filtering ------------------------------------------------
 
 
