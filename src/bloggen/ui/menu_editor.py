@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import Callable
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -39,6 +40,7 @@ def toggle_top_menu_item(items: list[MenuLink], index: int) -> None:
         target_type=item.target_type,
         enabled=not item.enabled,
         new_tab=item.new_tab,
+        unknown_data=copy.deepcopy(item.unknown_data),
     )
 
 
@@ -72,6 +74,7 @@ def toggle_side_section(sections: list[SideMenuSection], index: int) -> None:
         numbered=section.numbered,
         children=list(section.children),
         subsections=list(section.subsections),
+        unknown_data=copy.deepcopy(section.unknown_data),
     )
 
 
@@ -103,6 +106,7 @@ def toggle_side_subsection(section: SideMenuSection, index: int) -> None:
         target=subsection.target,
         target_type=subsection.target_type,
         children=list(subsection.children),
+        unknown_data=copy.deepcopy(subsection.unknown_data),
     )
 
 
@@ -137,6 +141,7 @@ def toggle_side_child(section: SideMenuSection | SideMenuSubSection, index: int)
         target_type=child.target_type,
         enabled=not child.enabled,
         new_tab=child.new_tab,
+        unknown_data=copy.deepcopy(child.unknown_data),
     )
 
 
@@ -161,6 +166,7 @@ def _clone_menu_link(item: MenuLink) -> MenuLink:
         target_type=item.target_type,
         enabled=item.enabled,
         new_tab=item.new_tab,
+        unknown_data=copy.deepcopy(item.unknown_data),
     )
 
 
@@ -171,6 +177,20 @@ def _clone_side_subsection(subsection: SideMenuSubSection) -> SideMenuSubSection
         target=subsection.target,
         target_type=subsection.target_type,
         children=[_clone_menu_link(child) for child in subsection.children],
+        unknown_data=copy.deepcopy(subsection.unknown_data),
+    )
+
+
+def _clone_side_section(section: SideMenuSection) -> SideMenuSection:
+    return SideMenuSection(
+        label=section.label,
+        enabled=section.enabled,
+        target=section.target,
+        target_type=section.target_type,
+        numbered=section.numbered,
+        children=[_clone_menu_link(child) for child in section.children],
+        subsections=[_clone_side_subsection(sub) for sub in section.subsections],
+        unknown_data=copy.deepcopy(section.unknown_data),
     )
 
 
@@ -499,32 +519,10 @@ class SideMenuEditor(ttk.Frame):
         self.grid_rowconfigure(10, weight=1)
 
     def get_sections(self) -> list[SideMenuSection]:
-        return [
-            SideMenuSection(
-                label=section.label,
-                enabled=section.enabled,
-                target=section.target,
-                target_type=section.target_type,
-                numbered=section.numbered,
-                children=[_clone_menu_link(child) for child in section.children],
-                subsections=[_clone_side_subsection(sub) for sub in section.subsections],
-            )
-            for section in self.sections
-        ]
+        return [_clone_side_section(section) for section in self.sections]
 
     def set_sections(self, sections: list[SideMenuSection]) -> None:
-        self.sections = [
-            SideMenuSection(
-                label=section.label,
-                enabled=section.enabled,
-                target=section.target,
-                target_type=section.target_type,
-                numbered=section.numbered,
-                children=[_clone_menu_link(child) for child in section.children],
-                subsections=[_clone_side_subsection(sub) for sub in section.subsections],
-            )
-            for section in sections
-        ]
+        self.sections = [_clone_side_section(section) for section in sections]
         self._refresh_sections()
 
     def get_title(self) -> str:

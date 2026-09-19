@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from dataclasses import asdict
+from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from tkinter import Misc, Variable, ttk
 
 import pytest
 
 from bloggen.config.defaults import build_default_config
-from bloggen.config.io import load_config, save_config
+from bloggen.config.io import load_config, save_config, serialize_config
 from bloggen.config.models import NotesRenderingConfig
 from bloggen.ui.main_window import MainWindow
+
+
+def _base_raw() -> dict:
+    return json.loads(serialize_config(build_default_config()))
 
 
 _HIDDEN_VALUES = {
@@ -185,7 +189,76 @@ def test_notes_settings_survive_json_gui_json_and_new_config_uses_defaults(
 
     assert collected.notes_rendering == legacy
     saved = json.loads(config_path.read_text(encoding="utf-8"))
-    assert saved["notes_rendering"] == asdict(legacy)
+    expected = {
+        f.name: getattr(legacy, f.name)
+        for f in dataclass_fields(legacy)
+        if f.name != "unknown_data"
+    }
+    assert saved["notes_rendering"] == expected
 
     window.new_config()
     assert window._collect_from_form().notes_rendering == NotesRenderingConfig()
+
+
+# -- Lossless round-trip: real MainWindow open -> edit -> save cycle ----------
+#
+# Reuses the module-scoped `window` fixture above rather than creating a
+# second independent MainWindow()/Tk() root in this pytest session — see
+# bloggen.config.models.ProjectConfig.unknown_data's docstring for the
+# mechanism these exercise end-to-end.
+
+
+def test_new_config_does_not_inherit_opaque_data_from_a_previous_project(
+    window: MainWindow, tmp_path: Path
+) -> None:
+    raw_a = _base_raw()
+    raw_a["future_extension"] = {"from": "A"}
+    path_a = tmp_path / "a.json"
+    path_a.write_text(json.dumps(raw_a), encoding="utf-8")
+
+    window._load_into_form(load_config(path_a))
+
+    window.new_config()
+    path_b = tmp_path / "b.json"
+    save_config(window._collect_from_form(), path_b)
+
+    saved_b = json.loads(path_b.read_text(encoding="utf-8"))
+    assert "future_extension" not in saved_b
+
+
+def test_opening_a_second_config_replaces_the_first_ones_opaque_data(
+    window: MainWindow, tmp_path: Path
+) -> None:
+    raw_a = _base_raw()
+    raw_a["future_extension"] = {"from": "A"}
+    path_a = tmp_path / "a.json"
+    path_a.write_text(json.dumps(raw_a), encoding="utf-8")
+
+    raw_b = _base_raw()
+    raw_b["future_extension"] = {"from": "B"}
+    path_b = tmp_path / "b.json"
+    path_b.write_text(json.dumps(raw_b), encoding="utf-8")
+
+    window._load_into_form(load_config(path_a))
+    window._load_into_form(load_config(path_b))
+
+    save_config(window._collect_from_form(), path_b)
+    saved_b = json.loads(path_b.read_text(encoding="utf-8"))
+    assert saved_b["future_extension"] == {"from": "B"}
+
+
+def test_save_as_preserves_opaque_data_in_the_new_destination(
+    window: MainWindow, tmp_path: Path
+) -> None:
+    raw = _base_raw()
+    raw["future_extension"] = {"kept": True}
+    path_a = tmp_path / "a.json"
+    path_a.write_text(json.dumps(raw), encoding="utf-8")
+
+    window._load_into_form(load_config(path_a))
+    collected = window._collect_from_form()
+    path_b = tmp_path / "b.json"
+    save_config(collected, path_b)
+
+    saved_b = json.loads(path_b.read_text(encoding="utf-8"))
+    assert saved_b["future_extension"] == {"kept": True}

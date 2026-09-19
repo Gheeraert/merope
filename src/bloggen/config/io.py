@@ -8,6 +8,7 @@ from typing import Any
 
 from bloggen.config.models import ProjectConfig
 from bloggen.config.validator import validate_config_dict
+from bloggen.content.atomic_write import atomic_write_text
 from bloggen.publish import ftp_credentials
 
 
@@ -69,7 +70,7 @@ def save_config(
 
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(text, encoding="utf-8")
+    atomic_write_text(file_path, text, encoding="utf-8")
 
 
 def serialize_config(config: ProjectConfig | dict[str, Any], *, warnings: list[str] | None = None) -> str:

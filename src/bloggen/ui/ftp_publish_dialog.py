@@ -4,6 +4,7 @@ site."""
 
 from __future__ import annotations
 
+import copy
 import queue
 import threading
 import tkinter as tk
@@ -41,6 +42,12 @@ class FtpPublishDialog(tk.Toplevel):
 
         self._output_dir = output_dir
         self._on_config_changed = on_config_changed
+        # _collect_config() below rebuilds a fresh FtpConfig from the form's
+        # widgets, which know nothing about JSON keys this version of
+        # MEROPE doesn't recognize — carry them forward explicitly so
+        # publishing (which can implicitly save site.json, see
+        # MainWindow.publish_site_ftp) never drops them.
+        self._initial_unknown_data = ftp_config.unknown_data
         self._queue: queue.Queue[tuple] = queue.Queue()
         self._worker: threading.Thread | None = None
         self._cancel_event = threading.Event()
@@ -145,6 +152,7 @@ class FtpPublishDialog(tk.Toplevel):
             use_tls=bool(self.use_tls_var.get()),
             passive_mode=bool(self.passive_mode_var.get()),
             site_url=self.site_url_var.get().strip(),
+            unknown_data=copy.deepcopy(self._initial_unknown_data),
         )
 
     def _start_publish(self) -> None:

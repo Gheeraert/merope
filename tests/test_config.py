@@ -62,7 +62,13 @@ def test_from_dict_ignores_unknown_keys_in_every_section():
     assert isinstance(config, ProjectConfig)
 
 
-def test_obsolete_home_enabled_is_ignored_and_dropped_on_save(tmp_path):
+def test_obsolete_home_enabled_does_not_become_a_real_field_but_still_round_trips(tmp_path):
+    """An obsolete/renamed key like this doesn't crash the dataclass
+    constructor (the original point of _filtered_fields) and does NOT
+    become a real ``HomeConfig.enabled`` attribute — but, per the
+    lossless round-trip invariant, its value must survive a save/reload
+    rather than being silently discarded (see ProjectConfig.unknown_data).
+    """
     raw = json.loads(serialize_config(build_default_config()))
     raw["home"]["enabled"] = "legacy-value"
     assert validate_config_dict(raw) == []
@@ -73,7 +79,7 @@ def test_obsolete_home_enabled_is_ignored_and_dropped_on_save(tmp_path):
     assert not hasattr(config.home, "enabled")
 
     save_config(config, path)
-    assert "enabled" not in json.loads(path.read_text(encoding="utf-8"))["home"]
+    assert json.loads(path.read_text(encoding="utf-8"))["home"]["enabled"] == "legacy-value"
 
 
 def test_top_banner_defaults_are_disabled_and_empty():

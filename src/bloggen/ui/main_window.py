@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
@@ -66,6 +67,14 @@ class MainWindow(tk.Tk):
         self.title("MEROPE - Blog Static Generator")
         self.geometry("1100x760")
         self.current_config_path: Path | None = None
+        # The most recently loaded (or successfully saved) configuration,
+        # kept solely so _collect_from_form() can carry its sections'
+        # unknown_data forward — every form tab rebuilds a brand-new
+        # dataclass instance from its widgets, which would otherwise
+        # silently drop any opaque passthrough data (see the lossless
+        # round-trip invariant in bloggen.config.models). Tied to this
+        # window instance, not module/global state — see _load_into_form.
+        self._loaded_config: ProjectConfig = ProjectConfig()
         self._site_preview_server = SitePreviewServer()
         self._ftp_config = FtpConfig()
         self._qt_editor_launcher: QtEditorLauncher | None = None
@@ -853,6 +862,10 @@ class MainWindow(tk.Tk):
             return
 
         self.current_config_path = destination
+        # This just-saved config becomes "current": the next collect must
+        # bridge its unknown_data forward, not the config this session was
+        # originally opened from (matters for Save As in particular).
+        self._loaded_config = config
         self._set_path_label()
         if warnings:
             messagebox.showwarning("Configuration", "\n\n".join(warnings))
@@ -912,10 +925,12 @@ class MainWindow(tk.Tk):
             self._ftp_config = ftp_config
             if self.current_config_path is not None:
                 warnings: list[str] = []
+                collected = self._collect_from_form()
                 try:
-                    save_config(self._collect_from_form(), self.current_config_path, warnings=warnings)
+                    save_config(collected, self.current_config_path, warnings=warnings)
                 except (ConfigValidationError, OSError, ValueError):
                     return
+                self._loaded_config = collected
                 if warnings:
                     messagebox.showwarning("Configuration", "\n\n".join(warnings))
 
@@ -1130,6 +1145,11 @@ class MainWindow(tk.Tk):
         self.path_label.config(text=f"Configuration: {self.current_config_path}")
 
     def _load_into_form(self, config: ProjectConfig) -> None:
+        # The single source of truth for the unknown_data _collect_from_form()
+        # bridges forward — updated on every load (new/open) and after every
+        # successful save (see _write_config_to), never accumulated across
+        # unrelated configs.
+        self._loaded_config = config
         _set_vars(self.site_vars, config.site)
         self.top_banner_panel.set_data(config.top_banner)
         self.banner_panel.set_data(config.banner)
@@ -1152,53 +1172,76 @@ class MainWindow(tk.Tk):
         self._ftp_config = config.ftp
 
     def _collect_from_form(self) -> ProjectConfig:
-        site = SiteConfig(**_read_vars(self.site_vars))
-        paths = PathsConfig(**_read_vars(self.paths_vars))
-        content = ContentConfig(**_read_vars(self.content_vars))
+        # Every section below is rebuilt from scratch from its widgets, which
+        # know nothing about JSON keys MEROPE doesn't recognize — each
+        # section's unknown_data is carried forward explicitly from
+        # self._loaded_config (see its docstring) so a load -> edit -> save
+        # cycle never silently drops opaque passthrough data. menus.top/side
+        # items carry their own unknown_data through the editor widgets
+        # themselves (see bloggen.ui.menu_editor), not through this bridge.
+        loaded = self._loaded_config
+
+        site = SiteConfig(**_read_vars(self.site_vars), unknown_data=copy.deepcopy(loaded.site.unknown_data))
+        paths = PathsConfig(**_read_vars(self.paths_vars), unknown_data=copy.deepcopy(loaded.paths.unknown_data))
+        content = ContentConfig(
+            **_read_vars(self.content_vars), unknown_data=copy.deepcopy(loaded.content.unknown_data)
+        )
 
         home_raw = _read_vars(self.home_vars)
         home_raw["recent_posts_count"] = int(home_raw["recent_posts_count"])
         home_raw["recent_posts_excerpt_length"] = int(home_raw["recent_posts_excerpt_length"])
         home_raw["mode"] = _HOME_MODE_VALUES.get(self.home_mode_var.get(), _HOME_MODE_PAGE)
-        home = HomeConfig(**home_raw)
+        home = HomeConfig(**home_raw, unknown_data=copy.deepcopy(loaded.home.unknown_data))
 
         blog_raw = _read_vars(self.blog_vars)
         blog_raw["posts_per_page"] = int(blog_raw["posts_per_page"])
-        blog = BlogConfig(**blog_raw)
+        blog = BlogConfig(**blog_raw, unknown_data=copy.deepcopy(loaded.blog.unknown_data))
 
         menus = MenusConfig(
             top=self.top_menu_editor.get_items(),
             side=self.side_menu_editor.get_sections(),
             side_title=self.side_menu_editor.get_title(),
+            unknown_data=copy.deepcopy(loaded.menus.unknown_data),
         )
 
-        render = RenderConfig(**_read_vars(self.render_vars))
-        footer = FooterConfig(**_read_vars(self.footer_vars))
+        render = RenderConfig(**_read_vars(self.render_vars), unknown_data=copy.deepcopy(loaded.render.unknown_data))
+        footer = FooterConfig(**_read_vars(self.footer_vars), unknown_data=copy.deepcopy(loaded.footer.unknown_data))
 
         build_raw = _read_vars(self.build_vars)
         search = SearchConfig(
             enabled=bool(build_raw.pop("search_enabled")),
             excerpt_length=int(build_raw.pop("search_excerpt_length")),
+            unknown_data=copy.deepcopy(loaded.search.unknown_data),
         )
-        build = BuildConfig(**build_raw)
+        build = BuildConfig(**build_raw, unknown_data=copy.deepcopy(loaded.build.unknown_data))
+
+        top_banner = self.top_banner_panel.get_data()
+        top_banner.unknown_data = copy.deepcopy(loaded.top_banner.unknown_data)
+        banner = self.banner_panel.get_data()
+        banner.unknown_data = copy.deepcopy(loaded.banner.unknown_data)
+        media_handling = self.media_panel.get_data()
+        media_handling.unknown_data = copy.deepcopy(loaded.media_handling.unknown_data)
+        notes_rendering = self.notes_panel.get_data()
+        notes_rendering.unknown_data = copy.deepcopy(loaded.notes_rendering.unknown_data)
 
         return ProjectConfig(
             version="1.0",
             site=site,
-            top_banner=self.top_banner_panel.get_data(),
-            banner=self.banner_panel.get_data(),
+            top_banner=top_banner,
+            banner=banner,
             paths=paths,
             content=content,
             home=home,
             blog=blog,
             menus=menus,
             render=render,
-            media_handling=self.media_panel.get_data(),
-            notes_rendering=self.notes_panel.get_data(),
+            media_handling=media_handling,
+            notes_rendering=notes_rendering,
             footer=footer,
             build=build,
             search=search,
             ftp=self._ftp_config,
+            unknown_data=copy.deepcopy(loaded.unknown_data),
         )
 
 

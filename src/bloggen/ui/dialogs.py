@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import tkinter as tk
 from tkinter import simpledialog, ttk
 
@@ -158,6 +159,7 @@ class MenuLinkDialog(simpledialog.Dialog):
             target_type=target_type,
             enabled=self.enabled_var.get(),
             new_tab=self.new_tab_var.get(),
+            unknown_data=copy.deepcopy(self.initial.unknown_data),
         )
 
 
@@ -337,6 +339,7 @@ class SideSectionDialog(simpledialog.Dialog):
             numbered=self.numbered_var.get(),
             children=list(self.initial.children),
             subsections=list(self.initial.subsections),
+            unknown_data=copy.deepcopy(self.initial.unknown_data),
         )
 
 
@@ -502,6 +505,7 @@ class SideSubSectionDialog(simpledialog.Dialog):
             target=target,
             target_type=target_type,
             children=list(self.initial.children),
+            unknown_data=copy.deepcopy(self.initial.unknown_data),
         )
 
 

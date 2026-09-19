@@ -257,6 +257,36 @@ def test_section_preserves_children_across_apply(root):
     assert dialog.result.children == initial.children
 
 
+def test_menu_link_apply_preserves_unknown_data_of_the_edited_link(root):
+    """A "Modifier" edit rebuilds a fresh MenuLink from the form fields —
+    any opaque JSON key MEROPE doesn't recognize (see
+    ProjectConfig.unknown_data) must still travel onto the new instance."""
+    initial = MenuLink(label="Ancien", target="/a", unknown_data={"future_flag": "keep-me"})
+    dialog = _make_dialog(root, initial)
+    dialog.label_var.set("Nouveau")
+    dialog.apply()
+    assert dialog.result.label == "Nouveau"
+    assert dialog.result.unknown_data == {"future_flag": "keep-me"}
+
+
+def test_section_apply_preserves_unknown_data_of_the_edited_section(root):
+    initial = SideMenuSection(label="Ancien", unknown_data={"future_flag": "keep-me"})
+    dialog = _make_section_dialog(root, initial)
+    dialog.label_var.set("Nouveau")
+    dialog.apply()
+    assert dialog.result.label == "Nouveau"
+    assert dialog.result.unknown_data == {"future_flag": "keep-me"}
+
+
+def test_subsection_apply_preserves_unknown_data_of_the_edited_subsection(root):
+    initial = SideMenuSubSection(label="Ancien", unknown_data={"future_flag": "keep-me"})
+    dialog = _make_subsection_dialog(root, initial)
+    dialog.label_var.set("Nouveau")
+    dialog.apply()
+    assert dialog.result.label == "Nouveau"
+    assert dialog.result.unknown_data == {"future_flag": "keep-me"}
+
+
 def test_side_menu_editor_get_and_set_sections_preserve_target(root):
     editor = SideMenuEditor(root)
     editor.set_sections(
