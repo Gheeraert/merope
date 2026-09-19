@@ -81,18 +81,33 @@ def _list_item_to_md(item: Block, *, marker: str) -> str:
 
 
 def _table_to_md(table: Block) -> str:
+    """Serialize a table, tolerating rows with different cell counts.
+
+    Every current production path that builds a ``Block(kind=TABLE)``
+    (Markdown import's ``parse_table_lines``, the Qt document adapter's
+    ``QTextTable`` extraction, table insertion) only ever produces a
+    rectangular table — this is a defensive boundary, not a fix for a
+    reachable bug, for whatever model a future code path, a stale
+    intermediate state, or a programmatic caller might still hand this
+    generic serialization function. Rather than raising and losing an
+    entire table's content over a shape mismatch, every row is padded
+    with empty cells up to the widest row actually present: no existing
+    cell is ever dropped, merged, or truncated.
+    """
     rows = [[_runs_to_md(cell.runs) for cell in row.children] for row in table.children]
     if not rows:
         return ""
-    column_count = len(rows[0])
-    if any(len(row) != column_count for row in rows[1:]):
-        raise ValueError(
-            "Un tableau Markdown doit avoir le même nombre de cellules sur chaque ligne"
-        )
+    column_count = max(len(row) for row in rows)
+    if column_count == 0:
+        # Every row has zero cells: there is no editorial content to
+        # preserve, and Markdown has no meaningful representation of a
+        # zero-column table.
+        return ""
+    padded_rows = [row + [""] * (column_count - len(row)) for row in rows]
 
-    lines = [_table_row_line(rows[0])]
+    lines = [_table_row_line(padded_rows[0])]
     lines.append(_table_row_line(["---"] * column_count))
-    for row in rows[1:]:
+    for row in padded_rows[1:]:
         lines.append(_table_row_line(row))
     return "\n".join(lines)
 

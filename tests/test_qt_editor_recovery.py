@@ -10,13 +10,13 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from bloggen.content.footnotes import separate_footnote_definitions
 from bloggen.content.writer import write_content_file
 from bloggen.markdown.rich_text_import import markdown_to_blocks
-from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
+from bloggen.markdown.rich_text_model import PARAGRAPH, TABLE, TABLE_CELL, TABLE_ROW, Block, InlineRun
 from bloggen.ui.editor_recovery import (
     RecoveryDraft,
     load_draft,
@@ -26,7 +26,7 @@ from bloggen.ui.editor_recovery import (
 from bloggen.ui.qt_editor import __main__ as qt_main_module
 from bloggen.ui.qt_editor import window as window_module
 from bloggen.ui.qt_editor.document_adapter import extract_blocks, populate_document
-from bloggen.ui.qt_editor.recovery import AUTOSAVE_INTERVAL_MS
+from bloggen.ui.qt_editor.recovery import AUTOSAVE_INTERVAL_MS, build_recovery_draft
 from bloggen.ui.qt_editor.window import QtEditorWindow
 
 
@@ -185,6 +185,48 @@ def test_autosave_preserves_body_rich_note_image_and_deferred_shortcut(tmp_path)
     assert path.read_bytes() == original_file
     assert not (path.parent / ".versions").exists()
     _dispose(window)
+
+
+def test_recovery_draft_survives_an_irregular_table_model(tmp_path, monkeypatch):
+    """extract_blocks(QTextDocument) can never itself produce an irregular
+    table — QTextTable is structurally rectangular (see
+    _table_to_md's docstring for the full inventory) — so this exercises
+    build_recovery_draft() defensively, standing in for a future/foreign
+    model rather than a state reachable through the Qt editor today: a
+    mismatched-width table must not turn recovery's autosave into a
+    ValueError, and the draft must carry the padded, rectangular result.
+    """
+    irregular_table = Block(
+        kind=TABLE,
+        children=[
+            Block(
+                kind=TABLE_ROW,
+                children=[
+                    Block(kind=TABLE_CELL, runs=[InlineRun(text="A")]),
+                    Block(kind=TABLE_CELL, runs=[InlineRun(text="B")]),
+                ],
+            ),
+            Block(
+                kind=TABLE_ROW,
+                children=[Block(kind=TABLE_CELL, runs=[InlineRun(text="1")])],
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        "bloggen.ui.qt_editor.recovery.extract_blocks",
+        lambda _document: [irregular_table],
+    )
+
+    draft = build_recovery_draft(
+        QTextDocument(),
+        {},
+        {"title": "Irrégulier"},
+        project_root=tmp_path,
+        current_path=None,
+        current_kind="page",
+    )
+
+    assert draft.body_markdown == "| A | B |\n| --- | --- |\n| 1 |  |\n"
 
 
 def test_autosave_preserves_a_non_numeric_footnote_id_without_renumbering(tmp_path):

@@ -1,6 +1,7 @@
 import pytest
 
 from bloggen.markdown.rich_text_export import blocks_to_markdown
+from bloggen.markdown.rich_text_import import markdown_to_blocks
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -262,31 +263,103 @@ def test_table_cell_pipe_escaping():
     assert blocks_to_markdown([table]) == "| a\\|b |\n| --- |\n"
 
 
-@pytest.mark.parametrize(
-    "row_widths",
-    [
-        (2, 1),
-        (1, 2),
-        (2, 2, 1, 2),
-    ],
-)
-def test_irregular_table_is_rejected_instead_of_padded(row_widths):
+def _row(*texts: str) -> Block:
+    return Block(kind=TABLE_ROW, children=[_cell(text) for text in texts])
+
+
+def test_irregular_table_short_row_is_padded_not_rejected():
+    table = Block(kind=TABLE, children=[_row("A", "B"), _row("1")])
+
+    assert blocks_to_markdown([table]) == (
+        "| A | B |\n| --- | --- |\n| 1 |  |\n"
+    )
+
+
+def test_irregular_table_wider_body_row_expands_the_whole_table_without_truncation():
+    table = Block(kind=TABLE, children=[_row("A"), _row("1", "2", "3")])
+
+    assert blocks_to_markdown([table]) == (
+        "| A |  |  |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n"
+    )
+
+
+def test_irregular_table_multiple_mismatched_rows_are_all_padded_to_the_widest():
+    table = Block(
+        kind=TABLE,
+        children=[_row("A", "B"), _row("1"), _row("2", "3", "4")],
+    )
+
+    assert blocks_to_markdown([table]) == (
+        "| A | B |  |\n| --- | --- | --- |\n| 1 |  |  |\n| 2 | 3 | 4 |\n"
+    )
+
+
+def test_irregular_table_empty_row_is_padded_when_another_row_has_cells():
+    table = Block(
+        kind=TABLE,
+        children=[Block(kind=TABLE_ROW, children=[]), _row("A", "B")],
+    )
+
+    assert blocks_to_markdown([table]) == (
+        "|  |  |\n| --- | --- |\n| A | B |\n"
+    )
+
+
+def test_table_with_every_row_empty_serializes_to_nothing():
     table = Block(
         kind=TABLE,
         children=[
-            Block(
-                kind=TABLE_ROW,
-                children=[
-                    _cell(f"{row_index}-{cell_index}")
-                    for cell_index in range(width)
-                ],
-            )
-            for row_index, width in enumerate(row_widths)
+            Block(kind=TABLE_ROW, children=[]),
+            Block(kind=TABLE_ROW, children=[]),
         ],
     )
 
-    with pytest.raises(ValueError, match="même nombre de cellules"):
-        blocks_to_markdown([table])
+    assert blocks_to_markdown([table]) == ""
+
+
+def test_irregular_table_preserves_inline_formatting_in_existing_cells():
+    bold_link_cell = Block(
+        kind=TABLE_CELL,
+        runs=[InlineRun(text="gras", bold=True, link_href="https://example.org")],
+    )
+    table = Block(
+        kind=TABLE,
+        children=[
+            Block(kind=TABLE_ROW, children=[_cell("A"), bold_link_cell]),
+            _row("1"),
+        ],
+    )
+
+    assert blocks_to_markdown([table]) == (
+        "| A | [**gras**](https://example.org) |\n| --- | --- |\n| 1 |  |\n"
+    )
+
+
+def test_irregular_table_roundtrips_to_a_rectangular_structured_table():
+    table = Block(
+        kind=TABLE,
+        children=[_row("A", "B"), _row("1"), _row("2", "3", "4")],
+    )
+
+    markdown = blocks_to_markdown([table])
+    imported = markdown_to_blocks(markdown)
+
+    assert len(imported) == 1
+    imported_table = imported[0]
+    assert imported_table.kind == TABLE
+    rows = [
+        [_runs_plain_text(cell.runs) for cell in row.children]
+        for row in imported_table.children
+    ]
+    assert rows == [
+        ["A", "B", ""],
+        ["1", "", ""],
+        ["2", "3", "4"],
+    ]
+
+
+def _runs_plain_text(runs: list[InlineRun]) -> str:
+    return "".join(run.text for run in runs)
 
 
 def test_footnote_definition():
