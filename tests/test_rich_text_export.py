@@ -82,6 +82,73 @@ def test_underline_uses_pandoc_span_and_wraps_links_safely():
     )
 
 
+@pytest.mark.parametrize(
+    "href",
+    [
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "vbscript:foo",
+        "customscheme:foo",
+    ],
+)
+def test_dangerous_link_href_built_directly_is_never_serialized_as_a_link(href):
+    blocks = [Block(kind=PARAGRAPH, runs=[InlineRun(text="important", link_href=href)])]
+    md = blocks_to_markdown(blocks)
+    assert md == "important\n"
+    assert "javascript:" not in md
+    assert "data:" not in md
+    assert "vbscript:" not in md
+    assert "customscheme:" not in md
+
+
+def test_dangerous_link_href_on_a_bold_run_keeps_the_bold_formatting():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="important", bold=True, link_href="javascript:alert(1)")],
+        )
+    ]
+    assert blocks_to_markdown(blocks) == "**important**\n"
+
+
+def test_dangerous_link_href_on_an_italic_run_keeps_the_italic_formatting():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="important", italic=True, link_href="javascript:alert(1)")],
+        )
+    ]
+    assert blocks_to_markdown(blocks) == "*important*\n"
+
+
+def test_dangerous_link_href_on_an_underlined_run_keeps_the_underline_span_without_a_link():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[InlineRun(text="important", underline=True, link_href="javascript:alert(1)")],
+        )
+    ]
+    assert blocks_to_markdown(blocks) == "[important]{.underline}\n"
+
+
+def test_dangerous_link_href_on_a_bold_italic_underlined_run_keeps_all_formatting():
+    blocks = [
+        Block(
+            kind=PARAGRAPH,
+            runs=[
+                InlineRun(
+                    text="important",
+                    bold=True,
+                    italic=True,
+                    underline=True,
+                    link_href="javascript:alert(1)",
+                )
+            ],
+        )
+    ]
+    assert blocks_to_markdown(blocks) == "[***important***]{.underline}\n"
+
+
 def test_caret_in_plain_text_is_escaped():
     blocks = [Block(kind=PARAGRAPH, runs=[InlineRun(text="a^b")])]
     assert blocks_to_markdown(blocks) == "a\\^b\n"

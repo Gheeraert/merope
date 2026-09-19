@@ -20,6 +20,7 @@ import re
 from dataclasses import replace
 
 from bloggen.markdown.image_attributes import parse_image_attributes
+from bloggen.markdown.link_safety import sanitize_link_href
 from bloggen.markdown.paragraph_alignment import strip_alignment_marker
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
@@ -380,6 +381,15 @@ def _parse_inline(text: str) -> list[InlineRun]:
         run, end = atom
         if plain_start < pos:
             runs.append(InlineRun(text=_unescape(text[plain_start:pos])))
+        if run.link_href is not None:
+            # Sanitized here, once, rather than where ``link_href`` is first
+            # set: ``_scan_complete_link`` (used for the ``{.underline}``
+            # wrapped-link form) needs to tell "no href" apart from "a
+            # dangerous href" while deciding whether a bracketed span is
+            # structurally a complete link — sanitizing earlier would make a
+            # rejected scheme look identical to no link at all and break
+            # that check.
+            run.link_href = sanitize_link_href(run.link_href)
         runs.append(run)
         pos = end
         plain_start = end

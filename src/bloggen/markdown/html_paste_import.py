@@ -25,6 +25,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
+from bloggen.markdown.link_safety import sanitize_link_href
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
     BULLET_LIST,
@@ -88,17 +89,6 @@ _BOLD_WEIGHTS = {"bold", "bolder", "600", "700", "800", "900"}
 # tags would happily surface their contents as prose) or explicitly hidden
 # (noscript/template). They and everything inside them are dropped.
 _OPAQUE_CONTENT_TAGS = {"script", "style", "noscript", "template"}
-# Deliberately small: only schemes that cannot execute code or embed
-# arbitrary payloads in a browser context. Everything else (javascript:,
-# data:, vbscript:, and any scheme not on this list) is refused rather than
-# enumerated, since an allowlist here is the only way to be sure a new or
-# obscure active scheme doesn't slip through unnoticed.
-_ALLOWED_LINK_SCHEMES = {"http", "https", "mailto", "tel"}
-# Trivial obfuscation (stray control characters within or around the
-# scheme, e.g. "java\tscript:") is stripped before the scheme is judged, so
-# that normalizing away the noise can't turn a rejected scheme into an
-# accepted one.
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 class UnsupportedHtmlStructureError(ValueError):
@@ -466,10 +456,7 @@ class _HtmlBlockBuilder(HTMLParser):
             self._open_block(tag)
             return
         if tag == "a":
-            href = attrs_dict.get("href") or None
-            if href is not None:
-                href = _sanitize_link_href(href)
-            self._push_inline(link_href=href)
+            self._push_inline(link_href=sanitize_link_href(attrs_dict.get("href")))
             return
         # Google Docs in particular wraps whole documents in a
         # `<b id="docs-internal-guid-..." style="font-weight:normal">`
@@ -571,25 +558,6 @@ def _style_is_underline(style: dict[str, str]) -> bool:
 
 def _style_is_superscript(style: dict[str, str]) -> bool:
     return style.get("vertical-align", "") == "super"
-
-
-def _sanitize_link_href(href: str) -> str | None:
-    """Validates a pasted `<a href>` before it can become ``InlineRun.link_href``.
-
-    An allowlist of schemes (rather than a blocklist of dangerous ones) is
-    used deliberately: it is the only way to be sure some obscure or
-    future active scheme isn't simply missing from the list. A link with
-    no scheme at all (relative path, ``#fragment``, protocol-relative
-    ``//host/...``) is always accepted, matching the historical behaviour
-    for ordinary editorial links.
-    """
-    cleaned = _CONTROL_CHARS_RE.sub("", href).strip()
-    if not cleaned:
-        return None
-    scheme = urlparse(cleaned).scheme.lower()
-    if scheme and scheme not in _ALLOWED_LINK_SCHEMES:
-        return None
-    return cleaned
 
 
 def _positive_dimension(value: str | None) -> str | None:

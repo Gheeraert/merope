@@ -92,6 +92,61 @@ def test_underlined_link_with_escaped_bracket_roundtrips_as_model(run):
     assert markdown_to_blocks(blocks_to_markdown(expected)) == expected
 
 
+@pytest.mark.parametrize(
+    "href",
+    [
+        "javascript:alert(1)",
+        "JaVaScRiPt:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "vbscript:foo",
+        "customscheme:foo",
+        "  javascript:alert(1)  ",
+        "java\tscript:alert(1)",
+    ],
+)
+def test_dangerous_markdown_link_href_is_dropped_but_text_kept(href):
+    body = f"[x]({href})\n"
+    blocks = markdown_to_blocks(body)
+    run = blocks[0].runs[0]
+    assert run.link_href is None
+    assert run.text == "x"
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        "https://example.org",
+        "http://example.org",
+        "mailto:a@example.org",
+        "tel:+33123456789",
+        "../page",
+        "page.html",
+        "#section",
+        "//example.org/page",
+    ],
+)
+def test_allowed_markdown_link_href_is_preserved(href):
+    body = f"[x]({href})\n"
+    blocks = markdown_to_blocks(body)
+    run = blocks[0].runs[0]
+    assert run.link_href == href
+    assert run.text == "x"
+
+
+def test_dangerous_markdown_link_roundtrip_drops_the_link_but_keeps_the_text():
+    body = "Avant [cliquez](javascript:alert(1)) apres.\n"
+    assert _roundtrip(body).strip() == "Avant cliquez apres."
+
+
+def test_dangerous_underlined_link_loses_href_but_keeps_text_and_underline():
+    body = "[[cliquez](javascript:alert(1))]{.underline}\n"
+    blocks = markdown_to_blocks(body)
+    run = blocks[0].runs[0]
+    assert run.link_href is None
+    assert run.underline
+    assert run.text == "cliquez"
+
+
 def test_underlined_escaped_brackets_roundtrip_in_table_and_footnote():
     expected = [
         Block(

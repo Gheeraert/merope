@@ -9,8 +9,10 @@ text (no front matter) meant to be combined with
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from bloggen.markdown.image_attributes import format_image_attributes
+from bloggen.markdown.link_safety import sanitize_link_href
 from bloggen.markdown.paragraph_alignment import format_alignment_marker
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
@@ -119,6 +121,15 @@ def _merge_adjacent_runs(runs: list[InlineRun]) -> list[InlineRun]:
     merged: list[InlineRun] = []
     for run in runs:
         is_plain_text = run.image_src is None and run.footnote_ref is None
+        if is_plain_text and run.link_href is not None:
+            # Sanitized here, the single point every run passes through on
+            # its way to _run_to_md(), regardless of where it came from
+            # (paste import, Markdown import, or built up directly by
+            # other/future code) — a run carrying a dangerous link_href
+            # must never reach Markdown serialization unfiltered.
+            safe_href = sanitize_link_href(run.link_href)
+            if safe_href != run.link_href:
+                run = replace(run, link_href=safe_href)
         if is_plain_text and merged:
             previous = merged[-1]
             previous_is_plain_text = previous.image_src is None and previous.footnote_ref is None
