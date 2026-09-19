@@ -76,7 +76,7 @@ Les champs de licence alimentent le `teiHeader`. Ils ne provoquent pas actuellem
 
 `project_root` établit la racine logique et peut lui-même être absolu. Les autres chemins peuvent être relatifs à cette racine ou syntaxiquement absolus, mais le builder exige qu’ils se résolvent à l’intérieur de `project_root`. Un chemin absolu extérieur au projet est refusé : ces réglages ne permettent pas de lire ou d’écrire dans un dossier quelconque du disque.
 
-Les huit chemins requis doivent être non vides et les différents rôles doivent être configurés vers des dossiers distincts. Le validateur détecte les collisions après sa normalisation textuelle actuelle (séparateurs et slash final notamment), sans résoudre toutes les équivalences possibles : deux alias tels que `content/pages` et `content/./pages` peuvent encore désigner le même dossier réel sans être signalés.
+Les huit chemins requis doivent être non vides et les différents rôles doivent être configurés vers des dossiers distincts. Le validateur détecte lexicalement les collisions après uniformisation des séparateurs et réduction des composants redondants `.` et `..`, sans consulter le disque. Il ne résout donc pas les liens symboliques ni les autres équivalences dépendant du système de fichiers.
 
 | Clé | Défaut | Statut | Rôle |
 |---|---|---|---|
@@ -257,7 +257,7 @@ Le validateur impose notamment :
 
 - `version`, `site.title` et `site.language` non vides ;
 - `site.base_url` et `ftp.site_url`, lorsqu’ils sont renseignés, en HTTP(S) ;
-- les huit chemins requis de `paths` non vides, avec détection des collisions selon la normalisation textuelle actuelle ; les rôles doivent viser des dossiers réellement distincts même si tous les alias équivalents ne sont pas détectés ;
+- les huit chemins requis de `paths` non vides, avec détection lexicale des collisions après normalisation des séparateurs et des composants `.` et `..` ; les rôles doivent viser des dossiers réellement distincts, y compris lorsque des équivalences dépendant du système de fichiers ne peuvent pas être détectées ;
 - `home.mode` égal à `page` ou `recent_posts` ;
 - les booléens réellement booléens et les champs numériques dans leurs bornes ;
 - `blog.archive_path` composé de segments de slug sûrs ;

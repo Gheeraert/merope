@@ -383,6 +383,34 @@ def test_path_fields_with_different_separators_still_collide():
         parse_config(raw)
 
 
+@pytest.mark.parametrize(
+    ("pages_dir", "posts_dir"),
+    [
+        ("content/pages", "content/./pages"),
+        ("content/drafts/../pages", "content/pages"),
+        (r"content\pages", r"content\.\pages"),
+        (r"C:\projet\content\pages", "C:/projet/content/./pages"),
+    ],
+)
+def test_path_fields_with_dot_aliases_still_collide(pages_dir, posts_dir):
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["paths"]["pages_dir"] = pages_dir
+    raw["paths"]["posts_dir"] = posts_dir
+    with pytest.raises(ConfigValidationError, match="posts_dir"):
+        parse_config(raw)
+
+
+def test_lexically_distinct_path_fields_do_not_collide_or_get_rewritten():
+    raw = json.loads(serialize_config(build_default_config()))
+    raw["paths"]["pages_dir"] = "content/pages"
+    raw["paths"]["posts_dir"] = "content/pages-archive"
+
+    config = parse_config(raw)
+
+    assert config.paths.pages_dir == "content/pages"
+    assert config.paths.posts_dir == "content/pages-archive"
+
+
 def test_nested_paths_like_the_defaults_do_not_collide():
     """theme/templates and theme/xslt both live under theme_dir by
     default — nesting is fine, only exact equality is a collision."""

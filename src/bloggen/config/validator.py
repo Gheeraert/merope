@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import posixpath
 from typing import Any
 
 from bloggen.config.models import ProjectConfig
@@ -217,7 +218,16 @@ def _validate_number_fields(data: dict[str, Any], errors: list[str]) -> None:
 
 
 def _normalized_path_key(value: str) -> str:
-    return value.strip().replace("\\", "/").rstrip("/") or "."
+    """Return a portable lexical key without consulting the filesystem.
+
+    Every path compared here is conceptually anchored at the same
+    ``project_root``. Converting both separator styles before applying
+    ``posixpath.normpath`` therefore collapses redundant ``.``/``..``
+    components consistently on Windows and POSIX without resolving against
+    the process cwd or depending on whether a directory exists.
+    """
+    portable = value.strip().replace("\\", "/")
+    return posixpath.normpath(portable)
 
 
 def _validate_paths(data: dict[str, Any], errors: list[str]) -> None:

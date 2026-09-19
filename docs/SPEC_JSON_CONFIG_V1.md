@@ -49,7 +49,7 @@ La configuration doit respecter au minimum les règles suivantes :
 
 L’interface graphique et la CLI exécutent cette validation avant la génération. Le champ historique `build.fail_on_invalid_config` est encore conservé dans le modèle pour compatibilité, mais ne désactive pas cette validation dans ces deux parcours.
 
-La détection des collisions de chemins repose sur la normalisation textuelle actuelle du validateur ; elle ne résout pas toutes les équivalences possibles, par exemple `content/pages` et `content/./pages`. Indépendamment de cette validation, le builder résout chaque chemin configuré et refuse ceux qui sortent de `project_root`. Une syntaxe absolue n’autorise donc pas l’accès à un dossier extérieur au projet.
+La détection des collisions de chemins est lexicale et ne consulte pas le disque : le validateur uniformise les séparateurs et réduit les composants redondants `.` et `..`. Il ne résout pas les liens symboliques ni les autres équivalences dépendant du système de fichiers. Indépendamment de cette validation, le builder résout chaque chemin configuré et refuse ceux qui sortent de `project_root`. Une syntaxe absolue n’autorise donc pas l’accès à un dossier extérieur au projet.
 
 ## Front matter des contenus
 
