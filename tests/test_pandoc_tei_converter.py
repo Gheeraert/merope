@@ -45,6 +45,62 @@ def test_convert_markdown_to_tei_reports_missing_pandoc(monkeypatch: pytest.Monk
         convert_markdown_to_tei("fixtures/markdown/simple_post.md", RUNTIME_DIR / "missing.xml")
 
 
+def test_convert_markdown_to_tei_reports_a_timeout_as_an_ordinary_failure(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A hung/misbehaving Pandoc must never surface as a raw
+    subprocess.TimeoutExpired or an unhandled crash — just a normal
+    PandocConversionResult(success=False), same contract as any other
+    Pandoc failure (malformed input, non-zero exit...)."""
+
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=command, timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr("bloggen.utils.subprocesses.subprocess.run", fake_run)
+
+    output_path = RUNTIME_DIR / "pandoc_timeout.xml"
+    result = convert_markdown_to_tei("fixtures/markdown/simple_post.md", output_path)
+
+    assert result.success is False
+    assert "délai" in result.message
+
+
+def test_convert_markdown_file_to_tei_reports_a_pandoc_timeout_without_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The full pipeline entry point must fail cleanly on a Pandoc timeout
+    (success=False, an intelligible message) and never proceed to
+    TEI post-processing/validation on whatever partial output file Pandoc
+    may have started writing before being killed."""
+    markdown_source = RUNTIME_DIR / "pipeline_pandoc_timeout_source.md"
+    markdown_source.write_text("---\ntitle: \"Timeout\"\n---\n# Titre\n\nTexte.\n", encoding="utf-8")
+
+    postprocess_calls = []
+    monkeypatch.setattr(
+        "bloggen.tei.pandoc_converter.postprocess_tei_file",
+        lambda *args, **kwargs: postprocess_calls.append((args, kwargs)),
+    )
+
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=command, timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr("bloggen.utils.subprocesses.subprocess.run", fake_run)
+
+    output_path = RUNTIME_DIR / "pipeline_pandoc_timeout_output.xml"
+    before = set(RUNTIME_DIR.glob("*.md"))
+    result = convert_markdown_file_to_tei(markdown_source, output_path)
+    after = set(RUNTIME_DIR.glob("*.md"))
+
+    assert result.success is False
+    assert "délai" in result.message
+    assert result.validation.valid is False
+    assert postprocess_calls == []
+    # The temporary normalized-Markdown file created for the Pandoc
+    # invocation must still be cleaned up despite the timeout — no new
+    # .md file left behind beyond the source we wrote ourselves above.
+    assert after - before == set()
+
+
 def test_end_to_end_markdown_to_tei_simulated(monkeypatch: pytest.MonkeyPatch):
     markdown_source = RUNTIME_DIR / "pipeline_source.md"
     markdown_source.write_text(

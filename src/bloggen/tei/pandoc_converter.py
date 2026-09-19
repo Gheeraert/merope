@@ -19,7 +19,7 @@ from bloggen.tei.postprocess import (
     sanitize_link_targets_in_tei_file,
 )
 from bloggen.tei.validator import TeiValidationResult, validate_tei_file
-from bloggen.utils.subprocesses import CommandNotFoundError, run_command
+from bloggen.utils.subprocesses import CommandNotFoundError, CommandTimeoutError, run_command
 
 
 @dataclass(slots=True)
@@ -74,6 +74,20 @@ def convert_markdown_to_tei(
         raise PandocUnavailableError(
             "Pandoc est introuvable. Installez Pandoc et vérifiez qu'il est accessible dans le PATH."
         ) from exc
+    except CommandTimeoutError as exc:
+        # An ordinary failed conversion, not a crash: build_site() already
+        # routes PandocConversionResult(success=False) through its normal
+        # per-item error path (report.errors), same as any other Pandoc
+        # failure. A destination file Pandoc had started writing before
+        # being killed on timeout is never treated as valid output — every
+        # caller below only proceeds past this point when success is True.
+        return PandocConversionResult(
+            source_file=source,
+            tei_file=destination,
+            command=command,
+            success=False,
+            message=str(exc),
+        )
 
     if not command_result.success:
         message = command_result.stderr.strip() or "Pandoc a échoué sans message détaillé."
