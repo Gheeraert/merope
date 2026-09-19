@@ -285,6 +285,8 @@ class QtEditorWindow(QMainWindow):
         self.editor.imageMetadataRequested.connect(self._edit_targeted_image)
         populate_document(self.editor.document(), [])
         self.editor.document().setModified(False)
+        if not self.editor._spell_highlighter.checker.available:
+            self._warn_spellcheck_unavailable()
         self._create_toolbar()
         self._create_content_browser()
         self._create_footnote_panel()
@@ -1887,6 +1889,25 @@ class QtEditorWindow(QMainWindow):
 
     def _show_clipboard_refused(self, message: str) -> None:
         QMessageBox.warning(self, "Copie impossible", message)
+
+    def _warn_spellcheck_unavailable(self) -> None:
+        """The highlighter degrades silently (see FrenchSpellHighlighter/
+        FrenchSpellChecker) when pyspellchecker or its French dictionary
+        can't be loaded, so the editor is otherwise indistinguishable from
+        one where spelling is simply clean — nothing gets underlined either
+        way. Surface it once at startup instead.
+        """
+        QMessageBox.warning(
+            self,
+            "Correcteur orthographique indisponible",
+            "Le correcteur orthographique français n’a pas pu être chargé : "
+            "les mots mal orthographiés ne seront pas soulignés dans cette "
+            "session.\n\n"
+            "Vérifiez que l’extra « qt_editor » est installé dans cet "
+            "environnement Python (pip install -e \".[qt_editor]\"), qui "
+            "inclut la dépendance pyspellchecker et son dictionnaire "
+            "français.",
+        )
 
     def _open_from_dialog(self) -> None:
         path, _selected_filter = QFileDialog.getOpenFileName(
