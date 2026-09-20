@@ -157,6 +157,14 @@ def _try_box(lines: list[str]) -> Block | None:
     children = markdown_to_blocks("\n".join(inner)) if inner else []
     if any(child.kind not in _BOX_CHILD_KINDS for child in children):
         return None
+    # Images (figures with captions) are not supported inside an encadré yet.
+    if any(
+        run.image_src is not None
+        for child in children
+        for content in (child.children or [child])
+        for run in content.runs
+    ):
+        return None
     return Block(kind=BOX, runs=title_runs, children=children)
 
 

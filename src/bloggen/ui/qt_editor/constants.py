@@ -17,9 +17,14 @@ RAW_BLOCK_GROUP_PROPERTY = _MEROPE_PROPERTY_BASE + 6
 CAPTION_SOURCE_PROPERTY = _MEROPE_PROPERTY_BASE + 7
 # Marqueur transitoire d'un QTextTable créé par l'adaptateur Mérope.
 MEROPE_TABLE_PROPERTY = _MEROPE_PROPERTY_BASE + 8
+# Propriété de QTextFrameFormat : seul un cadre portant ce marqueur est un
+# encadré Mérope ; jamais reconnu à son seul aspect.
+MEROPE_BOX_PROPERTY = _MEROPE_PROPERTY_BASE + 10
 
 # Type Qt (jamais canonique) du bloc de légende qui suit une image seule.
 IMAGE_CAPTION_KIND = "merope-image-caption"
+# Type Qt (jamais canonique) du premier bloc d'un encadré titré.
+BOX_TITLE_KIND = "merope-box-title"
 
 # Proprietes de caracteres. Elles portent la semantique Merope independamment
 # du rendu visuel choisi pour le QTextDocument.
@@ -76,3 +81,13 @@ TABLE_CELL_PADDING = 6.0
 TABLE_CELL_SPACING = 0.0
 TABLE_BLOCK_MARGINS = (12.0, 12.0)
 TABLE_HEADER_BACKGROUND = "#e8edf3"
+
+# Présentation transitoire d'un encadré (cadre Qt). Reflète le thème HTML
+# (bordure simple, marges latérales, marge intérieure, titre centré) sans
+# jamais entrer dans le modèle Block.
+BOX_BORDER_WIDTH = 1.0
+BOX_BORDER_COLOR = "#6b6b6b"
+BOX_PADDING = 12.0
+BOX_SIDE_MARGIN = 32.0
+BOX_VERTICAL_MARGIN = 16.0
+BOX_TITLE_MARGINS = (0.0, 10.0)

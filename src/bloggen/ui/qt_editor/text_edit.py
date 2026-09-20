@@ -100,6 +100,9 @@ from bloggen.markdown.caption import flatten_caption_text
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
     blocks_fit_qt_table_cell,
+    box_frame_at,
+    box_title_block,
+    selection_crosses_box_boundary,
     caption_block_for_selection,
     caption_normalization_needed,
     figure_caption_block,
@@ -325,6 +328,9 @@ class MeropeTextEdit(QTextEdit):
         if self._handle_table_key(event):
             event.accept()
             return
+        if self._handle_box_key(event):
+            event.accept()
+            return
         if self._handle_raw_block_key(event):
             event.accept()
             return
@@ -361,6 +367,75 @@ class MeropeTextEdit(QTextEdit):
             return
 
         super().keyPressEvent(event)
+
+    def _handle_box_key(self, event: QKeyEvent) -> bool:
+        """Keep native keyboard edits inside what an encadré can preserve.
+
+        Qt already refuses Backspace/Delete at a frame's outer edge. What it
+        would happily do, and this method stops, is delete across the
+        boundary (destroying the frame's structure), split the single-line
+        title, or merge body text into it.
+        """
+
+        cursor = self.textCursor()
+        key = event.key()
+        enter = key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        erase = key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete)
+        tab = key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+        typing = bool(event.text()) and not event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        )
+        mutating = enter or erase or tab or typing
+
+        if cursor.hasSelection() and selection_crosses_box_boundary(cursor):
+            return mutating
+        frame = box_frame_at(cursor)
+        if frame is None:
+            return False
+        title = box_title_block(frame)
+        if title is None:
+            return False
+
+        block = cursor.block()
+        in_title = block.position() == title.position()
+        if enter and in_title:
+            at_end = (
+                not cursor.hasSelection()
+                and cursor.position() == block.position() + block.length() - 1
+            )
+            if at_end:
+                caret_rect = self.cursorRect()
+                edit = QTextCursor(self.document())
+                edit.beginEditBlock()
+                try:
+                    paragraph = insert_paragraph_after(block)
+                finally:
+                    edit.endEditBlock()
+                self._restore_enter_cursor(
+                    paragraph,
+                    previous_top=caret_rect.top(),
+                    was_visible=self.viewport().rect().intersects(caret_rect),
+                )
+            # Elsewhere in the title Enter is a no-op: it is a single line.
+            return True
+        if cursor.hasSelection():
+            return False
+        if (
+            key == Qt.Key.Key_Backspace
+            and cursor.position() == block.position()
+            and block.previous().isValid()
+            and block.previous().position() == title.position()
+        ):
+            return True  # would merge the first body block into the title
+        if (
+            key == Qt.Key.Key_Delete
+            and in_title
+            and cursor.position() == block.position() + block.length() - 1
+        ):
+            return True  # would merge the next block into the title
+        return False
 
     def _handle_table_key(self, event: QKeyEvent) -> bool:
         """Keep native keyboard edits inside one representable table cell."""
@@ -1200,6 +1275,11 @@ class MeropeTextEdit(QTextEdit):
                 "La coupe ne peut pas traverser une frontière de tableau"
             )
             return
+        if selection_crosses_box_boundary(cursor):
+            self.clipboardRefused.emit(
+                "La coupe ne peut pas traverser la frontière d’un encadré"
+            )
+            return
         if self._copy_merope_selection(cut=True):
             return
         super().cut()
@@ -1812,6 +1892,11 @@ class MeropeTextEdit(QTextEdit):
             return
 
         paste_cursor = self.textCursor()
+        if selection_crosses_box_boundary(paste_cursor):
+            self.pasteRefused.emit(
+                "Le collage ne peut pas traverser la frontière d’un encadré"
+            )
+            return
         if selection_crosses_raw_boundary(paste_cursor):
             self.pasteRefused.emit(
                 "Le collage ne peut pas remplacer une frontière de bloc brut"
@@ -2010,6 +2095,17 @@ class MeropeTextEdit(QTextEdit):
                 "Le collage ne peut pas traverser une frontière de tableau"
             )
             return False
+        if selection_crosses_box_boundary(cursor):
+            self.pasteRefused.emit(
+                "Le collage ne peut pas traverser la frontière d’un encadré"
+            )
+            return False
+        frame = box_frame_at(cursor)
+        if frame is not None:
+            title = box_title_block(frame)
+            if title is not None and cursor.block().position() == title.position():
+                # The title is a single line: never let a paste split it.
+                text = re.sub(r"[\r\n\u2028\u2029]+", " ", text)
         if selection_touches_qt_table(cursor):
             if not selection_is_within_single_table_cell(cursor):
                 self.pasteRefused.emit(

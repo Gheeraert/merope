@@ -38,6 +38,7 @@ from bloggen.ui.qt_editor.constants import (
 )
 from bloggen.ui.qt_editor.document_adapter import (
     inline_format_enabled,
+    selection_touches_box,
     is_caption_block,
     is_figure_block,
     is_raw_block,
@@ -397,6 +398,10 @@ def _toggle_inline(
 def _set_leaf_block_kind(editor: QTextEdit, kind: str, level: int | None = None) -> None:
     cursor = editor.textCursor()
     if selection_touches_raw_block(cursor) or selection_touches_qt_table(cursor):
+        return
+    if kind == HEADING and selection_touches_box(cursor):
+        # An encadré holds paragraphs, quotes and lists; its own title is
+        # a separate, non-heading element.
         return
     blocks = _selected_blocks(editor.document(), cursor)
     cursor.beginEditBlock()

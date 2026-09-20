@@ -22,6 +22,7 @@ from PySide6.QtGui import (
     QTextDocument,
     QTextFormat,
     QTextFrame,
+    QTextFrameFormat,
     QTextImageFormat,
     QTextLength,
     QTextListFormat,
@@ -38,6 +39,7 @@ from bloggen.markdown.caption import (
 )
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
+    BOX,
     BULLET_LIST,
     HEADING,
     LIST_ITEM,
@@ -59,6 +61,13 @@ from bloggen.ui.qt_editor.constants import (
     BLOCKQUOTE_MARGINS,
     BODY_POINT_SIZE,
     BOLD_PROPERTY,
+    BOX_BORDER_COLOR,
+    BOX_BORDER_WIDTH,
+    BOX_PADDING,
+    BOX_SIDE_MARGIN,
+    BOX_TITLE_KIND,
+    BOX_TITLE_MARGINS,
+    BOX_VERTICAL_MARGIN,
     CAPTION_BLOCK_MARGINS,
     CAPTION_COLOR,
     CAPTION_POINT_SIZE,
@@ -81,6 +90,7 @@ from bloggen.ui.qt_editor.constants import (
     ITALIC_PROPERTY,
     LIST_ITEM_MARGINS,
     LIST_KIND_PROPERTY,
+    MEROPE_BOX_PROPERTY,
     MEROPE_TABLE_PROPERTY,
     PARAGRAPH_MARGINS,
     RAW_BLOCK_GROUP_PROPERTY,
@@ -215,6 +225,7 @@ def validate_block_insertion(cursor: QTextCursor, blocks: list[Block]) -> None:
     insertion = QTextCursor(cursor)
     if not blocks:
         return
+    _validate_box_insertion(insertion, blocks)
     if selection_crosses_qt_table_boundary(insertion):
         raise UnsupportedBlockError(
             "L’insertion ne peut pas traverser une frontière de tableau"
@@ -240,6 +251,38 @@ def validate_block_insertion(cursor: QTextCursor, blocks: list[Block]) -> None:
     ):
         raise UnsupportedBlockError(
             "Une légende d’image ne peut contenir que du texte"
+        )
+
+
+def _validate_box_insertion(insertion: QTextCursor, blocks: list[Block]) -> None:
+    """Refuse, before any mutation, what an encadré cannot preserve."""
+
+    if selection_crosses_box_boundary(insertion):
+        raise UnsupportedBlockError(
+            "L’insertion ne peut pas traverser la frontière d’un encadré"
+        )
+    frame = box_frame_at(insertion)
+    if frame is None:
+        return
+    title = box_title_block(frame)
+    start_block = insertion.document().findBlock(insertion.selectionStart())
+    if (
+        title is not None
+        and start_block.position() == title.position()
+        and not (len(blocks) == 1 and blocks[0].kind == PARAGRAPH)
+    ):
+        raise UnsupportedBlockError("Le titre d’un encadré tient sur une seule ligne")
+    if any(
+        block.kind not in BOX_CHILD_KINDS
+        or any(
+            run.image_src is not None
+            for content in (block.children if block.kind in SUPPORTED_LIST_KINDS else [block])
+            for run in content.runs
+        )
+        for block in blocks
+    ):
+        raise UnsupportedBlockError(
+            "Un encadré ne peut recevoir que des paragraphes, citations et listes sans image"
         )
 
 
@@ -394,16 +437,38 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
     ):
         return []
 
+    return _extract_from_items(items, inside_box=False)
+
+
+def _extract_from_items(
+    items: list[QTextBlock | QTextFrame],
+    *,
+    inside_box: bool,
+) -> list[Block]:
+    """Extract sibling Qt items (a document's root or one encadré's body).
+
+    ``inside_box`` restricts the accepted structures to what an encadré can
+    hold: anything else raises rather than being flattened.
+    """
+
     result: list[Block] = []
     seen_raw_groups: set[str] = set()
     index = 0
     while index < len(items):
         item = items[index]
         if isinstance(item, QTextTable):
+            if inside_box:
+                raise UnsupportedBlockError(
+                    "Un tableau ne peut pas être imbriqué dans un encadré"
+                )
             result.append(extract_table_block(item))
             index += 1
             continue
         if isinstance(item, QTextFrame):
+            if is_merope_box_frame(item) and not inside_box:
+                result.append(_extract_box(item))
+                index += 1
+                continue
             raise UnsupportedBlockError("Cadre QTextDocument étranger non pris en charge")
 
         block = item
@@ -413,6 +478,10 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
 
         raw_identity = raw_block_identity(block)
         if raw_identity is not None:
+            if inside_box:
+                raise UnsupportedBlockError(
+                    "Un bloc brut ne peut pas être imbriqué dans un encadré"
+                )
             kind, group = raw_identity
             if group in seen_raw_groups:
                 raise UnsupportedBlockError(
@@ -480,6 +549,8 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
             kind = HEADING if native_heading_level else PARAGRAPH
         if kind not in SUPPORTED_LEAF_KINDS:
             raise UnsupportedBlockError(f"Type de bloc Qt non pris en charge : {kind}")
+        if inside_box and kind == HEADING:
+            raise UnsupportedBlockError("Un titre ne peut pas figurer dans un encadré")
 
         level = None
         if kind == HEADING:
@@ -547,8 +618,14 @@ def extract_blocks(document: QTextDocument) -> list[Block]:
 def _top_level_document_items(document: QTextDocument) -> list[QTextBlock | QTextFrame]:
     """Return root blocks and child frames once each, in document order."""
 
+    return _frame_items(document.rootFrame())
+
+
+def _frame_items(frame: QTextFrame) -> list[QTextBlock | QTextFrame]:
+    """Return a frame's own blocks and direct child frames, in order."""
+
     items: list[QTextBlock | QTextFrame] = []
-    iterator = document.rootFrame().begin()
+    iterator = frame.begin()
     while not iterator.atEnd():
         frame = iterator.currentFrame()
         if frame is not None:
@@ -579,10 +656,169 @@ def _is_implicit_table_boundary_block(
     ):
         return False
     return (
-        index > 0 and isinstance(items[index - 1], QTextTable)
+        index > 0 and _is_boundary_owning_frame(items[index - 1])
     ) or (
-        index + 1 < len(items) and isinstance(items[index + 1], QTextTable)
+        index + 1 < len(items) and _is_boundary_owning_frame(items[index + 1])
     )
+
+
+def _is_boundary_owning_frame(item: QTextBlock | QTextFrame) -> bool:
+    """Tables and encadrés both leave Qt scaffolding blocks beside them."""
+
+    return isinstance(item, QTextTable) or (
+        isinstance(item, QTextFrame) and is_merope_box_frame(item)
+    )
+
+
+def make_box_frame_format() -> QTextFrameFormat:
+    """Transient Qt look of an encadré (border, margins, padding)."""
+
+    frame_format = QTextFrameFormat()
+    frame_format.setProperty(MEROPE_BOX_PROPERTY, True)
+    frame_format.setBorder(BOX_BORDER_WIDTH)
+    frame_format.setBorderStyle(QTextFrameFormat.BorderStyle.BorderStyle_Solid)
+    frame_format.setBorderBrush(QColor(BOX_BORDER_COLOR))
+    frame_format.setPadding(BOX_PADDING)
+    frame_format.setLeftMargin(BOX_SIDE_MARGIN)
+    frame_format.setRightMargin(BOX_SIDE_MARGIN)
+    frame_format.setTopMargin(BOX_VERTICAL_MARGIN)
+    frame_format.setBottomMargin(BOX_VERTICAL_MARGIN)
+    return frame_format
+
+
+def is_merope_box_frame(frame: QTextFrame | None) -> bool:
+    """Whether ``frame`` is an encadré owned by this adapter.
+
+    Only the explicit Mérope marker counts: a frame is never recognised by
+    its appearance, and foreign frames stay refused.
+    """
+
+    return (
+        frame is not None
+        and not isinstance(frame, QTextTable)
+        and frame.format().property(MEROPE_BOX_PROPERTY) is True
+    )
+
+
+def box_frame_at(cursor: QTextCursor) -> QTextFrame | None:
+    """The encadré containing the caret, or ``None``."""
+
+    frame = cursor.currentFrame()
+    while frame is not None:
+        if is_merope_box_frame(frame):
+            return frame
+        frame = frame.parentFrame()
+    return None
+
+
+def _box_frame_at_position(document: QTextDocument, position: int) -> QTextFrame | None:
+    probe = QTextCursor(document)
+    probe.setPosition(position)
+    return box_frame_at(probe)
+
+
+def selection_touches_box(cursor: QTextCursor) -> bool:
+    """Whether the caret or selection lies in, or overlaps, an encadré."""
+
+    document = cursor.document()
+    start, end = cursor.selectionStart(), cursor.selectionEnd()
+    if (
+        _box_frame_at_position(document, start) is not None
+        or _box_frame_at_position(document, end) is not None
+    ):
+        return True
+    if not cursor.hasSelection():
+        return False
+    return any(
+        isinstance(item, QTextFrame)
+        and is_merope_box_frame(item)
+        and start < item.lastPosition() + 1
+        and end > item.firstPosition() - 1
+        for item in _top_level_document_items(document)
+    )
+
+
+def selection_crosses_box_boundary(cursor: QTextCursor) -> bool:
+    """Whether a selection starts and ends in different structural contexts
+    (inside an encadré vs outside, or two different encadrés).
+
+    A selection wholly containing one or more encadrés, with both ends
+    outside, is not partial: deleting it removes them cleanly.
+    """
+
+    if not cursor.hasSelection():
+        return False
+    document = cursor.document()
+    start_box = _box_frame_at_position(document, cursor.selectionStart())
+    end_box = _box_frame_at_position(document, cursor.selectionEnd())
+    return start_box != end_box
+
+
+def box_title_block(frame: QTextFrame) -> QTextBlock | None:
+    """The title block of an encadré, if it has one."""
+
+    items = _frame_items(frame)
+    if (
+        items
+        and isinstance(items[0], QTextBlock)
+        and items[0].blockFormat().property(BLOCK_KIND_PROPERTY) == BOX_TITLE_KIND
+    ):
+        return items[0]
+    return None
+
+
+def _extract_box(frame: QTextFrame) -> Block:
+    """Extract one marked encadré as ``Block(BOX)`` or raise, never flatten."""
+
+    items = _frame_items(frame)
+    if not items:
+        raise UnsupportedBlockError("Un encadré Mérope vide n’est pas représentable")
+    title_runs: list[InlineRun] = []
+    first = items[0]
+    if (
+        isinstance(first, QTextBlock)
+        and first.blockFormat().property(BLOCK_KIND_PROPERTY) == BOX_TITLE_KIND
+    ):
+        runs = _extract_runs(first)
+        _validate_box_title_runs(runs)
+        if "".join(run.text for run in runs).strip():
+            title_runs = runs
+        items = items[1:]
+    children = _extract_from_items(items, inside_box=True)
+    return Block(kind=BOX, runs=title_runs, children=children)
+
+
+BOX_CHILD_KINDS = frozenset({PARAGRAPH, BLOCKQUOTE, BULLET_LIST, ORDERED_LIST})
+
+
+def _validate_box_title_runs(runs: list[InlineRun]) -> None:
+    _validate_runs(runs)
+    for run in runs:
+        if run.image_src is not None or run.footnote_ref is not None:
+            raise UnsupportedBlockError(
+                "Le titre d’un encadré ne peut contenir ni image ni note"
+            )
+        if any(separator in run.text for separator in "\r\n\u2028\u2029"):
+            raise UnsupportedBlockError("Le titre d’un encadré tient sur une seule ligne")
+
+
+def _validate_box_block(block: Block) -> None:
+    if block.raw_text is not None or block.footnote_id is not None:
+        raise UnsupportedBlockError("Un encadré ne porte ni texte brut ni identifiant de note")
+    _validate_box_title_runs(block.runs)
+    for child in block.children:
+        if child.kind not in BOX_CHILD_KINDS:
+            raise UnsupportedBlockError(
+                f"Un encadré ne peut pas contenir de bloc {child.kind!r}"
+            )
+        contents = child.children if child.kind in SUPPORTED_LIST_KINDS else [child]
+        if any(
+            run.image_src is not None
+            for content in contents
+            for run in content.runs
+        ):
+            raise UnsupportedBlockError("Les images dans un encadré ne sont pas prises en charge")
+    validate_blocks(block.children)
 
 
 def extract_table_block(table: QTextTable) -> Block:
@@ -911,6 +1147,9 @@ def refresh_block_visuals(block: QTextBlock) -> None:
     )
     visual_format = QTextCharFormat()
     visual_format.setFontPointSize(HEADING_POINT_SIZES.get(level, BODY_POINT_SIZE))
+    if kind == BOX_TITLE_KIND:
+        # Presentation only: BOLD_PROPERTY (the semantic flag) is untouched.
+        visual_format.setFontWeight(QFont.Weight.DemiBold.value)
     cursor.mergeBlockCharFormat(visual_format)
     cursor.mergeCharFormat(visual_format)
 
@@ -1526,6 +1765,10 @@ def validate_blocks(blocks: Iterable[Block]) -> None:
             _validate_table_block(block)
             continue
 
+        if block.kind == BOX:
+            _validate_box_block(block)
+            continue
+
         if block.kind == VERBATIM:
             if block.runs or block.children:
                 raise UnsupportedBlockError(
@@ -1935,6 +2178,44 @@ def _populate_table(cursor: QTextCursor, block: Block, first: bool) -> bool:
     return True
 
 
+def _populate_box(cursor: QTextCursor, block: Block, first: bool) -> bool:
+    """Insert one encadré as a marked QTextFrame holding its title/content."""
+
+    if not first and cursor.currentList() is not None:
+        _insert_new_block(cursor, QTextBlockFormat(), make_char_format(InlineRun()))
+
+    split_nonempty_block_at_start = (
+        cursor.position() == cursor.block().position()
+        and cursor.position() < cursor.block().position() + cursor.block().length() - 1
+    )
+    if split_nonempty_block_at_start:
+        # Same boundary scaffolding as a table: the technical block before
+        # the frame must not inherit the semantic format of the split suffix.
+        cursor.setBlockFormat(QTextBlockFormat())
+
+    frame = cursor.insertFrame(make_box_frame_format())
+    # The caret is now in the frame's first (empty) block.
+    inner_first = True
+    if "".join(run.text for run in block.runs).strip():
+        _begin_block(
+            cursor,
+            _make_block_format(BOX_TITLE_KIND, "center", None),
+            make_char_format(InlineRun()),
+            True,
+        )
+        _insert_runs(cursor, block.runs)
+        refresh_block_visuals(cursor.block())
+        inner_first = False
+    children = block.children or [Block(kind=PARAGRAPH, runs=[InlineRun(text="")])]
+    _write_blocks(cursor, children, first=inner_first)
+
+    after = frame.lastCursorPosition()
+    after.movePosition(QTextCursor.MoveOperation.NextBlock)
+    cursor.setPosition(after.position())
+    cursor.setBlockCharFormat(make_char_format(InlineRun()))
+    return True
+
+
 def _write_blocks(cursor: QTextCursor, blocks: list[Block], *, first: bool) -> bool:
     for block in blocks:
         if block.kind in SUPPORTED_LEAF_KINDS:
@@ -1943,6 +2224,8 @@ def _write_blocks(cursor: QTextCursor, blocks: list[Block], *, first: bool) -> b
             first = _populate_list(cursor, block, first)
         elif block.kind == TABLE and table_is_qt_editable(block):
             first = _populate_table(cursor, block, first)
+        elif block.kind == BOX:
+            first = _populate_box(cursor, block, first)
         elif block.kind in SUPPORTED_RAW_KINDS:
             first = _populate_raw_block(cursor, block, first)
         else:  # Kept as a defensive guard if validation evolves separately.
@@ -2049,6 +2332,8 @@ def _set_visual_block_margins(
         top, bottom = BLOCKQUOTE_MARGINS
     elif kind == LIST_ITEM:
         top, bottom = LIST_ITEM_MARGINS
+    elif kind == BOX_TITLE_KIND:
+        top, bottom = BOX_TITLE_MARGINS
     else:
         top, bottom = 0.0, 0.0
     block_format.setTopMargin(top)
