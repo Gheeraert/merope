@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from bloggen.build.reports import format_build_report
-from bloggen.build.site_builder import build_site, resolve_project_root
+from bloggen.build.site_builder import build_site, resolve_persistent_project_root, resolve_project_root
 from bloggen.config.defaults import build_default_config
 from bloggen.config.io import ConfigValidationError, load_config, save_config
 from bloggen.config.scaffold import create_new_project
@@ -572,7 +572,7 @@ class MainWindow(tk.Tk):
         self.notebook.add(self.build_tab, text="Génération")
 
         self.seo_panel = SeoPanel(
-            self.notebook, resolve_project_root=lambda: self._resolve_assets_root()[0]
+            self.notebook, resolve_project_root=self._resolve_persistent_project_root
         )
         self.notebook.add(self.seo_panel, text="Référencement")
 
@@ -967,6 +967,13 @@ class MainWindow(tk.Tk):
         paths = PathsConfig(**_read_vars(self.paths_vars))
         project_root = resolve_project_root(ProjectConfig(paths=paths), self.current_config_path)
         return project_root, paths.assets_dir
+
+    def _resolve_persistent_project_root(self) -> Path | None:
+        """None until the project root is unambiguous (see
+        ``resolve_persistent_project_root``): imports must never land in
+        a guessed working-directory folder."""
+        paths = PathsConfig(**_read_vars(self.paths_vars))
+        return resolve_persistent_project_root(ProjectConfig(paths=paths), self.current_config_path)
 
     def _config_for_preview(self) -> ProjectConfig | None:
         """Lazily resolved, like _list_menu_link_targets/_resolve_assets_root

@@ -33,7 +33,7 @@ class SeoPanel(ttk.Frame):
         self,
         master: tk.Misc,
         *,
-        resolve_project_root: Callable[[], Path],
+        resolve_project_root: Callable[[], Path | None],
         pick_file: Callable[[], str] | None = None,
         confirm_overwrite: Callable[[str], bool] | None = None,
         ask_delete_copy: Callable[[str], bool | None] | None = None,
@@ -114,7 +114,16 @@ class SeoPanel(ttk.Frame):
     def add_file(self, source: Path) -> bool:
         """Copy ``source`` into root-files/ and register its bare name.
         False if refused or cancelled."""
-        project_root = self._resolve_project_root()
+        try:
+            project_root = self._resolve_project_root()
+        except Exception as exc:  # never let a callback error escape a button handler
+            self._show_error(f"Racine du projet indéterminée :\n{exc}")
+            return False
+        if project_root is None:
+            self._show_error(
+                "Créez ou enregistrez d'abord le projet avant d'ajouter un fichier de validation."
+            )
+            return False
         name = source.name
         problem = check_verification_filename(name)
         if problem:
@@ -150,8 +159,11 @@ class SeoPanel(ttk.Frame):
             return False
         if choice:
             try:
-                delete_local_copy(name, self._resolve_project_root())
-            except (OSError, ValueError) as exc:
+                project_root = self._resolve_project_root()
+                if project_root is None:
+                    raise ValueError("racine du projet indéterminée")
+                delete_local_copy(name, project_root)
+            except Exception as exc:
                 self._show_error(f"Copie locale non supprimée :\n{exc}")
         self._files.remove(name)
         self._refresh()

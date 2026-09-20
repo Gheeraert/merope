@@ -379,3 +379,109 @@ def test_sitemap_and_robots_still_generated(monkeypatch):
     assert _build(project, config).success
     assert (project / "site/robots.txt").exists()
     assert (project / "site/sitemap.xml").exists()
+
+
+# -- review fixes: root-files protection, unsaved project, Windows names ---------
+
+
+@pytest.mark.parametrize(
+    "value", ["root-files", "./root-files", "root-files/", "a/../root-files", "root-files\\sub"]
+)
+@pytest.mark.parametrize("clean", [True, False])
+def test_output_dir_root_files_refused_and_sources_intact(monkeypatch, value, clean):
+    project, config = _project(
+        monkeypatch, ["g.html"], root_files={"g.html": GOOGLE_BYTES}, clean_output_dir=clean
+    )
+    config.paths.output_dir = value
+    before = {p.name: p.read_bytes() for p in (project / "root-files").iterdir()}
+    report = _build(project, config)
+    assert not report.success
+    assert any("root-files" in e for e in report.errors)
+    assert {p.name: p.read_bytes() for p in (project / "root-files").iterdir()} == before
+    assert not [p for p in project.iterdir() if ".building-" in p.name]
+
+
+@pytest.mark.parametrize("value", ["root-files", "./root-files", "root-files/", "a/../root-files"])
+def test_tei_dir_root_files_refused_and_sources_intact(monkeypatch, value):
+    project, config = _project(monkeypatch, ["g.html"], root_files={"g.html": GOOGLE_BYTES})
+    config.render.generate_tei_files = True
+    config.paths.tei_dir = value
+    report = _build(project, config)
+    assert not report.success
+    assert any("root-files" in e for e in report.errors)
+    assert [p.name for p in (project / "root-files").iterdir()] == ["g.html"]
+    assert (project / "root-files" / "g.html").read_bytes() == GOOGLE_BYTES
+
+
+def test_tei_dir_root_files_ignored_when_tei_generation_off(monkeypatch):
+    project, config = _project(monkeypatch, ["g.html"], root_files={"g.html": GOOGLE_BYTES})
+    config.render.generate_tei_files = False
+    config.paths.tei_dir = "root-files"
+    assert _build(project, config).success
+    assert (project / "root-files" / "g.html").read_bytes() == GOOGLE_BYTES
+
+
+def test_tei_dir_equal_to_project_root_now_refused(monkeypatch):
+    project, config = _project(monkeypatch, [], root_files={"g.html": b"x"})
+    config.paths.tei_dir = "."
+    assert not _build(project, config).success
+    assert (project / "root-files" / "g.html").exists()
+
+
+def test_panel_refuses_import_when_project_root_unknown(root, tmp_path, monkeypatch):
+    src = tmp_path / "g.html"
+    src.write_bytes(b"x")
+    monkeypatch.chdir(tmp_path)
+    errors: list[str] = []
+    panel = SeoPanel(root, resolve_project_root=lambda: None, show_error=errors.append)
+    assert panel.add_file(src) is False
+    assert errors and "enregistrez d'abord" in errors[0]
+    assert not (tmp_path / "root-files").exists()
+    assert panel.get_data().verification_files == []
+
+
+def test_panel_callback_exception_becomes_a_message(root, tmp_path):
+    src = tmp_path / "g.html"
+    src.write_bytes(b"x")
+    errors: list[str] = []
+
+    def boom() -> Path:
+        raise RuntimeError("nope")
+
+    panel = SeoPanel(root, resolve_project_root=boom, show_error=errors.append)
+    assert panel.add_file(src) is False
+    assert errors
+
+
+def test_persistent_project_root_needs_an_anchor(tmp_path):
+    from bloggen.build.site_builder import resolve_persistent_project_root
+
+    config = build_default_config()  # project_root == "."
+    assert resolve_persistent_project_root(config, None) is None
+    (tmp_path / "config").mkdir()
+    (tmp_path / "content").mkdir()
+    assert resolve_persistent_project_root(config, tmp_path / "config" / "site.json") == tmp_path.resolve()
+    config.paths.project_root = str(tmp_path)
+    assert resolve_persistent_project_root(config, None) == tmp_path.resolve()
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["CON", "con", "CON.html", "PRN.txt", "AUX.xml", "NUL", "nul.txt", "COM1", "COM9.html",
+     "LPT1.txt", "LPT9", "com3.tar.gz"],
+)
+def test_windows_reserved_names_rejected_everywhere(bad):
+    from bloggen.build.verification_files import check_verification_filename
+
+    assert check_verification_filename(bad)
+    raw = _raw()
+    raw["seo"] = {"verification_files": [bad]}
+    with pytest.raises(ConfigValidationError):
+        parse_config(raw)
+
+
+@pytest.mark.parametrize("ok", ["CONSOLE.html", "COM10.html", "COM.html", "google1.html", "LPT0.txt"])
+def test_near_miss_names_stay_valid(ok):
+    from bloggen.build.verification_files import check_verification_filename
+
+    assert check_verification_filename(ok) is None

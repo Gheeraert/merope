@@ -34,7 +34,7 @@ from bloggen.build.redirects import (
     update_history,
 )
 from bloggen.build.reports import BuildReport
-from bloggen.build.verification_files import copy_root_verification_files
+from bloggen.build.verification_files import ROOT_FILES_DIRNAME, copy_root_verification_files
 from bloggen.config.models import MenuLink, ProjectConfig, SideMenuSection, SideMenuSubSection
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
 from bloggen.content.slugify import ensure_unique_slug, is_valid_slug_format, slugify
@@ -108,6 +108,7 @@ def _critical_project_dirs(config: ProjectConfig, project_root: Path) -> dict[st
         "le dossier thème": paths.theme_dir,
         "le dossier templates": paths.templates_dir,
         "le dossier XSLT": paths.xslt_dir,
+        "le dossier des fichiers racine (root-files)": Path(ROOT_FILES_DIRNAME),
     }
     return {label: (project_root / relative).resolve() for label, relative in relative_by_label.items()}
 
@@ -133,7 +134,33 @@ def _ensure_path_is_within_project(
         )
 
 
-def _ensure_output_dir_is_safe_to_clean(output_root: Path, project_root: Path, config: ProjectConfig) -> None:
+def _ensure_generated_dir_is_not_root_files(
+    generated_root: Path, project_root: Path, *, field_label: str, configured_value: str
+) -> None:
+    """``root-files/`` holds canonical sources (verification files): no
+    generated directory (output, TEI — both built in a staging directory
+    then swapped over the real one) may be, or live inside, it. Checked
+    on the resolved path, so ``./root-files``, ``root-files/`` or
+    ``a/../root-files`` are all caught. Unconditional (not only when
+    cleaning), since even without a swap the build would write into it.
+    """
+    root_files = (project_root / ROOT_FILES_DIRNAME).resolve()
+    if generated_root == root_files or root_files in generated_root.parents:
+        raise ValueError(
+            f"Dossier généré dangereux : « {field_label} » = « {configured_value} » "
+            f"({generated_root}) désigne le dossier {ROOT_FILES_DIRNAME}/, qui contient les "
+            "fichiers sources de validation du site. Choisissez un autre dossier."
+        )
+
+
+def _ensure_output_dir_is_safe_to_clean(
+    output_root: Path,
+    project_root: Path,
+    config: ProjectConfig,
+    *,
+    field_label: str = "Dossier sortie",
+    configured_value: str | None = None,
+) -> None:
     """Refuse to ``shutil.rmtree`` a directory that *is*, or *contains*,
     the project root or any of its source directories.
 
@@ -150,9 +177,9 @@ def _ensure_output_dir_is_safe_to_clean(output_root: Path, project_root: Path, c
     for label, path in _critical_project_dirs(config, project_root).items():
         if output_root == path or output_root in path.parents:
             raise ValueError(
-                f"Dossier de sortie dangereux : « {config.paths.output_dir} » "
+                f"Dossier de sortie dangereux : « {configured_value or config.paths.output_dir} » "
                 f"({output_root}) supprimerait {label} ({path}). "
-                "Corrigez le champ « Dossier sortie » dans l'onglet Chemins avant "
+                f"Corrigez le champ « {field_label} » dans l'onglet Chemins avant "
                 "de régénérer le site."
             )
 
@@ -347,6 +374,21 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
     try:
         _ensure_all_project_paths_are_contained(config, project_root)
         _ensure_archive_path_is_safe(config.blog.archive_path)
+        _ensure_generated_dir_is_not_root_files(
+            final_output_root, project_root,
+            field_label="Dossier sortie", configured_value=config.paths.output_dir,
+        )
+        if config.render.generate_tei_files:
+            _ensure_generated_dir_is_not_root_files(
+                requested_tei_root, project_root,
+                field_label="Dossier TEI", configured_value=config.paths.tei_dir,
+            )
+            # The TEI directory is swapped like the output one: it must not
+            # be (or contain) the project or any source directory either.
+            _ensure_output_dir_is_safe_to_clean(
+                requested_tei_root, project_root, config,
+                field_label="Dossier TEI", configured_value=config.paths.tei_dir,
+            )
 
         if config.build.clean_output_dir:
             if final_output_root.exists():
@@ -1295,6 +1337,15 @@ def _generate_redirects(
         )
 
     return updated_history
+
+
+def resolve_persistent_project_root(config: ProjectConfig, config_path: Path | None) -> Path | None:
+    """Like ``resolve_project_root`` but None when the root would only be a
+    guess: a relative ``project_root`` with no config file on disk to
+    anchor it (it would silently fall back to the working directory)."""
+    if Path(config.paths.project_root).is_absolute() or config_path is not None:
+        return resolve_project_root(config, config_path)
+    return None
 
 
 def resolve_project_root(config: ProjectConfig, config_path: Path | None) -> Path:

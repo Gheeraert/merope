@@ -24,6 +24,13 @@ RESERVED_OUTPUT_NAMES = frozenset(
     {"index.html", "robots.txt", "sitemap.xml", "feed.xml", "search-index.json"}
 )
 
+# Windows device names are reserved whatever the extension (CON.html too),
+# checked on every platform so the same JSON is valid or invalid everywhere.
+_WINDOWS_RESERVED_STEMS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"{device}{digit}" for device in ("COM", "LPT") for digit in "123456789\u00b9\u00b2\u00b3"}
+)
+
 _WINDOWS_FORBIDDEN_CHARS = set('<>:"/\\|?*')
 
 
@@ -57,6 +64,8 @@ def check_verification_filename(name: Any) -> str | None:
         )
     if any(ord(c) < 32 for c in name) or (set(name) & _WINDOWS_FORBIDDEN_CHARS):
         return f"nom de fichier invalide ({name!r}) : caractères interdits."
+    if name.split(".")[0].rstrip().upper() in _WINDOWS_RESERVED_STEMS:
+        return f"nom de fichier invalide ({name!r}) : nom de périphérique réservé sous Windows."
     if Path(name).name != name or Path(name).is_absolute():
         return f"nom de fichier invalide ({name!r}) : un simple nom de fichier est requis."
     return None
