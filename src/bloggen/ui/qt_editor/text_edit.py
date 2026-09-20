@@ -410,7 +410,8 @@ class MeropeTextEdit(QTextEdit):
                 edit = QTextCursor(self.document())
                 edit.beginEditBlock()
                 try:
-                    paragraph = insert_paragraph_after(block)
+                    # Same alignment as the box's own paragraphs.
+                    paragraph = insert_paragraph_after(block, alignment="left")
                 finally:
                     edit.endEditBlock()
                 self._restore_enter_cursor(

@@ -162,6 +162,8 @@ from bloggen.ui.qt_editor.recovery import (
     prepare_recovery_draft,
 )
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
+from bloggen.ui.qt_editor.box_dialog import BoxInsertDialog
+from bloggen.ui.qt_editor.box_structure import can_insert_box, insert_empty_box
 from bloggen.ui.qt_editor.table_dialog import TableInsertDialog
 from bloggen.ui.qt_editor.table_structure import (
     can_insert_empty_table,
@@ -737,6 +739,12 @@ class QtEditorWindow(QMainWindow):
             self._insert_table_from_dialog,
             icon_key="table",
         )
+        self.insert_box_action = self._add_action(
+            toolbar,
+            "Insérer un encadré…",
+            self._insert_box_from_dialog,
+            icon_key="box",
+        )
         self.image_action = self._add_action(
             toolbar,
             "Image...",
@@ -850,10 +858,14 @@ class QtEditorWindow(QMainWindow):
         self.editor.document().contentsChanged.connect(
             self._update_insert_table_action
         )
+        self.editor.cursorPositionChanged.connect(self._update_insert_box_action)
+        self.editor.selectionChanged.connect(self._update_insert_box_action)
+        self.editor.document().contentsChanged.connect(self._update_insert_box_action)
         self.editor.document().contentsChanged.connect(self._mark_preview_stale)
         self._sync_inline_format_actions()
         self._sync_block_style_actions()
         self._update_insert_table_action()
+        self._update_insert_box_action()
 
     def _sync_inline_format_actions(self) -> None:
         char_format = self.editor.textCursor().charFormat()
@@ -1413,6 +1425,37 @@ class QtEditorWindow(QMainWindow):
         self.editor.setTextCursor(cursor)
         self.editor.setFocus()
         return cursor
+
+    def insert_box(self, title: str = "") -> QTextCursor:
+        """Insert an empty encadré exclusively through the structural API."""
+
+        cursor = insert_empty_box(self.editor.textCursor(), title)
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus()
+        return cursor
+
+    def _update_insert_box_action(self) -> None:
+        self.insert_box_action.setEnabled(can_insert_box(self.editor.textCursor()))
+
+    def _insert_box_from_dialog(self) -> bool:
+        if not can_insert_box(self.editor.textCursor()):
+            QMessageBox.warning(
+                self,
+                "Insertion impossible",
+                "Placez le curseur (sans sélection) dans du texte ordinaire, "
+                "hors d’un tableau, d’une légende ou d’un autre encadré, "
+                "pour insérer un encadré.",
+            )
+            return False
+        dialog = BoxInsertDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        try:
+            self.insert_box(dialog.title())
+        except (ValueError, UnsupportedDocumentError) as exc:
+            QMessageBox.warning(self, "Insertion impossible", str(exc))
+            return False
+        return True
 
     def _update_insert_table_action(self) -> None:
         self.insert_table_action.setEnabled(

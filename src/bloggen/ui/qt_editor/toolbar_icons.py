@@ -64,6 +64,7 @@ _GLYPHS = {
     "bullets": "•≡",
     "numbered": "1≡",
     "table": "▦",
+    "box": "▢",
     "left": "≡",
     "center": "≡",
     "right": "≡",

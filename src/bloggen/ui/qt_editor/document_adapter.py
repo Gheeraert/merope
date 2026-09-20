@@ -1336,13 +1336,13 @@ def repair_block_after_enter(block: QTextBlock) -> None:
     refresh_block_visuals(block)
 
 
-def insert_paragraph_after(block: QTextBlock) -> QTextCursor:
+def insert_paragraph_after(block: QTextBlock, *, alignment: str = "justify") -> QTextCursor:
     """Open an ordinary empty paragraph right after ``block``."""
 
     cursor = QTextCursor(block)
     cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
     cursor.insertBlock(
-        _make_block_format(PARAGRAPH, "justify", None),
+        _make_block_format(PARAGRAPH, alignment, None),
         make_char_format(InlineRun()),
     )
     return cursor
