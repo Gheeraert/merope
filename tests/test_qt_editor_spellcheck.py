@@ -445,3 +445,39 @@ def test_spell_underlines_survive_zoom_and_unzoom():
     cursor.setPosition(block.position() + len(block.text()))
     cursor.insertText(" mosieur")
     assert _misspelled_text(block) == ["Boujour", "mosieur"]
+
+
+def _type_chars(editor, text: str) -> None:
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    for char in text:
+        QApplication.sendEvent(
+            editor,
+            QKeyEvent(
+                QEvent.Type.KeyPress,
+                Qt.Key.Key_unknown,
+                Qt.KeyboardModifier.NoModifier,
+                char,
+            ),
+        )
+    QApplication.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [
+        ("Ecole ", "École "),
+        ("Une Eglise, l'Ecole.", "Une Église, l'École."),
+        ("ECOLE ", "ÉCOLE "),
+        ("Etat-major ", "État-major "),
+        ("Europe ", "Europe "),
+        ("ecole ", "ecole "),
+        ("Ecolier ", "Ecolier "),
+    ],
+)
+def test_typing_accents_capital_e_when_word_ends(typed, expected):
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text="")])])
+    _type_chars(editor, typed)
+    assert editor.document().firstBlock().text() == expected
+    editor.document().undo()  # must not raise

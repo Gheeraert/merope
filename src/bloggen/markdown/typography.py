@@ -219,6 +219,29 @@ def oe_ligature_replacement(word: str) -> str:
     return word[: match.start()] + ligature + word[match.end() :]
 
 
+# Words whose only missing accent is the initial capital: French keyboards
+# make "É" awkward to type, so "Ecole" is completed to "École" as the word
+# ends. Lowercase words are left alone (the accent is easy to type there).
+ACCENTED_CAPITAL_E_WORDS = frozenset(
+    """
+    ecart echec echelle eclat ecole ecoles ecoute ecouter ecran ecrans ecrire
+    ecrit ecrits ecriture ecrivain ecrivains edifice edition editions editeur
+    editeurs education egalement egalite eglise eglises elite elu emotion
+    energie epoque epoques epreuve episode equipe equipes erudit etape etat
+    etats etais etait etaient etant etoile etonnant etranger etrangers etre
+    etude etudes etudiant etudiants
+    """.split()
+)
+ACCENTED_CAPITAL_E_TYPED_RE = re.compile(rf"(?<![{_LETTER_CLASS}])(E[{_LETTER_CLASS}]+)$")
+
+
+def accented_capital_e_applies(word: str) -> bool:
+    """True when *word* starts with a capital "E" and, once that "E" is
+    accented, is one of :data:`ACCENTED_CAPITAL_E_WORDS` (in any case).
+    """
+    return word[:1] == "E" and word.lower() in ACCENTED_CAPITAL_E_WORDS
+
+
 CENTURY_RE = re.compile(r"\b([IVXLCDM]+)(er|e)\s+([Ss]i[eè]cle)\b")
 
 

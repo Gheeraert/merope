@@ -382,3 +382,21 @@ def test_apply_french_typography_fixes_pre_existing_guillemets_too():
     # The chevrons themselves must not be duplicated/re-paired.
     assert result.count(OPENING_GUILLEMET) == 1
     assert result.count(CLOSING_GUILLEMET) == 1
+
+
+@pytest.mark.parametrize(
+    ("word", "expected"),
+    [
+        ("Ecole", True),
+        ("Eglise", True),
+        ("ECOLE", True),
+        ("Etat", True),
+        ("ecole", False),
+        ("Europe", False),
+        ("Eleve", False),
+    ],
+)
+def test_accented_capital_e_applies(word, expected):
+    from bloggen.markdown.typography import accented_capital_e_applies
+
+    assert accented_capital_e_applies(word) is expected

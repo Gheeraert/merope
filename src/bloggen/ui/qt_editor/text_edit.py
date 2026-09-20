@@ -46,6 +46,7 @@ from bloggen.markdown.html_paste_import import (
 )
 from bloggen.markdown.rich_text_model import HEADING, TABLE, Block
 from bloggen.markdown.typography import (
+    ACCENTED_CAPITAL_E_TYPED_RE,
     CENTURY_RE,
     CLOSING_GUILLEMET,
     COMMON_CENTURY_ORDINAL_TYPED_RE,
@@ -59,6 +60,7 @@ from bloggen.markdown.typography import (
     PAGE_ABBREVIATION_REDUNDANT_SPACE_RE,
     PAGE_ABBREVIATION_TYPED_RE,
     SPACE_BEFORE_PERIOD_TYPED_RE,
+    accented_capital_e_applies,
     convert_curly_quotes_to_guillemets,
     convert_straight_quotes_stateful,
     fix_double_punctuation_spacing,
@@ -2197,7 +2199,9 @@ class MeropeTextEdit(QTextEdit):
         elif char == ".":
             self._autoformat_period_spacing()
             self._autoformat_page_number_period()
-        elif char.isalpha():
+        if not char.isalpha():
+            self._autoformat_accented_capital_e()
+        if char.isalpha():
             self._autoformat_oe_ligature()
             if char == "e":
                 self._autoformat_common_century_ordinal()
@@ -2220,6 +2224,12 @@ class MeropeTextEdit(QTextEdit):
         ):
             return True
         if char.isalpha() and OE_LIGATURE_TYPED_RE.search(candidate):
+            return True
+        if (
+            not char.isalpha()
+            and char.isprintable()
+            and self._accented_capital_e_match(prefix)
+        ):
             return True
         if char == "e" and COMMON_CENTURY_ORDINAL_TYPED_RE.search(candidate):
             return True
@@ -2347,6 +2357,30 @@ class MeropeTextEdit(QTextEdit):
         period_position = self.textCursor().position() - 1
         self._joined_with_previous_edit(
             lambda: self._replace_range(start, period_position, "", QTextCharFormat())
+        )
+
+    @staticmethod
+    def _accented_capital_e_match(prefix: str):
+        """Match of the word just completed before the typed boundary char
+        in *prefix* (which excludes that char), if it needs an accented É.
+        """
+
+        match = ACCENTED_CAPITAL_E_TYPED_RE.search(prefix)
+        if match is not None and accented_capital_e_applies(match.group(1)):
+            return match
+        return None
+
+    def _autoformat_accented_capital_e(self) -> None:
+        # The boundary character has just been inserted: the word ends
+        # right before it.
+        block, prefix = self._current_block_prefix()
+        match = self._accented_capital_e_match(prefix[:-1])
+        if match is None:
+            return
+        start = _block_position(block, match.start(1))
+        char_format = self._format_for_edit(start, start + 1)
+        self._joined_with_previous_edit(
+            lambda: self._replace_range(start, start + 1, "É", char_format)
         )
 
     def _autoformat_oe_ligature(self) -> None:
