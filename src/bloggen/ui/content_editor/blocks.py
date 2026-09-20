@@ -8,6 +8,7 @@ from bloggen.markdown.rich_text_export import blocks_to_markdown
 from bloggen.markdown.rich_text_import import parse_table_lines
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
+    BOX,
     BULLET_LIST,
     FOOTNOTE_DEFINITION,
     HEADING,
@@ -255,9 +256,18 @@ class BlocksMixin:
             end_line = int(self.text.index("end-1c").split(".")[0])
             for line in range(start_line, end_line + 1):
                 self.text.tag_add("table_source", f"{line}.0", f"{line}.end")
-        elif block.kind == VERBATIM:
+        elif block.kind in (VERBATIM, BOX):
+            # An encadré is only editable in the Qt editor: here it is kept
+            # as its exact Markdown source, in the same protected "verbatim"
+            # region as any other structure this editor cannot edit, so an
+            # open -> save cycle rewrites it unchanged.
+            raw_text = (
+                blocks_to_markdown([block]).rstrip("\n")
+                if block.kind == BOX
+                else block.raw_text or ""
+            )
             start_line = int(self.text.index("end-1c").split(".")[0])
-            self.text.insert("end", block.raw_text or "")
+            self.text.insert("end", raw_text)
             end_line = int(self.text.index("end-1c").split(".")[0])
             for line in range(start_line, end_line + 1):
                 self.text.tag_add("verbatim", f"{line}.0", f"{line}.end")
