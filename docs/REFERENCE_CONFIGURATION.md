@@ -32,9 +32,10 @@ Les clés inconnues appartenant à d’anciens ou de futurs JSON ne sont pas int
 | `footer` | objet | UI | Pied de page. |
 | `build` | objet | UI/masqué | Génération et contrôles. |
 | `search` | objet | UI | Recherche statique, exposée dans l’onglet Génération. |
+| `seo` | objet | UI | Fichiers de validation des moteurs de recherche, onglet Référencement. |
 | `ftp` | objet | dialogue | Publication FTP/FTPS. |
 
-Le validateur exige actuellement les sections racine principales sauf `top_banner` et `ftp`, qui peuvent être absentes d’un ancien fichier et reprendre leurs valeurs par défaut.
+Le validateur exige actuellement les sections racine principales sauf `top_banner`, `seo` et `ftp`, qui peuvent être absentes d’un ancien fichier et reprendre leurs valeurs par défaut.
 
 ## Compatibilité ascendante et clés inconnues
 
@@ -237,6 +238,16 @@ Ces réglages sont affichés dans l’onglet **Génération**.
 | `excerpt_length` | `160` | UI | Longueur des extraits de résultats, entier ≥ 0. |
 
 La recherche est une recherche statique par sous-chaîne, insensible à la casse et aux accents, exécutée dans le navigateur.
+
+## `seo`
+
+Onglet **Référencement**. Section facultative : un ancien `site.json` sans `seo` se charge avec une liste vide.
+
+| Clé | Défaut | Statut | Rôle |
+|---|---:|---|---|
+| `verification_files` | `[]` | UI | Noms de fichiers de validation (ex. `google123456789abcdef.html`, `BingSiteAuth.xml`). |
+
+Chaque entrée est un **simple nom de fichier** : ni dossier, ni `..`, ni chemin absolu ou lecteur, ni fichier caché. La source est toujours `<racine projet>/root-files/<nom>` ; à chaque génération, le fichier est copié octet pour octet à la racine du dossier de sortie, après les autres étapes du build. Une entrée invalide est refusée par le validateur **et** par le build (un `site.json` modifié à la main ne contourne pas ces contrôles). Un fichier qui entrerait en collision avec un fichier généré (`index.html`, `robots.txt`, `sitemap.xml`, `feed.xml`, `search-index.json`, une page, une redirection, un dossier) fait échouer le build. Un fichier absent de `root-files/` produit un avertissement, ou une erreur si `build.fail_on_missing_assets` est activé. Les clés inconnues de `seo` sont conservées à l’enregistrement.
 
 ## `ftp`
 

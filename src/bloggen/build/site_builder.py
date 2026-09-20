@@ -34,6 +34,7 @@ from bloggen.build.redirects import (
     update_history,
 )
 from bloggen.build.reports import BuildReport
+from bloggen.build.verification_files import copy_root_verification_files
 from bloggen.config.models import MenuLink, ProjectConfig, SideMenuSection, SideMenuSubSection
 from bloggen.content.loader import ContentItem, ContentLoadError, LoadedContent, load_content
 from bloggen.content.slugify import ensure_unique_slug, is_valid_slug_format, slugify
@@ -554,6 +555,25 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
                     report.errors.append(message)
                 else:
                     report.warnings.append(message)
+
+        # Last generation step, deliberately after the link/SEO checks above
+        # (those audit the generated pages; a verification file is opaque,
+        # not a page) and after everything else that writes into
+        # output_root, so collisions with any generated file are detectable.
+        if runtime_config.seo.verification_files:
+            verification = copy_root_verification_files(
+                runtime_config.seo.verification_files,
+                project_root,
+                output_root,
+                reserved=(*report.generated_html, *report.generated_tei),
+                fail_on_missing=runtime_config.build.fail_on_missing_assets,
+            )
+            report.errors.extend(verification.errors)
+            report.warnings.extend(verification.warnings)
+            if verification.copied:
+                report.warnings.append(
+                    f"Fichiers de validation copiés à la racine: {len(verification.copied)}."
+                )
 
         report.success = len(report.errors) == 0
 

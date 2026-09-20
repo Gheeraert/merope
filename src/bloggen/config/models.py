@@ -235,6 +235,19 @@ class SearchConfig:
 
 
 @dataclass(slots=True)
+class SeoConfig:
+    """Referencing settings. ``verification_files`` lists plain file names
+    (no directory) of search-engine/service ownership-verification files
+    (e.g. ``google123456789abcdef.html``, ``BingSiteAuth.xml``). Their
+    canonical source is ``<project_root>/root-files/<name>``; every build
+    copies each one, byte for byte, to the root of the output directory
+    (see bloggen.build.verification_files)."""
+
+    verification_files: list[str] = field(default_factory=list)
+    unknown_data: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+
+
+@dataclass(slots=True)
 class FtpConfig:
     """Publishing settings for the FTP/FTPS transfer of the generated site.
 
@@ -278,6 +291,7 @@ class ProjectConfig:
     footer: FooterConfig = field(default_factory=FooterConfig)
     build: BuildConfig = field(default_factory=BuildConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
+    seo: SeoConfig = field(default_factory=SeoConfig)
     ftp: FtpConfig = field(default_factory=FtpConfig)
     # Round-trip passthrough for whatever this version of MEROPE doesn't
     # recognize at the JSON root (e.g. a future top-level section) — see
@@ -308,6 +322,7 @@ class ProjectConfig:
         data["footer"] = _section_to_dict(self.footer)
         data["build"] = _section_to_dict(self.build)
         data["search"] = _section_to_dict(self.search)
+        data["seo"] = _section_to_dict(self.seo)
         data["ftp"] = _section_to_dict(self.ftp)
         return data
 
@@ -334,6 +349,11 @@ class ProjectConfig:
         build = _section_from_dict(BuildConfig, _dict_or_empty(raw.get("build")))
         search = _section_from_dict(SearchConfig, _dict_or_empty(raw.get("search")))
         ftp = _section_from_dict(FtpConfig, _dict_or_empty(raw.get("ftp")))
+        seo = _section_from_dict(SeoConfig, _dict_or_empty(raw.get("seo")))
+        # A hand-edited value that isn't a list of strings can't be a valid
+        # file name list: fall back to empty rather than crash on load.
+        files = seo.verification_files
+        seo.verification_files = [f for f in files if isinstance(f, str)] if isinstance(files, list) else []
         menus = _menus_from_dict(_dict_or_empty(raw.get("menus")))
         return cls(
             version=str(raw.get("version", "1.0")),
@@ -351,6 +371,7 @@ class ProjectConfig:
             footer=footer,
             build=build,
             search=search,
+            seo=seo,
             ftp=ftp,
             unknown_data=_extra_fields(ProjectConfig, raw),
         )

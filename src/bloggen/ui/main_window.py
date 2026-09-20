@@ -36,6 +36,7 @@ from bloggen.ui.ftp_publish_dialog import FtpPublishDialog
 from bloggen.ui.media_panel import MediaPanel
 from bloggen.ui.menu_editor import SideMenuEditor, TopMenuEditor
 from bloggen.ui.notes_panel import NotesPanel
+from bloggen.ui.seo_panel import SeoPanel
 from bloggen.ui.qt_editor_launcher import (
     ProcessExited,
     ProtocolDiagnostic,
@@ -569,6 +570,11 @@ class MainWindow(tk.Tk):
             value=BuildConfig().fail_on_invalid_config
         )
         self.notebook.add(self.build_tab, text="Génération")
+
+        self.seo_panel = SeoPanel(
+            self.notebook, resolve_project_root=lambda: self._resolve_assets_root()[0]
+        )
+        self.notebook.add(self.seo_panel, text="Référencement")
 
     def _build_home_tab(self) -> None:
         frame = ttk.Frame(self.notebook)
@@ -1169,6 +1175,7 @@ class MainWindow(tk.Tk):
         _set_vars_partial(self.build_vars, config.build)
         self.build_vars["search_enabled"].set(config.search.enabled)
         self.build_vars["search_excerpt_length"].set(str(config.search.excerpt_length))
+        self.seo_panel.set_data(config.seo)
         self._ftp_config = config.ftp
 
     def _collect_from_form(self) -> ProjectConfig:
@@ -1224,6 +1231,9 @@ class MainWindow(tk.Tk):
         notes_rendering = self.notes_panel.get_data()
         notes_rendering.unknown_data = copy.deepcopy(loaded.notes_rendering.unknown_data)
 
+        seo = self.seo_panel.get_data()
+        seo.unknown_data = copy.deepcopy(loaded.seo.unknown_data)
+
         return ProjectConfig(
             version=loaded.version,
             site=site,
@@ -1240,6 +1250,7 @@ class MainWindow(tk.Tk):
             footer=footer,
             build=build,
             search=search,
+            seo=seo,
             ftp=self._ftp_config,
             unknown_data=copy.deepcopy(loaded.unknown_data),
         )

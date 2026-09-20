@@ -5,6 +5,7 @@ from __future__ import annotations
 import posixpath
 from typing import Any
 
+from bloggen.build.verification_files import check_verification_filename
 from bloggen.config.models import ProjectConfig
 from bloggen.content.slugify import is_valid_slug_format
 
@@ -103,6 +104,7 @@ def validate_config_dict(data: Any) -> list[str]:
     _validate_home_mode(data, errors)
     _validate_ftp_site_url(data, errors)
     _validate_blog_archive_path(data, errors)
+    _validate_seo(data, errors)
     return errors
 
 
@@ -421,3 +423,25 @@ def _validate_boolean_fields(data: dict[str, Any], errors: list[str]) -> None:
         value = section.get(field_name)
         if value is not None and not isinstance(value, bool):
             errors.append(f"Le champ '{section_name}.{field_name}' doit être un booléen.")
+
+
+def _validate_seo(data: dict[str, Any], errors: list[str]) -> None:
+    """Each verification file is joined into ``<project>/root-files`` and
+    ``<output>/``: a hand-edited site.json must not be able to smuggle in
+    a sub-path or a traversal (the build re-checks independently)."""
+    seo = data.get("seo")
+    if seo is None:
+        return
+    if not isinstance(seo, dict):
+        errors.append("La section 'seo' doit être un objet.")
+        return
+    files = seo.get("verification_files")
+    if files is None:
+        return
+    if not isinstance(files, list):
+        errors.append("'seo.verification_files' doit être une liste de noms de fichiers.")
+        return
+    for entry in files:
+        problem = check_verification_filename(entry)
+        if problem:
+            errors.append(f"'seo.verification_files' : {problem}")
