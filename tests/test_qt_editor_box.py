@@ -662,3 +662,76 @@ def test_qt_saved_box_builds_valid_commons_publishing_tei(tmp_path, monkeypatch)
     tei = {"t": "http://www.tei-c.org/ns/1.0"}
     assert tree.xpath("//t:floatingText/t:body/t:div/t:p", namespaces=tei)
     assert validate_commons_publishing_file(result.tei_file).valid is True
+
+
+# --- interactions with other editor features ----------------------------------
+
+
+def test_replace_all_never_splits_the_single_line_title():
+    from bloggen.ui.qt_editor.find_replace import replace_all
+
+    editor = _editor([_box("Titre", _p("Un Titre"))])
+
+    assert replace_all(editor, "Titre", "a\nb") == 2
+
+    box = extract_blocks(editor.document())[0]
+    assert box.runs == [InlineRun(text="a b")]
+    assert [child.runs[0].text for child in box.children] == ["Un a", "b"]
+
+
+def test_table_cannot_be_inserted_in_a_box():
+    from bloggen.ui.qt_editor.table_structure import can_insert_empty_table
+
+    editor = _editor([_box("T", _p("Corps"))])
+    cursor = editor.document().find("Corps")
+    cursor.setPosition(cursor.selectionEnd())
+
+    assert not can_insert_empty_table(cursor)
+
+
+def test_spelling_underlines_and_zoom_work_inside_a_box():
+    from PySide6.QtGui import QTextCharFormat
+
+    editor = _editor([_box("T", _p("Ceci est un texe."))])
+    editor.adjust_zoom(2)
+
+    block = editor.document().find("texe").block()
+    underlined = [
+        block.text()[f.start : f.start + f.length]
+        for f in block.layout().formats()
+        if f.format.underlineStyle() == QTextCharFormat.UnderlineStyle.SpellCheckUnderline
+    ]
+    assert underlined == ["texe"]
+    assert extract_blocks(editor.document()) == [_box("T", _p("Ceci est un texe."))]
+    assert not editor.document().isModified()
+
+
+def test_footnote_renumbering_reaches_references_inside_a_box():
+    from bloggen.ui.qt_editor.document_adapter import renumber_footnote_references
+
+    document = QTextDocument()
+    populate_document(
+        document,
+        [_box("T", Block(kind=PARAGRAPH, runs=[InlineRun(text="x"), InlineRun(footnote_ref="2")]))],
+    )
+
+    assert renumber_footnote_references(document, {"2": "1"}) is True
+
+    assert extract_blocks(document)[0].children[0].runs[-1].footnote_ref == "1"
+
+
+def test_copying_a_selection_enclosing_a_box_pastes_a_whole_box():
+    editor = _editor([_p("Avant"), _box("T", _p("Corps")), _p("Après")])
+    _select(editor, _position_of(editor, "Avant", end=True), _position_of(editor, "Après"))
+    editor.copy()
+    cursor = QTextCursor(editor.document())
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+
+    editor.paste()
+
+    kinds = [block.kind for block in extract_blocks(editor.document())]
+    assert kinds.count(BOX) == 2
+    assert all(
+        block.children == [_p("Corps")] for block in extract_blocks(editor.document()) if block.kind == BOX
+    )

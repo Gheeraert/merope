@@ -9,7 +9,9 @@ from PySide6.QtGui import QTextCharFormat, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QTextEdit
 
 from bloggen.ui.qt_editor.constants import (
+    BLOCK_KIND_PROPERTY,
     BOLD_PROPERTY,
+    BOX_TITLE_KIND,
     ITALIC_PROPERTY,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
@@ -106,6 +108,19 @@ def selected_replaceable_match(
     return FindMatch(start, end)
 
 
+def _replacement_text(document: QTextDocument, position: int, replacement: str) -> str:
+    """The text to insert at ``position``.
+
+    An encadré's title is a single line: a replacement carrying line breaks
+    would split it into a second title block, which the model cannot hold.
+    """
+
+    block = document.findBlock(position)
+    if block.blockFormat().property(BLOCK_KIND_PROPERTY) == BOX_TITLE_KIND:
+        return re.sub(r"[\r\n\u2028\u2029]+", " ", replacement)
+    return replacement
+
+
 def replace_current(
     editor: QTextEdit,
     pattern: str,
@@ -126,6 +141,7 @@ def replace_current(
     char_format = _replacement_format(editor.document(), match.start, match.end)
     if char_format is None:
         return False
+    replacement = _replacement_text(editor.document(), match.start, replacement)
     cursor.beginEditBlock()
     try:
         if replacement:
@@ -165,8 +181,9 @@ def replace_all(
     try:
         for match, char_format in reversed(operations):
             cursor = match.cursor(editor.document())
-            if replacement:
-                cursor.insertText(replacement, char_format)
+            text = _replacement_text(editor.document(), match.start, replacement)
+            if text:
+                cursor.insertText(text, char_format)
             else:
                 cursor.removeSelectedText()
     finally:
