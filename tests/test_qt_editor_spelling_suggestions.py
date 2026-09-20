@@ -1,7 +1,7 @@
 """Context-menu spelling suggestions (MeropeTextEdit.contextMenuEvent /
-_add_spelling_suggestions_menu). Suggestions-only: no "ignore"/"add to
-dictionary" — see FrenchSpellChecker.suggestions and
-bloggen.ui.qt_editor.spellcheck.match_case.
+_add_spelling_suggestions_menu): suggestions plus "Ignorer tout" and
+"Ajouter au dictionnaire" — see FrenchSpellChecker.suggestions,
+SpellingExceptions and bloggen.ui.qt_editor.spellcheck.match_case.
 """
 
 from __future__ import annotations
@@ -150,3 +150,63 @@ def test_suggestions_still_work_inside_a_merope_table_cell():
     editor._add_spelling_suggestions_menu(menu, point)
 
     assert any(action.text() == "texte" for action in menu.actions())
+
+
+def _editor_with_exceptions(tmp_path, text):
+    from bloggen.ui.qt_editor.spellcheck import FrenchSpellChecker, SpellingExceptions
+
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text=text)])])
+    exceptions = SpellingExceptions(tmp_path / "dico.txt")
+    editor._spell_highlighter.checker = FrenchSpellChecker(exceptions)
+    editor._spell_highlighter.rehighlight()
+    return editor, exceptions
+
+
+def _underlined(editor):
+    from PySide6.QtGui import QTextCharFormat
+
+    block = editor.document().firstBlock()
+    return [
+        block.text()[f.start : f.start + f.length]
+        for f in block.layout().formats()
+        if f.format.underlineStyle() == QTextCharFormat.UnderlineStyle.SpellCheckUnderline
+    ]
+
+
+def _trigger(editor, label):
+    point = _point_at(editor, 14)
+    menu = editor._create_merope_context_menu(point)
+    editor._add_spelling_suggestions_menu(menu, point)
+    next(a for a in menu.actions() if a.text() == label).trigger()
+
+
+def test_ignore_all_stops_underlining_every_occurrence_without_saving(tmp_path):
+    editor, exceptions = _editor_with_exceptions(tmp_path, "Ceci est un texe et un texe.")
+    assert _underlined(editor) == ["texe", "texe"]
+
+    _trigger(editor, "Ignorer tout")
+
+    assert _underlined(editor) == []
+    assert not (tmp_path / "dico.txt").exists()
+    assert not editor.document().isModified()
+
+
+def test_add_to_dictionary_persists_across_checkers(tmp_path):
+    from bloggen.ui.qt_editor.spellcheck import SpellingExceptions
+
+    editor, _exceptions = _editor_with_exceptions(tmp_path, "Ceci est un texe.")
+
+    _trigger(editor, "Ajouter au dictionnaire")
+
+    assert _underlined(editor) == []
+    assert SpellingExceptions(tmp_path / "dico.txt").contains("texe")
+    assert not editor.document().isModified()
+
+
+def test_add_to_dictionary_keeps_underline_state_under_zoom(tmp_path):
+    editor, _exceptions = _editor_with_exceptions(tmp_path, "Ceci est un texe et un tixe.")
+    editor.adjust_zoom(2)
+
+    _trigger(editor, "Ignorer tout")
+
+    assert _underlined(editor) == ["tixe"]

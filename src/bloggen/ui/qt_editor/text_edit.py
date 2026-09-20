@@ -639,6 +639,29 @@ class MeropeTextEdit(QTextEdit):
         menu.insertActions(before, actions)
         menu.insertSeparator(before)
 
+        exceptions = self._spell_highlighter.checker.exceptions
+        ignore_all = QAction("Ignorer tout", menu)
+        ignore_all.triggered.connect(
+            lambda _checked=False: self._accept_spelling_word(word, exceptions.ignore)
+        )
+        add_word = QAction("Ajouter au dictionnaire", menu)
+        add_word.triggered.connect(
+            lambda _checked=False: self._accept_spelling_word(
+                word, exceptions.add_to_dictionary
+            )
+        )
+        menu.insertActions(before, [ignore_all, add_word])
+        menu.insertSeparator(before)
+
+    def _accept_spelling_word(self, word: str, remember: Callable[[str], object]) -> None:
+        """Whitelist *word* and refresh underlines (view-only, no edit)."""
+
+        remember(word)
+        self._spell_highlighter.rehighlight()
+        if self._zoom_percent != 100:
+            self._apply_zoom_overlay()
+        self.viewport().update()
+
     def _replace_spelling_issue(
         self, start: int, length: int, original: str, replacement: str
     ) -> None:

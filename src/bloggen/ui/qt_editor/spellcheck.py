@@ -6,8 +6,9 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtGui import (
     QColor,
     QSyntaxHighlighter,
@@ -85,12 +86,75 @@ def _load_spellchecker():
         return None
 
 
+def default_user_dictionary_path() -> Path:
+    """Per-user plain-text word list (one word per line)."""
+
+    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+    return Path(base) / "Merope" / "dictionnaire-utilisateur.txt"
+
+
+class SpellingExceptions:
+    """Words the user told the checker to accept.
+
+    "Ignore all" is remembered for the session only; "add to dictionary"
+    also appends to a per-user word list that is reloaded on the next launch.
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        self._path = path
+        self._session: set[str] = set()
+        self._user: set[str] = set()
+        self._loaded = False
+
+    @property
+    def path(self) -> Path:
+        return self._path if self._path is not None else default_user_dictionary_path()
+
+    def _load(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        try:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+        self._user.update(_dictionary_key(line) for line in lines if line.strip())
+
+    def contains(self, word: str) -> bool:
+        self._load()
+        key = _dictionary_key(word)
+        return key in self._session or key in self._user
+
+    def ignore(self, word: str) -> None:
+        self._session.add(_dictionary_key(word))
+
+    def add_to_dictionary(self, word: str) -> bool:
+        """Remember *word* permanently. Returns False if it could not be
+        saved (it is still accepted for the rest of the session)."""
+
+        self._load()
+        key = _dictionary_key(word)
+        self._user.add(key)
+        try:
+            path = self.path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(key + "\n")
+        except OSError:
+            return False
+        return True
+
+
+_SHARED_EXCEPTIONS = SpellingExceptions()
+
+
 class FrenchSpellChecker:
     """Find unknown French words while preserving source-text offsets."""
 
-    def __init__(self) -> None:
+    def __init__(self, exceptions: SpellingExceptions | None = None) -> None:
         self._known_cache: dict[str, bool] = {}
         self._spellchecker = _load_spellchecker()
+        self.exceptions = exceptions if exceptions is not None else _SHARED_EXCEPTIONS
 
     @property
     def available(self) -> bool:
@@ -99,7 +163,7 @@ class FrenchSpellChecker:
     def is_known(self, word: str) -> bool:
         """Check dictionary membership without computing correction candidates."""
 
-        if self._spellchecker is None:
+        if self._spellchecker is None or self.exceptions.contains(word):
             return True
         key = _dictionary_key(word)
         known = self._known_cache.get(key)
