@@ -706,6 +706,38 @@ button:focus-visible {
   text-align: justify;
 }
 
+/* Encadré: boîte à bordure simple, marges latérales et titre centré. Le
+   rendu graphique appartient au thème ; la TEI ne porte que la structure. */
+.tei-fragment .encadre {
+  margin-block: 1.5rem;
+  margin-inline: 8%;
+  padding: 1rem 1.25rem;
+  border: 1px solid currentColor;
+}
+
+.tei-fragment .encadre-titre {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+.tei-fragment .encadre-sous-titre {
+  margin: 0.75rem 0 0.5rem;
+  font-weight: 600;
+}
+
+.tei-fragment .encadre > :last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 600px) {
+  .tei-fragment .encadre {
+    margin-inline: 0;
+    padding: 0.75rem 1rem;
+  }
+}
+
 .tei-fragment blockquote {
   margin: 1.2rem 0;
   padding: 0 0 0 1.2rem;

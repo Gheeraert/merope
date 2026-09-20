@@ -52,6 +52,32 @@
     </xsl:if>
   </xsl:template>
 
+  <!-- Encadré (TEI Commons Publishing floatingText). Its body and its single
+       section1 div are technical containers: no HTML wrapper for them. The
+       title is deliberately NOT a heading element: the page has exactly one
+       h1 and an encadré must never claim a level in the document outline. -->
+  <xsl:template match="tei:floatingText">
+    <aside class="encadre">
+      <xsl:apply-templates select="tei:body"/>
+    </aside>
+  </xsl:template>
+
+  <xsl:template match="tei:floatingText/tei:body" priority="2">
+    <xsl:apply-templates/>
+  </xsl:template>
+
+  <xsl:template match="tei:floatingText/tei:body/tei:div" priority="2">
+    <xsl:apply-templates/>
+  </xsl:template>
+
+  <xsl:template match="tei:floatingText/tei:body/tei:div/tei:head" priority="3">
+    <div class="encadre-titre"><xsl:apply-templates/></div>
+  </xsl:template>
+
+  <xsl:template match="tei:floatingText//tei:div/tei:head" priority="2">
+    <div class="encadre-sous-titre"><xsl:apply-templates/></div>
+  </xsl:template>
+
   <xsl:template match="tei:div">
     <section class="tei-div">
       <xsl:apply-templates/>

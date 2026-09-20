@@ -149,3 +149,51 @@ def test_heading_inside_a_hand_written_box_is_refused_not_flattened(tmp_path):
 
 def test_lua_filter_is_shipped_with_the_package():
     assert ENCADRE_LUA_FILTER.is_file()
+
+
+def _render(tmp_path: Path, body: str) -> str:
+    from bloggen.render.xslt_runner import render_tei_file_to_html_fragment
+
+    path, _tree = _convert(tmp_path, body)
+    return render_tei_file_to_html_fragment(path, parameters={"article_slug": "essai"})
+
+
+def test_html_box_is_an_aside_with_a_class_titled_div_and_no_extra_h1(tmp_path):
+    body = "# Titre du document\n\n" + BOX_MD + "\n## Suite\n\nFin.\n"
+    html = _render(tmp_path, body)
+    document = etree.HTML(html)
+
+    asides = document.xpath("//aside[@class='encadre']")
+    assert len(asides) == 1
+    aside = asides[0]
+    titles = aside.xpath("div[@class='encadre-titre']")
+    assert len(titles) == 1
+    assert "".join(titles[0].itertext()).strip() == "À retenir"
+    assert titles[0].xpath("em")
+    assert [ "".join(p.itertext()) for p in aside.xpath("p") ] == [
+        "Premier paragraphe.",
+        "Deuxième paragraphe.",
+    ]
+    # Exactly the document's own h1: the encadré title is never a heading.
+    assert len(document.xpath("//h1")) == 1
+    assert not aside.xpath(".//h1 | .//h2 | .//h3 | .//h4 | .//h5 | .//h6")
+    # No technical wrapper for floatingText/body, no inline styling.
+    assert not aside.xpath("section")
+    assert "style=" not in html
+
+
+def test_html_box_notes_stay_in_the_endnotes_list(tmp_path):
+    body = ":::: {.merope-encadre}\nUne note.[^1]\n::::\n\n[^1]: La note.\n"
+    document = etree.HTML(_render(tmp_path, body))
+
+    assert len(document.xpath("//section[@id='endnotes']//li")) == 1
+
+
+def test_theme_css_styles_the_box_without_inline_styles():
+    css = (Path(ENCADRE_LUA_FILTER).parents[1] / "css" / "site.css").read_text(encoding="utf-8")
+
+    assert ".encadre {" in css
+    assert "border: 1px solid" in css
+    assert "margin-inline: 8%" in css
+    assert ".encadre-titre" in css and "text-align: center" in css
+    assert "@media (max-width: 600px)" in css
