@@ -40,6 +40,7 @@ Fonctionnalités couvertes par l’adaptateur Qt, avec tests automatisés :
 - formats inline : gras, italique, souligné (persisté en `[texte]{.underline}` Pandoc), barré, exposant, liens, y compris combinés ;
 - préservation exacte des espaces insécables U+00A0 ;
 - tableaux simples comme `QTextTable` graphique éditable ; tableaux non éligibles et blocs `VERBATIM` conservés en source brute monospacée, sans perte ;
+- encadrés (`Block(BOX)`) : `QTextFrame` marqué par la propriété Mérope `MEROPE_BOX_PROPERTY` (jamais reconnu à son seul aspect ; les cadres étrangers restent refusés), titre facultatif centré sur une ligne, contenu de paragraphes/citations/listes ; bouton « Insérer un encadré… » ; gardes aux frontières (Entrée/Retour arrière/Suppr dans le titre, collage, coupe, remplacement, titres H1–H4 refusés à l’intérieur). Syntaxe Markdown réservée `:::: {.merope-encadre}`, sortie TEI native `floatingText` (voir `docs/TABLE_CORRESPONDANCE_MD_TEI_HTML.md`) ; l’ancien éditeur Tkinter conserve l’encadré en zone source protégée ;
 - images statiques (`QTextImageFormat`), insertion, remplacement, recadrage, redimensionnement, réglages luminosité/contraste, légendes tapées sous l’image ;
 - notes de bas de page structurées, avec panneau dédié, renumérotation canonique à la sauvegarde ;
 - raccourci `((note))` conservé comme texte éditable, converti en note Pandoc uniquement à la normalisation d’aperçu/génération ;

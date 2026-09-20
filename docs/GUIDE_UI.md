@@ -74,6 +74,10 @@ Le front matter reste cependant **obligatoire dans les fichiers Markdown enregis
 
 Les éditeurs couvrent les usages éditoriaux courants : titres, gras, italique, barré, exposant, citations, listes, alignements, liens, images, tableaux et notes.
 
+#### Encadré (éditeur Qt)
+
+Le bouton **Insérer un encadré…** de la barre d’outils, à côté de « Insérer un tableau… », demande un titre (facultatif) puis insère une boîte à bordure fine, dans laquelle vous écrivez normalement plusieurs paragraphes, citations ou listes. Entrée à la fin du titre ouvre le premier paragraphe ; le titre tient sur une seule ligne. Le bouton est inactif dans un tableau, une légende d’image, un bloc source ou un autre encadré ; les titres, images et tableaux ne peuvent pas être placés dans un encadré. Sur le site publié, l’encadré apparaît comme une boîte à marges latérales, bordure d’un pixel et titre centré. Dans l’ancien éditeur Tkinter, un encadré est affiché comme source protégée et réenregistré à l’identique.
+
 Le collage depuis Word ou Google Docs est nettoyé pour récupérer autant que possible la structure utile sans conserver les scories propres à ces logiciels. La typographie française est normalisée, notamment pour les guillemets et les espaces insécables.
 
 Le raccourci `((texte de note))`, familier des carnets Hypothèses, est reconnu lors de la normalisation destinée à l’aperçu et à la génération.
