@@ -352,10 +352,18 @@ def apply_heading_levels_in_tei_xml(tei_xml: str, levels: list[int]) -> str:
 
     root = parse_xml_safely_for_elementtree(tei_xml)
 
+    # An encadré's own div/head (floatingText/body/div) is not a heading of
+    # the document: its title never took part in ``levels``.
+    inside_floating_text = {
+        id(descendant)
+        for floating in root.iter()
+        if _local_name(floating.tag) == "floatingText"
+        for descendant in floating.iter()
+    }
     remaining = list(levels)
     changed = False
     for element in root.iter():
-        if _local_name(element.tag) != "div":
+        if _local_name(element.tag) != "div" or id(element) in inside_floating_text:
             continue
         if not any(_local_name(child.tag) == "head" for child in element):
             continue

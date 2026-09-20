@@ -41,6 +41,13 @@ class MarkdownToTeiResult:
     validation: TeiValidationResult
 
 
+# Rewrites the reserved Mérope encadré div into a native TEI Commons
+# Publishing floatingText (Pandoc's TEI writer would otherwise drop it).
+ENCADRE_LUA_FILTER = (
+    Path(__file__).resolve().parent.parent / "resources" / "pandoc" / "merope_encadre.lua"
+)
+
+
 class PandocUnavailableError(RuntimeError):
     """Raised when pandoc is not available in PATH."""
 
@@ -60,6 +67,7 @@ def convert_markdown_to_tei(
         pandoc_command,
         "--from=markdown+footnotes+pipe_tables",
         "--to=tei",
+        f"--lua-filter={ENCADRE_LUA_FILTER}",
         "--standalone",
         str(source),
         "-o",

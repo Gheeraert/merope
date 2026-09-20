@@ -11,11 +11,18 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 
+from bloggen.markdown.box_syntax import (
+    BOX_CLOSE,
+    BOX_OPEN,
+    BOX_TITLE_CLOSE,
+    BOX_TITLE_OPEN,
+)
 from bloggen.markdown.image_attributes import format_image_attributes
 from bloggen.markdown.link_safety import sanitize_link_href
 from bloggen.markdown.paragraph_alignment import format_alignment_marker
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
+    BOX,
     BULLET_LIST,
     FOOTNOTE_DEFINITION,
     HEADING,
@@ -65,7 +72,23 @@ def _block_to_md(block: Block) -> str:
         return f"[^{block.footnote_id}]: {_runs_to_md(block.runs)}"
     if block.kind == VERBATIM:
         return block.raw_text or ""
+    if block.kind == BOX:
+        return _box_to_md(block)
     raise ValueError(f"Type de bloc inconnu: {block.kind}")
+
+
+def _box_to_md(box: Block) -> str:
+    """Serialize an encadré as its reserved Mérope fenced div (see
+    :mod:`bloggen.markdown.box_syntax`). Empty content blocks are dropped,
+    as they are at the top level."""
+
+    parts: list[str] = []
+    title = _runs_to_md(box.runs) if box.runs else ""
+    if title.strip():
+        parts.append(f"{BOX_TITLE_OPEN}\n{title}\n{BOX_TITLE_CLOSE}")
+    parts.extend(text for text in (_block_to_md(child) for child in box.children) if text)
+    inner = "\n\n".join(parts)
+    return f"{BOX_OPEN}\n{inner}\n{BOX_CLOSE}" if inner else f"{BOX_OPEN}\n{BOX_CLOSE}"
 
 
 def _list_item_to_md(item: Block, *, marker: str) -> str:

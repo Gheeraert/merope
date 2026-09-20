@@ -74,6 +74,10 @@ def run_command(
             env=dict(env) if env is not None else None,
             capture_output=True,
             text=True,
+            # Pandoc speaks UTF-8; the locale codepage (cp1252 on Windows)
+            # would garble accented messages such as filter errors.
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=timeout,
         )

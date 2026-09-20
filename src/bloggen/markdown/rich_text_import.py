@@ -19,11 +19,19 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 
+from bloggen.markdown.box_syntax import (
+    BOX_CLOSE,
+    BOX_OPEN,
+    BOX_TITLE_CLOSE,
+    BOX_TITLE_OPEN,
+    FENCED_DIV_LINE_RE,
+)
 from bloggen.markdown.image_attributes import parse_image_attributes
 from bloggen.markdown.link_safety import sanitize_link_href
 from bloggen.markdown.paragraph_alignment import strip_alignment_marker
 from bloggen.markdown.rich_text_model import (
     BLOCKQUOTE,
+    BOX,
     BULLET_LIST,
     FOOTNOTE_DEFINITION,
     HEADING,
@@ -75,6 +83,14 @@ def _split_into_chunks(text: str) -> list[list[str]]:
     index = 0
     while index < len(lines):
         line = lines[index]
+        box_end = _box_end_index(lines, index)
+        if box_end is not None:
+            if current:
+                chunks.append(current)
+                current = []
+            chunks.append(lines[index : box_end + 1])
+            index = box_end + 1
+            continue
         fence = _opening_fence(line)
         if fence is not None:
             if current:
@@ -103,6 +119,45 @@ def _split_into_chunks(text: str) -> list[list[str]]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def _box_end_index(lines: list[str], start: int) -> int | None:
+    """Index of the closing ``::::`` of an encadré opening at ``start``, or
+    ``None`` (not an opening line, or never closed: then it is left to the
+    ordinary chunking and ends up VERBATIM rather than swallowing the rest
+    of the document)."""
+
+    if lines[start] != BOX_OPEN:
+        return None
+    for index in range(start + 1, len(lines)):
+        if lines[index] == BOX_CLOSE:
+            return index
+    return None
+
+
+_BOX_CHILD_KINDS = frozenset({PARAGRAPH, BLOCKQUOTE, BULLET_LIST, ORDERED_LIST})
+
+
+def _try_box(lines: list[str]) -> Block | None:
+    """Parse ``lines`` (opening fence .. closing fence) as an encadré, or
+    ``None`` unless the exact reserved syntax and only supported content
+    are found: anything else stays VERBATIM, never guessed."""
+
+    inner = lines[1:-1]
+    title_runs: list[InlineRun] = []
+    if inner and inner[0] == BOX_TITLE_OPEN:
+        if len(inner) < 3 or inner[2] != BOX_TITLE_CLOSE:
+            return None
+        if not _is_safe_paragraph_chunk([inner[1]]):
+            return None
+        title_runs = _parse_inline(inner[1])
+        inner = inner[3:]
+        if inner and inner[0] != "":
+            return None
+    children = markdown_to_blocks("\n".join(inner)) if inner else []
+    if any(child.kind not in _BOX_CHILD_KINDS for child in children):
+        return None
+    return Block(kind=BOX, runs=title_runs, children=children)
 
 
 def _opening_fence(line: str) -> str | None:
@@ -138,6 +193,9 @@ def _chunk_to_block(lines: list[str]) -> Block:
     raw_text = "\n".join(original_lines)
     if _chunk_starts_with_fence(lines):
         return Block(kind=VERBATIM, raw_text=raw_text)
+    if lines[0] == BOX_OPEN and original_lines[-1] == BOX_CLOSE:
+        box = _try_box(original_lines)
+        return box if box is not None else Block(kind=VERBATIM, raw_text=raw_text)
     if len(lines) == 1 and _THEMATIC_BREAK_RE.match(lines[0]):
         return Block(kind=VERBATIM, raw_text=raw_text)
 
@@ -232,6 +290,7 @@ def _is_safe_paragraph_chunk(lines: list[str]) -> bool:
     for line in lines:
         if (
             _opening_fence(line) is not None
+            or FENCED_DIV_LINE_RE.match(line)
             or _is_indented_code_line(line)
             or line.endswith("  ")
             or _has_markdown_backslash_break(line)

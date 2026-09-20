@@ -23,6 +23,7 @@ TABLE_ROW = "table_row"
 TABLE_CELL = "table_cell"
 FOOTNOTE_DEFINITION = "footnote_definition"
 VERBATIM = "verbatim"
+BOX = "box"  # encadré: optional title in ``runs``, content blocks in ``children``
 
 
 @dataclass(slots=True)
@@ -55,6 +56,8 @@ class Block:
       plain ``runs`` when the item has no block-level content of its own
     - TABLE -> list of TABLE_ROW, first row is the header row
     - TABLE_ROW -> list of TABLE_CELL
+    - BOX -> ``runs`` is the optional title (empty list = untitled) and
+      ``children`` the content blocks (paragraphs, blockquotes, lists)
     """
 
     kind: str
