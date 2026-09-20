@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
+    QTextLayout,
 )
 
 from bloggen.markdown.rich_text_model import BLOCKQUOTE, HEADING, LIST_ITEM, PARAGRAPH
@@ -241,3 +242,22 @@ class FrenchSpellHighlighter(QSyntaxHighlighter):
             return
         for issue in self.checker.issues(text):
             self.setFormat(issue.start, issue.length, self.issue_format)
+
+    def format_ranges(self, block) -> list[QTextLayout.FormatRange]:
+        """Underline ranges for *block*, as ``QTextLayout`` format ranges.
+
+        Lets other code that rewrites ``block.layout().setFormats`` (the
+        zoom overlay) re-include the spelling underlines instead of
+        wiping them.
+        """
+
+        if not block_is_editorial(block):
+            return []
+        ranges: list[QTextLayout.FormatRange] = []
+        for issue in self.checker.issues(block.text()):
+            format_range = QTextLayout.FormatRange()
+            format_range.start = issue.start
+            format_range.length = issue.length
+            format_range.format = self.issue_format
+            ranges.append(format_range)
+        return ranges

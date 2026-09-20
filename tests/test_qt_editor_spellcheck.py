@@ -424,3 +424,24 @@ def test_suggestions_is_capped_at_the_requested_limit():
 )
 def test_match_case_carries_the_original_capitalization(original, replacement, expected):
     assert match_case(original, replacement) == expected
+
+
+def test_spell_underlines_survive_zoom_and_unzoom():
+    editor = _editor([Block(kind=PARAGRAPH, runs=[InlineRun(text="Boujour le monde")])])
+    block = editor.document().firstBlock()
+    before = _spell_ranges(block)
+    assert before
+
+    editor.adjust_zoom(3)
+    assert _spell_ranges(block) == before
+    editor.adjust_zoom(-5)
+    assert _spell_ranges(block) == before
+    editor.adjust_zoom(2)
+    assert editor.zoom_percent == 100
+    assert _spell_ranges(block) == before
+
+    editor.adjust_zoom(2)
+    cursor = editor.textCursor()
+    cursor.setPosition(block.position() + len(block.text()))
+    cursor.insertText(" mosieur")
+    assert _misspelled_text(block) == ["Boujour", "mosieur"]

@@ -1727,6 +1727,10 @@ class MeropeTextEdit(QTextEdit):
                             format_range.format = scaled_format
                             ranges.append(format_range)
                     it += 1
+            # Spelling underlines live in the same per-layout format list;
+            # setFormats replaces it wholesale, so re-add them (later ranges
+            # merge over the zoom size) or zooming would erase them.
+            ranges.extend(self._spell_highlighter.format_ranges(block))
             block.layout().setFormats(ranges)
             block = block.next()
         # Overlay formats alone don't invalidate cached line geometry;
