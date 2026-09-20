@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from bloggen.build.reports import format_build_report
-from bloggen.build.site_builder import build_site, resolve_project_root
+from bloggen.build.site_builder import build_site, resolve_persistent_project_root, resolve_project_root
 from bloggen.config.defaults import build_default_config
 from bloggen.config.io import ConfigValidationError, load_config, save_config
 from bloggen.config.scaffold import create_new_project
@@ -36,6 +36,7 @@ from bloggen.ui.ftp_publish_dialog import FtpPublishDialog
 from bloggen.ui.media_panel import MediaPanel
 from bloggen.ui.menu_editor import SideMenuEditor, TopMenuEditor
 from bloggen.ui.notes_panel import NotesPanel
+from bloggen.ui.seo_panel import SeoPanel
 from bloggen.ui.qt_editor_launcher import (
     ProcessExited,
     ProtocolDiagnostic,
@@ -570,6 +571,11 @@ class MainWindow(tk.Tk):
         )
         self.notebook.add(self.build_tab, text="Génération")
 
+        self.seo_panel = SeoPanel(
+            self.notebook, resolve_project_root=self._resolve_persistent_project_root
+        )
+        self.notebook.add(self.seo_panel, text="Référencement")
+
     def _build_home_tab(self) -> None:
         frame = ttk.Frame(self.notebook)
         self.home_tab = frame
@@ -962,6 +968,13 @@ class MainWindow(tk.Tk):
         project_root = resolve_project_root(ProjectConfig(paths=paths), self.current_config_path)
         return project_root, paths.assets_dir
 
+    def _resolve_persistent_project_root(self) -> Path | None:
+        """None until the project root is unambiguous (see
+        ``resolve_persistent_project_root``): imports must never land in
+        a guessed working-directory folder."""
+        paths = PathsConfig(**_read_vars(self.paths_vars))
+        return resolve_persistent_project_root(ProjectConfig(paths=paths), self.current_config_path)
+
     def _config_for_preview(self) -> ProjectConfig | None:
         """Lazily resolved, like _list_menu_link_targets/_resolve_assets_root
         above: the content editor is built once and reused, but the
@@ -1169,6 +1182,7 @@ class MainWindow(tk.Tk):
         _set_vars_partial(self.build_vars, config.build)
         self.build_vars["search_enabled"].set(config.search.enabled)
         self.build_vars["search_excerpt_length"].set(str(config.search.excerpt_length))
+        self.seo_panel.set_data(config.seo)
         self._ftp_config = config.ftp
 
     def _collect_from_form(self) -> ProjectConfig:
@@ -1224,6 +1238,9 @@ class MainWindow(tk.Tk):
         notes_rendering = self.notes_panel.get_data()
         notes_rendering.unknown_data = copy.deepcopy(loaded.notes_rendering.unknown_data)
 
+        seo = self.seo_panel.get_data()
+        seo.unknown_data = copy.deepcopy(loaded.seo.unknown_data)
+
         return ProjectConfig(
             version=loaded.version,
             site=site,
@@ -1240,6 +1257,7 @@ class MainWindow(tk.Tk):
             footer=footer,
             build=build,
             search=search,
+            seo=seo,
             ftp=self._ftp_config,
             unknown_data=copy.deepcopy(loaded.unknown_data),
         )

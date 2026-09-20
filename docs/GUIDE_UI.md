@@ -155,6 +155,18 @@ Le sitemap nécessite une Base URL. `robots.txt` peut être produit sans Base UR
 
 La recherche reste entièrement statique : le build produit un index JSON, puis le navigateur filtre les résultats sans serveur ni base de données.
 
+### Référencement : fichiers de validation
+
+Les moteurs de recherche demandent parfois de prouver que vous possédez le site en publiant un petit fichier à sa racine (par exemple `google123456789abcdef.html` pour Google Search Console).
+
+1. Télécharger le fichier fourni par Google Search Console ou un autre service.
+2. Dans MÉROPE, onglet **Référencement**, cliquer sur « Ajouter un fichier… ».
+3. MÉROPE en conserve une copie exacte dans le dossier `root-files/` du projet. Si un fichier du même nom s’y trouve déjà, une confirmation est demandée avant de le remplacer.
+4. À chaque génération, le fichier est automatiquement recopié à la racine du site (`https://exemple.org/google123456789abcdef.html`), puis publié avec le reste par FTP.
+5. Ne pas supprimer le fichier tant que la validation du service doit rester active. Le bouton « Supprimer » retire l’entrée de la configuration et demande s’il faut aussi supprimer la copie dans `root-files/`.
+
+Le dossier de sortie (`site/`) reste un artefact généré : il peut être supprimé ou reconstruit sans perdre la validation. Plusieurs fichiers sont possibles. Les options `sitemap.xml` et `robots.txt` restent dans l’onglet **Génération**.
+
 ## 8. Publier par FTP/FTPS
 
 Le bouton **Publier (FTP)...** envoie le contenu du dossier de sortie vers un serveur FTP ou FTPS. Il faut donc générer le site au moins une fois avant de publier.
