@@ -30,16 +30,17 @@ def test_disabled_or_empty_top_banner_renders_nothing():
     assert 'class="top-banner"' not in _render(config)
 
 
-def test_top_banner_without_link_has_image_and_empty_alt_but_no_anchor():
+def test_top_banner_without_link_defaults_to_homepage_anchor():
     config = ProjectConfig()
     config.top_banner.enabled = True
     config.top_banner.image = "assets/top-banner/institution.png"
 
     html = _render(config)
 
-    assert '<div class="top-banner"><img class="top-banner-image" src="assets/top-banner/institution.png" alt=""></div>' in html
-    assert 'class="top-banner-link"' not in html
-    assert '<a href="">' not in html
+    assert (
+        '<div class="top-banner"><a class="top-banner-link" href="index.html">'
+        '<img class="top-banner-image" src="assets/top-banner/institution.png" alt=""></a></div>'
+    ) in html
 
 
 def test_top_banner_link_escapes_attributes_and_resolves_internal_paths():

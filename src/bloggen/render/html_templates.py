@@ -328,10 +328,9 @@ def _render_top_banner(config: ProjectConfig, *, asset_prefix: str, current_path
         f'<img class="top-banner-image" src="{escape(image)}" '
         f'alt="{escape(config.top_banner.alt or "")}">'
     )
-    link = (config.top_banner.link or "").strip()
-    if link:
-        href = resolve_navigation_href(link, current_path=current_path)
-        image_html = f'<a class="top-banner-link" href="{escape(href)}">{image_html}</a>'
+    link = (config.top_banner.link or "").strip() or "/index.html"
+    href = resolve_navigation_href(link, current_path=current_path)
+    image_html = f'<a class="top-banner-link" href="{escape(href)}">{image_html}</a>'
     return f'<div class="top-banner">{image_html}</div>'
 
 
@@ -359,7 +358,7 @@ def _render_banner(config: ProjectConfig, *, asset_prefix: str, current_path: st
         )
     return (
         f'<header class="site-banner" style="height:{height}px">'
-        f'<a href="{link}"><img src="{escape(image)}" alt="{alt}"></a>{overlay}</header>'
+        f'<a href="{link}"><img src="{escape(image)}" alt="{alt}">{overlay}</a></header>'
     )
 
 
@@ -368,7 +367,10 @@ def _render_footer(config: ProjectConfig, *, last_updated: str | None) -> str:
     if config.footer.text:
         chunks.append(escape(config.footer.text))
     if config.footer.show_generation_info:
-        chunks.append("Généré par MEROPE")
+        chunks.append(
+            '<a href="https://github.com/Gheeraert/merope" target="_blank" rel="noopener">'
+            "Généré par MEROPE</a>"
+        )
     # The current build's own wall-clock time used to appear here — every
     # single build then produced a different footer even when nothing in
     # the content had actually changed, defeating any attempt to diff or
