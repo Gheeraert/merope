@@ -180,6 +180,29 @@ def test_publish_uploads_every_file_and_creates_nested_remote_dirs(tmp_path, mon
     assert sorted(ftp.stored) == ["/www/billets/premier/index.html", "/www/index.html"]
 
 
+def test_publish_never_uploads_a_git_directory_sitting_in_the_local_dir(tmp_path, monkeypatch):
+    """The local directory being published can now also be a Git working
+    tree (a GitHub Pages mirror) — .git/ must never be treated as site
+    content and sent to the FTP host."""
+    factory = _make_ftp_factory()
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    site = _make_site(tmp_path)
+    (site / ".git" / "objects").mkdir(parents=True)
+    (site / ".git" / "HEAD").write_text("ref: refs/heads/github-pages\n", encoding="utf-8")
+    (site / ".git" / "objects" / "decoy.html").write_text("not a page", encoding="utf-8")
+
+    result = publish_directory(site, _config())
+
+    ftp = factory.created[0]
+    assert result.ok is True
+    assert result.total == 2
+    assert sorted(result.transferred) == ["billets/premier/index.html", "index.html"]
+    assert not any(".git" in path for path in result.transferred)
+    assert not any(".git" in remote for remote in ftp.dirs)
+    assert not any(".git" in remote for remote in ftp.stored)
+
+
 def test_publish_continues_past_a_single_file_failure_and_reports_it(tmp_path, monkeypatch):
     factory = _make_ftp_factory()
     monkeypatch.setattr(module.ftplib, "FTP", factory)

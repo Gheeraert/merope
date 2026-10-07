@@ -392,3 +392,28 @@ def test_a_page_mode_home_with_no_h1_is_still_reported():
     issues = check_seo_metadata(site)
     assert len(issues) == 1
     assert "<h1>" in issues[0].reason
+
+
+def test_a_git_directory_inside_output_root_is_never_scanned_as_a_page():
+    """output_root can double as a Git working tree (a GitHub Pages
+    mirror). Any ``.html`` file sitting under ``.git/`` (loose objects can
+    legitimately end with any extension) must never be picked up by the
+    post-build checks: it is never a real page, and it would otherwise be
+    reported as both a broken link's source and an orphan page, since it
+    links nowhere real and nothing real links to it."""
+    site = _site("git_mirror")
+    (site / ".git" / "objects").mkdir(parents=True)
+    (site / ".git" / "objects" / "decoy.html").write_text(
+        '<html><body><a href="/nowhere/">x</a></body></html>', encoding="utf-8"
+    )
+    (site / "index.html").write_text(
+        '<html><head><meta name="description" content="Accueil."></head>'
+        "<body><h1>Accueil</h1></body></html>",
+        encoding="utf-8",
+    )
+
+    assert check_broken_links(site) == []
+    assert find_orphan_pages(site) == []
+    assert check_canonical_links(site, "https://example.org") == []
+    assert check_structured_data(site) == []
+    assert check_seo_metadata(site) == []

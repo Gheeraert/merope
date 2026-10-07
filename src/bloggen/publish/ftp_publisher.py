@@ -129,7 +129,15 @@ def publish_directory(
     if not local_dir.is_dir():
         raise FtpPublishError(f"Le dossier à publier est introuvable : {local_dir}")
 
-    files = sorted(p for p in local_dir.rglob("*") if p.is_file())
+    # ``.git`` (MEROPE's own output directory can double as a Git working
+    # tree mirrored to GitHub Pages — see bloggen.build.site_builder) is
+    # never part of the site: excluded here so a publish can never upload
+    # repository internals to the FTP host.
+    files = sorted(
+        p
+        for p in local_dir.rglob("*")
+        if p.is_file() and ".git" not in p.relative_to(local_dir).parts
+    )
     total = len(files)
     if total == 0:
         raise FtpPublishError("Le dossier à publier ne contient aucun fichier à transférer.")

@@ -2234,3 +2234,213 @@ def test_a_failed_tei_swap_rolls_back_an_already_succeeded_site_swap(monkeypatch
         if entry.name.startswith(".site") or entry.name.startswith(".tei")
     ]
     assert leftovers == []
+
+
+# --- output_dir doubling as a Git working tree (GitHub Pages mirror) -------
+#
+# MEROPE's own output_dir can now also be a local Git repository the user
+# commits and pushes (a GitHub Pages mirror). Nothing in MEROPE produces
+# .git/, .gitignore or .nojekyll — they must survive every build, including
+# a full "Nettoyer le dossier de sortie" rebuild, which otherwise swaps the
+# whole output directory for a freshly built one (see
+# _carry_over_external_entries / EXTERNAL_OUTPUT_ENTRIES in site_builder.py).
+
+
+def _config_for_git_mirror_project(project: Path):
+    config = build_default_config()
+    config.paths.project_root = "."
+    config.paths.content_dir = "content"
+    config.paths.pages_dir = "content/pages"
+    config.paths.posts_dir = "content/posts"
+    config.paths.assets_dir = "assets"
+    config.paths.output_dir = "site"
+    config.paths.tei_dir = "build/tei"
+    config.build.clean_output_dir = True
+    config.home.source = "content/pages/accueil.md"
+    config.site.base_url = "https://example.org"
+
+    config_path = project / "config/site.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}", encoding="utf-8")
+    return config, config_path
+
+
+def _new_git_mirror_project(name: str) -> Path:
+    project = RUNTIME_ROOT / f"{name}_{uuid.uuid4().hex}"
+    (project / "content/pages").mkdir(parents=True)
+    (project / "content/posts").mkdir(parents=True)
+    (project / "content/pages/accueil.md").write_text(
+        '---\ntitle: "Accueil"\nslug: "accueil"\ntype: "page"\n---\n\n# Accueil\n',
+        encoding="utf-8",
+    )
+    return project
+
+
+def test_full_rebuild_preserves_the_git_directory_and_its_content():
+    project = _new_git_mirror_project("site_builder_git_dir")
+    config, config_path = _config_for_git_mirror_project(project)
+
+    # A build must exist before a Git mirror can sit inside output_dir.
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+
+    git_dir = project / "site" / ".git"
+    (git_dir / "objects" / "ab").mkdir(parents=True)
+    head_file = git_dir / "HEAD"
+    head_file.write_text("ref: refs/heads/github-pages\n", encoding="utf-8")
+    object_file = git_dir / "objects" / "ab" / "cdef0123456789"
+    object_file.write_bytes(b"\x01\x02not-really-a-git-object\x00")
+
+    second_report = build_site(config, config_path=config_path)
+    assert second_report.success is True
+
+    assert git_dir.is_dir()
+    assert head_file.read_text(encoding="utf-8") == "ref: refs/heads/github-pages\n"
+    assert object_file.read_bytes() == b"\x01\x02not-really-a-git-object\x00"
+
+
+def test_full_rebuild_preserves_gitignore_byte_for_byte():
+    project = _new_git_mirror_project("site_builder_gitignore")
+    config, config_path = _config_for_git_mirror_project(project)
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+
+    gitignore = project / "site" / ".gitignore"
+    original_bytes = b"sitemap.xml\nrobots.txt\ngoogle*.html\n# no trailing newline below"
+    gitignore.write_bytes(original_bytes)
+
+    second_report = build_site(config, config_path=config_path)
+    assert second_report.success is True
+
+    assert gitignore.read_bytes() == original_bytes
+
+
+def test_full_rebuild_preserves_nojekyll_byte_for_byte():
+    project = _new_git_mirror_project("site_builder_nojekyll")
+    config, config_path = _config_for_git_mirror_project(project)
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+
+    nojekyll = project / "site" / ".nojekyll"
+    # .nojekyll is conventionally empty, but preservation must not depend
+    # on that — an empty file is also the easiest case to get "right" by
+    # accident (e.g. by just re-creating an empty file under that name).
+    original_bytes = b""
+    nojekyll.write_bytes(original_bytes)
+
+    second_report = build_site(config, config_path=config_path)
+    assert second_report.success is True
+
+    assert nojekyll.exists()
+    assert nojekyll.read_bytes() == original_bytes
+
+
+def test_full_rebuild_still_removes_a_stale_merope_generated_page():
+    """The protection added for .git/.gitignore/.nojekyll must not turn
+    into a blanket "keep whatever is already there" policy: a page MEROPE
+    generated in a previous build but no longer produces must still be
+    swept away by a full rebuild, Git mirror or not."""
+    project = _new_git_mirror_project("site_builder_stale_page")
+    config, config_path = _config_for_git_mirror_project(project)
+
+    (project / "content/pages/ancienne.md").write_text(
+        '---\ntitle: "Ancienne"\nslug: "ancienne"\ntype: "page"\n---\n\n# Ancienne\n',
+        encoding="utf-8",
+    )
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+    stale_page = project / "site" / "ancienne" / "index.html"
+    assert stale_page.exists()
+
+    (project / "site" / ".git").mkdir()
+    (project / "site" / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
+    (project / "content/pages/ancienne.md").unlink()
+
+    second_report = build_site(config, config_path=config_path)
+    assert second_report.success is True
+
+    assert not stale_page.exists()
+    assert not (project / "site" / "ancienne").exists()
+    # ...while the Git directory, unrelated to that page, still survived.
+    assert (project / "site" / ".git" / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/main\n"
+
+
+def test_sitemap_and_robots_still_regenerate_normally_with_a_git_mirror_present():
+    """sitemap.xml/robots.txt are MEROPE's own output, not external — they
+    must keep being regenerated normally, and the new protection must not
+    accidentally start treating them as untouchable too."""
+    project = _new_git_mirror_project("site_builder_sitemap_robots")
+    config, config_path = _config_for_git_mirror_project(project)
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+
+    (project / "site" / ".git").mkdir()
+    (project / "site" / ".git" / "HEAD").write_text("x", encoding="utf-8")
+
+    sitemap_path = project / "site" / "sitemap.xml"
+    robots_path = project / "site" / "robots.txt"
+    sitemap_path.write_text("stale sitemap", encoding="utf-8")
+    robots_path.write_text("stale robots", encoding="utf-8")
+
+    second_report = build_site(config, config_path=config_path)
+    assert second_report.success is True
+
+    assert sitemap_path.read_text(encoding="utf-8") != "stale sitemap"
+    assert robots_path.read_text(encoding="utf-8") != "stale robots"
+    assert "accueil" in sitemap_path.read_text(encoding="utf-8") or "example.org" in sitemap_path.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_git_directory_never_appears_among_link_and_orphan_checks():
+    """Even when it sits inside output_root (a non-cleaned build, or right
+    after a cleaned one), .git/ must never be walked as if it were site
+    content by the post-build checks — both for correctness (it is never
+    a real page) and so a repository with a non-trivial history doesn't
+    make every build slower."""
+    from bloggen.build.link_checker import check_broken_links, find_orphan_pages
+
+    project = _new_git_mirror_project("site_builder_git_not_a_page")
+    config, config_path = _config_for_git_mirror_project(project)
+    config.build.clean_output_dir = False  # output_root == final dir throughout the build
+
+    (project / "site").mkdir(parents=True, exist_ok=True)
+    git_dir = project / "site" / ".git"
+    (git_dir / "objects").mkdir(parents=True)
+    # A decoy ".html" file inside .git/: if it were ever picked up by the
+    # *.html scan, it would immediately show up as a broken/orphan page
+    # (it links nowhere real and nothing links to it).
+    (git_dir / "objects" / "decoy.html").write_text(
+        '<html><body><a href="/nowhere/">x</a></body></html>', encoding="utf-8"
+    )
+
+    report = build_site(config, config_path=config_path)
+    assert report.success is True
+
+    broken = check_broken_links(project / "site")
+    orphans = find_orphan_pages(project / "site")
+
+    assert not any(".git" in str(link.source_file) for link in broken)
+    assert not any(".git" in str(path) for path in orphans)
+
+
+def test_clean_build_behaves_unchanged_when_no_git_repository_is_present():
+    """Baseline: a project whose output_dir never held a Git repository at
+    all must build exactly as before — no .git/.gitignore/.nojekyll ever
+    gets created by MEROPE itself."""
+    project = _new_git_mirror_project("site_builder_no_git")
+    config, config_path = _config_for_git_mirror_project(project)
+
+    first_report = build_site(config, config_path=config_path)
+    assert first_report.success is True
+    second_report = build_site(config, config_path=config_path)
+    assert second_report.success is True
+
+    assert not (project / "site" / ".git").exists()
+    assert not (project / "site" / ".gitignore").exists()
+    assert not (project / "site" / ".nojekyll").exists()

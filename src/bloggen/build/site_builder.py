@@ -184,6 +184,30 @@ def _ensure_output_dir_is_safe_to_clean(
             )
 
 
+# Entries that MEROPE never produces itself and must survive every output-
+# directory cleanup/swap: the user mirrors the generated output directory as
+# a Git working tree (GitHub Pages). The clean-build swap below builds into
+# a fresh staging directory and swaps it in for the whole output directory,
+# so without this, the Git metadata would simply not be part of the new
+# directory the next time "Nettoyer le dossier de sortie" runs.
+EXTERNAL_OUTPUT_ENTRIES: tuple[str, ...] = (".git", ".gitignore", ".nojekyll")
+
+
+def _carry_over_external_entries(backup: Path, new_final: Path, *, attempts: int = 5) -> None:
+    """Moves any of ``EXTERNAL_OUTPUT_ENTRIES`` found at the root of
+    ``backup`` (the pre-swap output directory, kept around by
+    ``_replace_directory(..., keep_backup=True)``) into ``new_final`` (the
+    directory that just replaced it). Called only once the swap itself has
+    already fully succeeded, so a failure here (e.g. a locked file) leaves
+    ``backup`` on disk — not deleted — rather than risking the entries
+    being lost in a half-moved state. A no-op entry by entry: most builds
+    have none of these (a fresh checkout, or no Git mirror at all)."""
+    for name in EXTERNAL_OUTPUT_ENTRIES:
+        source = backup / name
+        if source.exists():
+            _rename_with_retry(source, new_final / name, attempts=attempts)
+
+
 def _rename_with_retry(src: Path, dst: Path, *, attempts: int) -> None:
     """Retries briefly on Windows: a directory that was just written to
     can be transiently locked by Windows Defender / the search indexer
@@ -655,6 +679,21 @@ def build_site(config: ProjectConfig, *, config_path: Path | None = None) -> Bui
                             f"l'échec du remplacement TEI : {rollback_exc}. Le dossier de sortie "
                             "peut désormais contenir un site plus récent que le dossier TEI."
                         )
+
+        if report.success and site_backup is not None:
+            # Deferred until here rather than done right after the site
+            # swap above: the TEI-swap failure path just above can still
+            # undo that site swap via _restore_backup(final_output_root,
+            # site_backup), which discards whatever currently sits at
+            # final_output_root and restores site_backup in its place —
+            # carrying these entries over any earlier than this would mean
+            # that restore discards the directory they were just moved
+            # into, losing them.
+            try:
+                _carry_over_external_entries(site_backup, final_output_root)
+            except Exception as exc:
+                report.errors.append(f"Échec du remplacement du dossier de sortie : {exc}")
+                report.success = False
 
         if report.success:
             for generated_item in (*generated_pages, *generated_posts):

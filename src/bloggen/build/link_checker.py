@@ -22,6 +22,7 @@ for producing.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -30,6 +31,24 @@ from lxml import html
 
 _CHECKED_ATTRS: tuple[tuple[str, str], ...] = (("a", "href"), ("img", "src"))
 _SKIPPED_SCHEMES = ("mailto:", "tel:", "javascript:", "data:")
+
+
+def _iter_generated_html_files(output_root: Path) -> list[Path]:
+    """Every generated page under ``output_root``, sorted — never anything
+    under a top-level ``.git/`` (the output directory can double as a Git
+    working tree mirrored to GitHub Pages; its internals are never site
+    content). Pruned with ``os.walk`` rather than ``Path.rglob("*.html")``
+    filtered afterwards, so a long-lived repository's ``.git/`` (which can
+    hold many thousands of loose objects) is never descended into at all,
+    not just excluded from the result."""
+    matches: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(output_root):
+        if Path(dirpath) == output_root:
+            dirnames[:] = [name for name in dirnames if name != ".git"]
+        for filename in filenames:
+            if filename.lower().endswith(".html"):
+                matches.append(Path(dirpath) / filename)
+    return sorted(matches)
 
 
 @dataclass(slots=True, frozen=True)
@@ -60,7 +79,7 @@ def check_broken_links(output_root: Path) -> list[BrokenLink]:
     against what's actually on disk under ``output_root``. Safe to call
     on a build that otherwise failed to reach this point — just don't."""
     broken: list[BrokenLink] = []
-    for html_path in sorted(output_root.rglob("*.html")):
+    for html_path in _iter_generated_html_files(output_root):
         try:
             text = html_path.read_text(encoding="utf-8")
         except OSError:
@@ -109,7 +128,7 @@ def find_orphan_pages(output_root: Path) -> list[Path]:
     which is deliberately never the page anything should link to; its
     canonical points at /index.html instead).
     """
-    html_files = sorted(output_root.rglob("*.html"))
+    html_files = _iter_generated_html_files(output_root)
     linked_targets: set[Path] = set()
     trees: dict[Path, object] = {}
     for html_path in html_files:
@@ -167,7 +186,7 @@ def check_canonical_links(output_root: Path, base_url: str) -> list[CanonicalIss
         return []
 
     issues: list[CanonicalIssue] = []
-    for html_path in sorted(output_root.rglob("*.html")):
+    for html_path in _iter_generated_html_files(output_root):
         try:
             text = html_path.read_text(encoding="utf-8")
         except OSError:
@@ -216,7 +235,7 @@ def check_structured_data(output_root: Path) -> list[StructuredDataIssue]:
     valid JSON, and carrying the properties always expected for its own
     declared @type."""
     issues: list[StructuredDataIssue] = []
-    for html_path in sorted(output_root.rglob("*.html")):
+    for html_path in _iter_generated_html_files(output_root):
         try:
             text = html_path.read_text(encoding="utf-8")
         except OSError:
@@ -276,7 +295,7 @@ def check_seo_metadata(output_root: Path) -> list[SeoMetadataIssue]:
     ``site.description`` with no page-level override, or a custom
     template that drops the title injection)."""
     issues: list[SeoMetadataIssue] = []
-    for html_path in sorted(output_root.rglob("*.html")):
+    for html_path in _iter_generated_html_files(output_root):
         try:
             text = html_path.read_text(encoding="utf-8")
         except OSError:
