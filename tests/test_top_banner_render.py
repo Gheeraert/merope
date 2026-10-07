@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from bloggen.config.models import ProjectConfig
+from bloggen.config.models import MenuLink, ProjectConfig
 from bloggen.render.html_templates import render_page_document
 
 
@@ -18,6 +18,16 @@ def _render(config: ProjectConfig, *, current_path: str = "/index.html", asset_p
         asset_prefix=asset_prefix,
         custom_template=custom_template,
     )
+
+
+def _top_banner_html(html: str) -> str:
+    """Isolate the top banner's own markup, so a ``target="_blank"`` check
+    on it is not thrown off by an unrelated one elsewhere on the page
+    (e.g. the footer credit link, which does carry one by design)."""
+
+    start = html.index('<div class="top-banner">')
+    end = html.index("</div>", start) + len("</div>")
+    return html[start:end]
 
 
 def test_disabled_or_empty_top_banner_renders_nothing():
@@ -58,19 +68,51 @@ def test_top_banner_link_escapes_attributes_and_resolves_internal_paths():
     assert '</a></div>' in html
 
 
-def test_top_banner_accepts_external_link_and_precedes_banner_and_masthead():
+def test_top_banner_accepts_external_link_and_precedes_banner_without_masthead():
+    """With no top menu and no search box, render_page_document() never
+    emits an empty ``<div class="masthead">`` — that is intentional (see
+    html_templates.py's masthead_parts), so this configuration (top
+    banner + editorial banner, nothing else) must not expect one."""
+
     config = ProjectConfig()
     config.top_banner.enabled = True
     config.top_banner.image = "assets/top-banner/institution.png"
     config.top_banner.link = "https://example.org/?a=1&b=2"
     config.banner.enabled = True
     config.banner.image = "assets/banner/editorial.png"
+    config.search.enabled = False
 
     html = _render(config)
 
     assert 'href="https://example.org/?a=1&amp;b=2"' in html
-    assert 'target="_blank"' not in html
-    assert html.index('class="top-banner"') < html.index('class="site-banner"') < html.index('class="masthead"')
+    assert 'target="_blank"' not in _top_banner_html(html)
+    assert html.index('class="top-banner"') < html.index('class="site-banner"')
+    assert 'class="masthead"' not in html
+
+
+def test_top_banner_precedes_banner_precedes_masthead_when_menu_present():
+    """Same configuration as above, plus a top menu entry: now a masthead
+    is actually produced (see html_templates.py's masthead_parts), and it
+    must still come after both banners."""
+
+    config = ProjectConfig()
+    config.top_banner.enabled = True
+    config.top_banner.image = "assets/top-banner/institution.png"
+    config.top_banner.link = "https://example.org/?a=1&b=2"
+    config.banner.enabled = True
+    config.banner.image = "assets/banner/editorial.png"
+    config.search.enabled = False
+    config.menus.top.append(MenuLink(label="Accueil", target="/index.html"))
+
+    html = _render(config)
+
+    assert 'href="https://example.org/?a=1&amp;b=2"' in html
+    assert 'target="_blank"' not in _top_banner_html(html)
+    assert (
+        html.index('class="top-banner"')
+        < html.index('class="site-banner"')
+        < html.index('class="masthead"')
+    )
 
 
 def test_custom_template_can_place_top_banner_and_legacy_template_still_works():
