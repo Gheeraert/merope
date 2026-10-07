@@ -82,6 +82,10 @@ Le collage depuis Word ou Google Docs est nettoyé pour récupérer autant que p
 
 Le raccourci `((texte de note))`, familier des carnets Hypothèses, est reconnu lors de la normalisation destinée à l’aperçu et à la génération.
 
+#### Vidéo (éditeur Qt)
+
+Le bouton **Insérer une vidéo…** de la barre d’outils demande une URL YouTube et une légende facultative. Les formes d’URL acceptées : `youtube.com/watch?v=…`, `youtu.be/…`, `youtube.com/embed/…` et `youtube.com/shorts/…` ; une URL non reconnue est signalée sans fermer la boîte de dialogue. Seul YouTube est pris en charge dans cette version. La vidéo insérée apparaît comme un bloc protégé (comme un tableau ou un encadré) ; elle n’est pas interactive dans l’éditeur. Dans l’ancien éditeur Tkinter, elle est affichée comme source protégée et réenregistrée à l’identique. La vidéo reste hébergée et servie par YouTube : le site publié affiche un lecteur intégré via `youtube-nocookie.com`, et son affichage dépend donc de la disponibilité du service externe et des choix de confidentialité de YouTube.
+
 ### Images
 
 Une image insérée par l’éditeur est copiée dans le **Dossier images** configuré dans l’onglet Médias. Les outils d’image permettent notamment de régler la taille d’affichage, l’alignement, le remplacement et le recadrage sans écraser l’original.

@@ -204,6 +204,51 @@
     </sup>
   </xsl:template>
 
+  <!-- Embedded YouTube video (see bloggen/markdown/video_syntax.py and
+       resources/pandoc/merope_video.lua). Evaluated before the generic
+       figure template below (both the explicit priority and this
+       template's extra predicate already win over it): a video figure
+       has no tei:graphic, so the generic template alone would silently
+       render an empty, imageless <figure>. The iframe src is built only
+       from @n (the id the Lua filter already validated before emitting
+       this TEI), never from @target, which is shown only as the
+       human-readable fallback link. -->
+  <xsl:template match="tei:figure[tei:p/tei:ref[@type='video-youtube']]" priority="10">
+    <xsl:variable name="videoId" select="normalize-space(@n)"/>
+    <xsl:variable name="watchUrl" select="normalize-space((tei:p/tei:ref[@type='video-youtube'])[1]/@target)"/>
+    <xsl:variable name="captionText" select="normalize-space(string(tei:figDesc[1]))"/>
+    <xsl:variable name="iframeTitle">
+      <xsl:choose>
+        <xsl:when test="$captionText != ''">
+          <xsl:value-of select="concat('Vidéo YouTube : ', $captionText)"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:text>Vidéo YouTube</xsl:text>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+    <figure class="video-embed">
+      <div class="video-embed-frame">
+        <iframe
+          src="{concat('https://www.youtube-nocookie.com/embed/', $videoId)}"
+          title="{$iframeTitle}"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen="allowfullscreen"
+          referrerpolicy="strict-origin-when-cross-origin">
+        </iframe>
+      </div>
+      <xsl:if test="$watchUrl != ''">
+        <p class="video-embed-fallback">
+          <a href="{$watchUrl}" target="_blank" rel="noopener noreferrer">Voir la vidéo sur YouTube</a>
+        </p>
+      </xsl:if>
+      <xsl:if test="$captionText != ''">
+        <figcaption><xsl:apply-templates select="tei:figDesc[1]/node()"/></figcaption>
+      </xsl:if>
+    </figure>
+  </xsl:template>
+
   <xsl:template match="tei:figure">
     <xsl:variable name="url" select="normalize-space((tei:graphic/@url)[1])"/>
     <xsl:variable name="captionNode" select="(tei:figDesc | tei:head)[1]"/>

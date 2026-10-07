@@ -47,6 +47,14 @@ ENCADRE_LUA_FILTER = (
     Path(__file__).resolve().parent.parent / "resources" / "pandoc" / "merope_encadre.lua"
 )
 
+# Rewrites the reserved Mérope embedded-video div into native TEI Commons
+# Publishing (figure/ref/figDesc). Applied after ENCADRE_LUA_FILTER: the two
+# filters match mutually exclusive div classes, so their relative order has
+# no effect on behaviour, but a deterministic order is kept regardless.
+VIDEO_LUA_FILTER = (
+    Path(__file__).resolve().parent.parent / "resources" / "pandoc" / "merope_video.lua"
+)
+
 
 class PandocUnavailableError(RuntimeError):
     """Raised when pandoc is not available in PATH."""
@@ -68,6 +76,7 @@ def convert_markdown_to_tei(
         "--from=markdown+footnotes+pipe_tables",
         "--to=tei",
         f"--lua-filter={ENCADRE_LUA_FILTER}",
+        f"--lua-filter={VIDEO_LUA_FILTER}",
         "--standalone",
         str(source),
         "-o",

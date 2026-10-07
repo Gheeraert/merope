@@ -65,6 +65,7 @@ _GLYPHS = {
     "numbered": "1≡",
     "table": "▦",
     "box": "▢",
+    "video": "▶",
     "left": "≡",
     "center": "≡",
     "right": "≡",

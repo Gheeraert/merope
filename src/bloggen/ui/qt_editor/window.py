@@ -164,6 +164,8 @@ from bloggen.ui.qt_editor.recovery import (
 from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor.box_dialog import BoxInsertDialog
 from bloggen.ui.qt_editor.box_structure import can_insert_box, insert_empty_box
+from bloggen.ui.qt_editor.video_dialog import VideoInsertDialog
+from bloggen.ui.qt_editor.video_structure import can_insert_video, insert_video
 from bloggen.ui.qt_editor.table_dialog import TableInsertDialog
 from bloggen.ui.qt_editor.table_structure import (
     can_insert_empty_table,
@@ -745,6 +747,12 @@ class QtEditorWindow(QMainWindow):
             self._insert_box_from_dialog,
             icon_key="box",
         )
+        self.insert_video_action = self._add_action(
+            toolbar,
+            "Insérer une vidéo…",
+            self._insert_video_from_dialog,
+            icon_key="video",
+        )
         self.image_action = self._add_action(
             toolbar,
             "Image...",
@@ -861,11 +869,15 @@ class QtEditorWindow(QMainWindow):
         self.editor.cursorPositionChanged.connect(self._update_insert_box_action)
         self.editor.selectionChanged.connect(self._update_insert_box_action)
         self.editor.document().contentsChanged.connect(self._update_insert_box_action)
+        self.editor.cursorPositionChanged.connect(self._update_insert_video_action)
+        self.editor.selectionChanged.connect(self._update_insert_video_action)
+        self.editor.document().contentsChanged.connect(self._update_insert_video_action)
         self.editor.document().contentsChanged.connect(self._mark_preview_stale)
         self._sync_inline_format_actions()
         self._sync_block_style_actions()
         self._update_insert_table_action()
         self._update_insert_box_action()
+        self._update_insert_video_action()
 
     def _sync_inline_format_actions(self) -> None:
         char_format = self.editor.textCursor().charFormat()
@@ -1452,6 +1464,38 @@ class QtEditorWindow(QMainWindow):
             return False
         try:
             self.insert_box(dialog.title())
+        except (ValueError, UnsupportedDocumentError) as exc:
+            QMessageBox.warning(self, "Insertion impossible", str(exc))
+            return False
+        return True
+
+    def insert_video_block(self, video_id: str, caption: str = "") -> QTextCursor:
+        """Insert the reserved video block exclusively through the
+        validated document adapter."""
+
+        cursor = insert_video(self.editor.textCursor(), video_id, caption)
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus()
+        return cursor
+
+    def _update_insert_video_action(self) -> None:
+        self.insert_video_action.setEnabled(can_insert_video(self.editor.textCursor()))
+
+    def _insert_video_from_dialog(self) -> bool:
+        if not can_insert_video(self.editor.textCursor()):
+            QMessageBox.warning(
+                self,
+                "Insertion impossible",
+                "Placez le curseur (sans sélection) dans du texte ordinaire, "
+                "hors d’un tableau, d’une légende, d’un encadré ou d’un autre "
+                "bloc protégé, pour insérer une vidéo.",
+            )
+            return False
+        dialog = VideoInsertDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        try:
+            self.insert_video_block(dialog.video_id(), dialog.caption())
         except (ValueError, UnsupportedDocumentError) as exc:
             QMessageBox.warning(self, "Insertion impossible", str(exc))
             return False
