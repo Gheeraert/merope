@@ -114,6 +114,34 @@ def test_malformed_video_id_is_refused(tmp_path, video_id):
     assert "Vidéo Mérope" in result.message
 
 
+def test_lua_id_grammar_matches_python_grammar_exactly(tmp_path):
+    """The Lua filter's own id validation must accept/reject exactly what
+    :func:`bloggen.markdown.video_syntax.is_valid_youtube_id` does (ASCII
+    letters, digits, ``_`` and ``-`` only) — not Lua's locale-dependent
+    ``%w``, which is not guaranteed to match only ASCII alphanumerics."""
+
+    from bloggen.markdown.video_syntax import is_valid_youtube_id
+
+    mixed_charset_id = "A1-2_B3-4C"  # exactly the allowed charset, len 10
+    assert len(mixed_charset_id) == 10
+    full_id = mixed_charset_id + "9"  # 11 chars, still only the allowed charset
+    assert is_valid_youtube_id(full_id) is True
+
+    source = tmp_path / "doc.md"
+    source.write_text(
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{full_id}"}}\n::::\n',
+        encoding="utf-8",
+    )
+    result = convert_markdown_file_to_tei(source, tmp_path / "doc.xml")
+    assert result.success is True, result.message
+
+
+def test_lua_filter_uses_explicit_ascii_ranges_not_locale_dependent_w():
+    lua_source = VIDEO_LUA_FILTER.read_text(encoding="utf-8")
+    assert "id:match('^[A-Za-z0-9_%-]+$')" in lua_source
+    assert "[%w" not in lua_source
+
+
 def test_more_than_one_caption_block_is_refused(tmp_path):
     source = tmp_path / "doc.md"
     source.write_text(

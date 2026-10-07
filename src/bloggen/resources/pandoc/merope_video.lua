@@ -36,10 +36,14 @@ local function refuse(message)
 end
 
 local function is_valid_youtube_id(id)
+  -- Exactly the same grammar as video_syntax.is_valid_youtube_id's
+  -- ``^[A-Za-z0-9_-]{11}$``: explicit ASCII ranges, not Lua's locale-
+  -- dependent %w (which is not guaranteed to match only ASCII
+  -- alphanumerics), so both validation barriers agree byte-for-byte.
   if type(id) ~= 'string' or #id ~= 11 then
     return false
   end
-  return id:match('^[%w_%-]+$') ~= nil
+  return id:match('^[A-Za-z0-9_%-]+$') ~= nil
 end
 
 local function tei_inline(inlines)
