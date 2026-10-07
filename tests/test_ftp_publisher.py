@@ -180,27 +180,105 @@ def test_publish_uploads_every_file_and_creates_nested_remote_dirs(tmp_path, mon
     assert sorted(ftp.stored) == ["/www/billets/premier/index.html", "/www/index.html"]
 
 
-def test_publish_never_uploads_a_git_directory_sitting_in_the_local_dir(tmp_path, monkeypatch):
-    """The local directory being published can now also be a Git working
-    tree (a GitHub Pages mirror) — .git/ must never be treated as site
-    content and sent to the FTP host."""
+def test_publish_never_walks_into_the_git_directory(tmp_path, monkeypatch):
+    """.git/ must not just be filtered out of the result — it must never be
+    descended into in the first place (a long-lived repository can hold
+    many thousands of loose objects, which rglob-then-filter would still
+    visit on every publish)."""
     factory = _make_ftp_factory()
     monkeypatch.setattr(module.ftplib, "FTP", factory)
 
     site = _make_site(tmp_path)
-    (site / ".git" / "objects").mkdir(parents=True)
+    (site / ".git" / "objects" / "ab").mkdir(parents=True)
     (site / ".git" / "HEAD").write_text("ref: refs/heads/github-pages\n", encoding="utf-8")
-    (site / ".git" / "objects" / "decoy.html").write_text("not a page", encoding="utf-8")
+    (site / ".git" / "objects" / "ab" / "cdef").write_text("loose object", encoding="utf-8")
+
+    visited_dirs: list[Path] = []
+    real_walk = module.os.walk
+
+    def recording_walk(top, *args, **kwargs):
+        for dirpath, dirnames, filenames in real_walk(top, *args, **kwargs):
+            visited_dirs.append(Path(dirpath))
+            yield dirpath, dirnames, filenames
+
+    monkeypatch.setattr(module.os, "walk", recording_walk)
+
+    result = publish_directory(site, _config())
+
+    git_dir = site / ".git"
+    assert not any(visited == git_dir or git_dir in visited.parents for visited in visited_dirs)
+
+    ftp = factory.created[0]
+    assert result.ok is True
+    assert sorted(result.transferred) == ["billets/premier/index.html", "index.html"]
+    assert not any(".git" in path for path in result.transferred)
+    assert not any(".git" in remote for remote in ftp.dirs)
+    assert not any(".git" in remote for remote in ftp.stored)
+
+
+def test_publish_never_uploads_gitignore_or_nojekyll(tmp_path, monkeypatch):
+    """.gitignore and .nojekyll are the other two EXTERNAL_OUTPUT_ENTRIES —
+    Git/GitHub-Pages metadata MEROPE never produces, never meant for the
+    FTP host either."""
+    factory = _make_ftp_factory()
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    site = _make_site(tmp_path)
+    (site / ".gitignore").write_text("sitemap.xml\n", encoding="utf-8")
+    (site / ".nojekyll").write_text("", encoding="utf-8")
 
     result = publish_directory(site, _config())
 
     ftp = factory.created[0]
     assert result.ok is True
-    assert result.total == 2
     assert sorted(result.transferred) == ["billets/premier/index.html", "index.html"]
-    assert not any(".git" in path for path in result.transferred)
-    assert not any(".git" in remote for remote in ftp.dirs)
-    assert not any(".git" in remote for remote in ftp.stored)
+    assert ".gitignore" not in result.transferred
+    assert ".nojekyll" not in result.transferred
+    assert not any(".gitignore" in remote or ".nojekyll" in remote for remote in ftp.stored)
+
+
+def test_publish_still_uploads_ordinary_pages_and_assets(tmp_path, monkeypatch):
+    """The exclusion is narrow: everything else MEROPE actually generates
+    must keep being published exactly as before."""
+    factory = _make_ftp_factory()
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    site = _make_site(tmp_path)
+    (site / "assets" / "images").mkdir(parents=True)
+    (site / "assets" / "images" / "photo.jpg").write_bytes(b"\xff\xd8\xff")
+
+    result = publish_directory(site, _config())
+
+    assert result.ok is True
+    assert sorted(result.transferred) == [
+        "assets/images/photo.jpg",
+        "billets/premier/index.html",
+        "index.html",
+    ]
+
+
+def test_publish_still_uploads_sitemap_robots_and_google_verification_files(tmp_path, monkeypatch):
+    """sitemap.xml, robots.txt and Google-style verification files are
+    MEROPE's own normal output — not EXTERNAL_OUTPUT_ENTRIES — and must
+    keep being published like any other generated file."""
+    factory = _make_ftp_factory()
+    monkeypatch.setattr(module.ftplib, "FTP", factory)
+
+    site = _make_site(tmp_path)
+    (site / "sitemap.xml").write_text("<urlset></urlset>", encoding="utf-8")
+    (site / "robots.txt").write_text("User-agent: *\n", encoding="utf-8")
+    (site / "google1234567890abcdef.html").write_text("google-site-verification", encoding="utf-8")
+
+    result = publish_directory(site, _config())
+
+    assert result.ok is True
+    assert sorted(result.transferred) == [
+        "billets/premier/index.html",
+        "google1234567890abcdef.html",
+        "index.html",
+        "robots.txt",
+        "sitemap.xml",
+    ]
 
 
 def test_publish_continues_past_a_single_file_failure_and_reports_it(tmp_path, monkeypatch):

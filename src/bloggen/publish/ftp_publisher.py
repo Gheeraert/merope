@@ -5,15 +5,37 @@ from __future__ import annotations
 import ftplib
 import io
 import json
+import os
 import ssl
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from bloggen.config.models import FtpConfig
+from bloggen.utils.fs import EXTERNAL_OUTPUT_ENTRIES
 
 ProgressCallback = Callable[[int, int, str], None]
 """Called after each file transfer attempt with (files_done, files_total, relative_path)."""
+
+
+def _iter_publishable_files(local_dir: Path) -> list[Path]:
+    """Every file under ``local_dir``, sorted — except ``EXTERNAL_OUTPUT_ENTRIES``
+    (``.git/``, ``.gitignore``, ``.nojekyll``) at its root: MEROPE never
+    produces these (the output directory can double as a Git working tree
+    mirrored to GitHub Pages), and they must never reach the FTP host.
+    Pruned with ``os.walk`` rather than ``local_dir.rglob("*")`` filtered
+    afterwards, so ``.git/`` (which can hold many thousands of loose
+    objects on a long-lived repository) is never descended into at all."""
+    matches: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(local_dir):
+        current = Path(dirpath)
+        if current == local_dir:
+            dirnames[:] = [name for name in dirnames if name not in EXTERNAL_OUTPUT_ENTRIES]
+        for filename in filenames:
+            if current == local_dir and filename in EXTERNAL_OUTPUT_ENTRIES:
+                continue
+            matches.append(current / filename)
+    return sorted(matches)
 
 # Written to the remote publish root after every fully successful publish:
 # the exact set of relative paths MEROPE itself deployed. The next publish
@@ -129,15 +151,7 @@ def publish_directory(
     if not local_dir.is_dir():
         raise FtpPublishError(f"Le dossier à publier est introuvable : {local_dir}")
 
-    # ``.git`` (MEROPE's own output directory can double as a Git working
-    # tree mirrored to GitHub Pages — see bloggen.build.site_builder) is
-    # never part of the site: excluded here so a publish can never upload
-    # repository internals to the FTP host.
-    files = sorted(
-        p
-        for p in local_dir.rglob("*")
-        if p.is_file() and ".git" not in p.relative_to(local_dir).parts
-    )
+    files = _iter_publishable_files(local_dir)
     total = len(files)
     if total == 0:
         raise FtpPublishError("Le dossier à publier ne contient aucun fichier à transférer.")

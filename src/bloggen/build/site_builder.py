@@ -57,6 +57,7 @@ from bloggen.tei.licenses import resolve_license
 from bloggen.tei.pandoc_converter import PandocUnavailableError, convert_markdown_file_to_tei
 from bloggen.tei.postprocess import rewrite_graphic_urls_in_tei_file
 from bloggen.content.loader import ContentItem, LoadedContent, load_content
+from bloggen.utils.fs import EXTERNAL_OUTPUT_ENTRIES
 
 _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
@@ -182,15 +183,6 @@ def _ensure_output_dir_is_safe_to_clean(
                 f"Corrigez le champ « {field_label} » dans l'onglet Chemins avant "
                 "de régénérer le site."
             )
-
-
-# Entries that MEROPE never produces itself and must survive every output-
-# directory cleanup/swap: the user mirrors the generated output directory as
-# a Git working tree (GitHub Pages). The clean-build swap below builds into
-# a fresh staging directory and swaps it in for the whole output directory,
-# so without this, the Git metadata would simply not be part of the new
-# directory the next time "Nettoyer le dossier de sortie" runs.
-EXTERNAL_OUTPUT_ENTRIES: tuple[str, ...] = (".git", ".gitignore", ".nojekyll")
 
 
 def _carry_over_external_entries(backup: Path, new_final: Path, *, attempts: int = 5) -> None:
