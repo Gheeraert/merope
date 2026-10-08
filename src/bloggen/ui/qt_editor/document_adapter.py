@@ -2521,6 +2521,56 @@ def replace_raw_block_group(cursor: QTextCursor, block: Block) -> QTextCursor:
     return replacement
 
 
+def release_empty_raw_group(cursor: QTextCursor) -> bool:
+    """Normalize a raw-block group once its text content is fully erased.
+
+    ``cursor``'s block must currently belong to a raw-block group (its
+    ``BLOCK_KIND_PROPERTY``/``RAW_BLOCK_*`` metadata and grey background are
+    still in place, as Qt leaves them after text-only deletion). If that
+    group's combined source is now empty, the whole group collapses into a
+    single ordinary paragraph block — no raw identity, no raw background —
+    and ``cursor`` is repositioned at its (empty) start. Returns whether
+    normalization happened; a no-op leaves ``cursor`` untouched.
+
+    Callers are responsible for wrapping this together with the deletion
+    that emptied the group in one ``beginEditBlock``/``endEditBlock`` pair,
+    so undo/redo restores or re-erases the raw identity atomically.
+    """
+
+    block = cursor.block()
+    identity = raw_block_identity(block)
+    if identity is None:
+        return False
+    text = raw_block_group_text(block) or ""
+    if text.strip():
+        return False
+
+    first_block = block
+    while True:
+        previous = first_block.previous()
+        if not previous.isValid() or raw_block_identity(previous) != identity:
+            break
+        first_block = previous
+    last_block = block
+    while True:
+        next_block = last_block.next()
+        if not next_block.isValid() or raw_block_identity(next_block) != identity:
+            break
+        last_block = next_block
+
+    normalize_cursor = QTextCursor(cursor.document())
+    normalize_cursor.setPosition(first_block.position())
+    normalize_cursor.setPosition(
+        last_block.position() + last_block.length() - 1,
+        QTextCursor.MoveMode.KeepAnchor,
+    )
+    normalize_cursor.removeSelectedText()
+    normalize_cursor.setBlockFormat(_make_block_format(PARAGRAPH, "justify", None))
+    normalize_cursor.setBlockCharFormat(make_char_format(InlineRun()))
+    cursor.setPosition(normalize_cursor.position())
+    return True
+
+
 def _extract_runs(block: QTextBlock) -> list[InlineRun]:
     runs: list[InlineRun] = []
     iterator = block.begin()

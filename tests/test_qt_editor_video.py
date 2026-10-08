@@ -10,7 +10,9 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor, QTextDocument
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from bloggen.markdown.rich_text_model import PARAGRAPH, VERBATIM, Block, InlineRun
@@ -24,7 +26,9 @@ from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
     extract_blocks,
     populate_document,
+    raw_block_identity,
 )
+from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor.video_dialog import VideoInsertDialog
 from bloggen.ui.qt_editor.video_structure import (
     can_insert_video,
@@ -321,3 +325,44 @@ def test_video_block_at_cursor_is_none_for_a_selection_from_the_video_into_a_par
     end = document.findBlockByNumber(3).position() + 1
     cursor = _select(document, start, end)
     assert video_block_at_cursor(cursor) is None
+
+
+# --- Manually erasing the raw block leaves no grey ghost behind -----------
+
+
+def _editor(blocks: list[Block]) -> MeropeTextEdit:
+    editor = MeropeTextEdit()
+    populate_document(editor.document(), blocks)
+    return editor
+
+
+def test_deleting_an_entire_video_block_leaves_no_raw_ghost():
+    editor = _editor([_video_block("Légende.")])
+    cursor = QTextCursor(editor.document())
+    cursor.select(QTextCursor.SelectionType.Document)
+    editor.setTextCursor(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    assert editor.document().blockCount() == 1
+    block = editor.document().begin()
+    assert raw_block_identity(block) is None
+    assert block.blockFormat().background().style() == Qt.BrushStyle.NoBrush
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="")], alignment="justify")
+    ]
+    assert video_block_at_cursor(editor.textCursor()) is None
+
+    QTest.keyClicks(editor, "Bonjour")
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Bonjour")], alignment="justify")
+    ]
+
+    editor.undo()  # undoes the typed text
+    editor.undo()  # undoes the deletion: the video must come back intact
+    assert extract_blocks(editor.document()) == [_video_block("Légende.")]
+    assert raw_block_identity(editor.document().begin()) is not None
+    assert (
+        editor.document().begin().blockFormat().background().style()
+        != Qt.BrushStyle.NoBrush
+    )

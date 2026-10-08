@@ -118,6 +118,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     make_raw_block_format,
     make_raw_char_format,
     raw_block_identity,
+    release_empty_raw_group,
     cursor_table_context,
     selection_block_identities,
     selection_crosses_raw_boundary,
@@ -1341,7 +1342,7 @@ class MeropeTextEdit(QTextEdit):
 
         if key in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
             if cursor.hasSelection():
-                super().keyPressEvent(event)
+                self._delete_in_raw_block(event)
                 return True
             at_start = cursor.position() == cursor.block().position()
             at_end = cursor.position() == cursor.block().position() + cursor.block().length() - 1
@@ -1351,7 +1352,7 @@ class MeropeTextEdit(QTextEdit):
                 adjacent = cursor.block().previous() if at_start else cursor.block().next()
                 if not adjacent.isValid() or raw_block_identity(adjacent) != identity:
                     return True
-            super().keyPressEvent(event)
+            self._delete_in_raw_block(event)
             return True
 
         if event.modifiers() & (
@@ -1369,6 +1370,25 @@ class MeropeTextEdit(QTextEdit):
             cursor.endEditBlock()
         self.setTextCursor(cursor)
         return True
+
+    def _delete_in_raw_block(self, event: QKeyEvent) -> None:
+        """Run a Delete/Backspace that targets raw-block content.
+
+        Letting Qt erase the text can leave an empty block that still
+        carries the raw-block identity and grey background (a ghost block).
+        Releasing that identity happens in the same edit block as the
+        deletion so undo restores the raw text and identity together.
+        """
+
+        cursor = self.textCursor()
+        cursor.beginEditBlock()
+        try:
+            super().keyPressEvent(event)
+            after = self.textCursor()
+            if release_empty_raw_group(after):
+                self.setTextCursor(after)
+        finally:
+            cursor.endEditBlock()
 
     def _copy_merope_selection(self, *, cut: bool) -> bool:
         try:
@@ -1412,6 +1432,7 @@ class MeropeTextEdit(QTextEdit):
             cursor.beginEditBlock()
             try:
                 cursor.removeSelectedText()
+                release_empty_raw_group(cursor)
             finally:
                 cursor.endEditBlock()
             self.setTextCursor(cursor)

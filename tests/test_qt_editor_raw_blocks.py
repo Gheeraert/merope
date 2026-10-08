@@ -42,6 +42,7 @@ from bloggen.ui.qt_editor.document_adapter import (
     insert_footnote_reference,
     insert_blocks,
     populate_document,
+    raw_block_identity,
     renumber_footnote_references,
     selection_block_identities,
     selection_crosses_raw_boundary,
@@ -571,6 +572,143 @@ def test_selected_separator_between_normal_blocks_keeps_native_qt_behavior():
 
     assert extract_blocks(editor.document()) == [
         Block(kind=PARAGRAPH, runs=[InlineRun(text="AB")])
+    ]
+
+
+def _assert_released(block):
+    """No raw identity and no raw grey background survives on ``block``."""
+
+    assert raw_block_identity(block) is None
+    assert block.blockFormat().background().style() == Qt.BrushStyle.NoBrush
+    assert not block.blockFormat().hasProperty(RAW_BLOCK_KIND_PROPERTY)
+    assert not block.blockFormat().hasProperty(RAW_BLOCK_GROUP_PROPERTY)
+
+
+def test_delete_of_fully_selected_single_line_verbatim_releases_ghost_block():
+    editor = _editor([Block(kind=VERBATIM, raw_text="brut")])
+    _select_block_text(editor, 0)
+
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    assert editor.document().blockCount() == 1
+    block = editor.document().begin()
+    _assert_released(block)
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="")], alignment="justify")
+    ]
+
+    editor.undo()
+    assert extract_blocks(editor.document()) == [
+        Block(kind=VERBATIM, raw_text="brut")
+    ]
+    assert raw_block_identity(editor.document().begin()) is not None
+    assert editor.document().begin().blockFormat().background().style() != Qt.BrushStyle.NoBrush
+
+    editor.redo()
+    _assert_released(editor.document().begin())
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="")], alignment="justify")
+    ]
+
+
+def test_backspace_of_fully_selected_single_line_verbatim_releases_ghost_block():
+    editor = _editor([Block(kind=VERBATIM, raw_text="brut")])
+    _select_block_text(editor, 0)
+
+    QTest.keyClick(editor, Qt.Key.Key_Backspace)
+
+    assert editor.document().blockCount() == 1
+    _assert_released(editor.document().begin())
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="")], alignment="justify")
+    ]
+
+
+def test_character_by_character_erasure_of_verbatim_releases_ghost_block():
+    editor = _editor([Block(kind=VERBATIM, raw_text="brut")])
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+
+    for _ in range(len("brut")):
+        QTest.keyClick(editor, Qt.Key.Key_Backspace)
+
+    assert editor.document().blockCount() == 1
+    _assert_released(editor.document().begin())
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="")], alignment="justify")
+    ]
+
+
+def test_delete_of_fully_selected_multiline_verbatim_leaves_no_phantom_lines():
+    editor = _editor([Block(kind=VERBATIM, raw_text="ligne 1\nligne 2\nligne 3")])
+    cursor = QTextCursor(editor.document())
+    cursor.select(QTextCursor.SelectionType.Document)
+    editor.setTextCursor(cursor)
+
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    assert editor.document().blockCount() == 1
+    _assert_released(editor.document().begin())
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="")], alignment="justify")
+    ]
+
+
+def test_cut_of_fully_selected_verbatim_releases_ghost_block_and_keeps_clipboard():
+    raw = "<section>\n**brut**\n</section>"
+    editor = _editor([Block(kind=VERBATIM, raw_text=raw)])
+    cursor = QTextCursor(editor.document())
+    cursor.select(QTextCursor.SelectionType.Document)
+    editor.setTextCursor(cursor)
+
+    editor.cut()
+
+    assert editor.document().blockCount() == 1
+    _assert_released(editor.document().begin())
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="")], alignment="justify")
+    ]
+
+    target = _editor([])
+    target.paste()
+    assert extract_blocks(target.document()) == [Block(kind=VERBATIM, raw_text=raw)]
+
+    editor.undo()
+    assert extract_blocks(editor.document()) == [Block(kind=VERBATIM, raw_text=raw)]
+    assert raw_block_identity(editor.document().begin()) is not None
+
+
+def test_surrounding_paragraphs_are_untouched_when_a_verbatim_group_empties():
+    editor = _editor(
+        [
+            Block(kind=PARAGRAPH, runs=[InlineRun(text="Avant")]),
+            Block(kind=VERBATIM, raw_text="brut"),
+            Block(kind=PARAGRAPH, runs=[InlineRun(text="Après")]),
+        ]
+    )
+    _select_block_text(editor, 1)
+
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    blocks = extract_blocks(editor.document())
+    assert blocks == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Avant")]),
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="")], alignment="justify"),
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Après")]),
+    ]
+    _assert_released(editor.document().findBlockByNumber(1))
+
+
+def test_emptied_verbatim_block_accepts_ordinary_typing_immediately():
+    editor = _editor([Block(kind=VERBATIM, raw_text="brut")])
+    _select_block_text(editor, 0)
+    QTest.keyClick(editor, Qt.Key.Key_Delete)
+
+    QTest.keyClicks(editor, "Bonjour")
+
+    assert extract_blocks(editor.document()) == [
+        Block(kind=PARAGRAPH, runs=[InlineRun(text="Bonjour")], alignment="justify")
     ]
 
 
