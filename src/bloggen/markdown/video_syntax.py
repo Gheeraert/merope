@@ -37,11 +37,23 @@ from urllib.parse import parse_qs, urlparse
 
 
 class ParsedVideoBlock(NamedTuple):
-    """Components of a video block recognized by :func:`parse_video_block`."""
+    """Components of a video block recognized by :func:`parse_video_block`.
+
+    ``caption`` is the best-effort *displayable* text (escaping undone),
+    meant only for showing in the Qt edit dialog's text field. ``caption_source``
+    is the exact, unmodified Markdown caption line as written in the
+    document — the one byte-for-byte source of truth to put back verbatim
+    when the dialog's caption field comes back unchanged (see
+    bloggen.ui.qt_editor.video_structure.replace_video): a hand-written or
+    externally produced caption was never necessarily produced by
+    :func:`format_video_block`'s own escaping, so "unescape it" is not a
+    safe way to recover what should be written back.
+    """
 
     provider: str
     video_id: str
     caption: str
+    caption_source: str
     width: int
 
 
@@ -73,6 +85,23 @@ _VIDEO_OPEN_RE = re.compile(
     r' data-video-id="(?P<video_id>[^"]*)"'
     r'(?: data-width="(?P<width>[^"]*)")?\}$'
 )
+
+# The attributes parse_video_block() is willing to recognize on a Mérope
+# video's opening fence — see _parse_video_attrs. Anything else on that
+# line (an unknown attribute, a duplicate, or a shape this regex does not
+# match at all) makes parse_video_block() refuse the whole block rather
+# than editing it and silently dropping what it does not understand.
+_KNOWN_VIDEO_ATTRS = frozenset({"data-provider", "data-video-id", "data-width"})
+
+# Pandoc accepts a fenced div's attributes in any order and with varying
+# whitespace between them; .merope-video itself must still come first,
+# immediately after "{.", matching how format_video_block always writes
+# it. Each attribute is `key="value"` with no escaped quote inside value
+# (none of ours ever needs one).
+_VIDEO_OPEN_ATTRS_RE = re.compile(
+    r'^:::: \{\.merope-video(?P<attrs>(?:\s+[A-Za-z0-9_-]+="[^"]*")*)\s*\}$'
+)
+_VIDEO_ATTR_RE = re.compile(r'([A-Za-z0-9_-]+)="([^"]*)"')
 
 # The caption is plain, single-line text (see format_video_block), then
 # re-injected as literal Markdown *source* inside the fenced div. Escaping
@@ -149,6 +178,31 @@ def parse_width_attribute(raw: str | None) -> int:
     if not isinstance(raw, str) or not _WIDTH_ATTR_RE.match(raw):
         raise ValueError(f"Largeur vidéo invalide : {raw!r}")
     return normalize_width(int(raw))
+
+
+def _parse_video_attrs(line: str) -> dict[str, str] | None:
+    """Order-independent ``{key: value}`` of a video opening fence's known
+    attributes, or ``None`` if the line is not exactly that reserved shape.
+
+    Deliberately conservative, not a general Pandoc attribute-list parser:
+    a duplicate of a known attribute, any attribute this module does not
+    know about, or anything else that does not fit
+    ``:::: {.merope-video key="value" key="value" ...}`` (in any order,
+    with flexible whitespace between attributes) is refused — ``None`` —
+    rather than silently dropped. The Lua filter is the independent,
+    authoritative barrier at publication time; this is only used to decide
+    whether the Qt editor may safely offer to edit the block in place.
+    """
+
+    match = _VIDEO_OPEN_ATTRS_RE.match(line)
+    if match is None:
+        return None
+    attrs: dict[str, str] = {}
+    for key, value in _VIDEO_ATTR_RE.findall(match.group("attrs")):
+        if key not in _KNOWN_VIDEO_ATTRS or key in attrs:
+            return None
+        attrs[key] = value
+    return attrs
 
 
 def parse_video_open_line(line: str) -> tuple[str, str] | None:
@@ -235,25 +289,12 @@ def _unescape_caption(text: str) -> str:
     return _MD_UNESCAPE_RE.sub(r"\1", text)
 
 
-def format_video_block(
-    video_id: str,
-    caption: str = "",
-    *,
-    provider: str = "youtube",
-    width: int = DEFAULT_WIDTH,
-) -> str:
-    """Render the reserved Mérope fenced-div Markdown for a validated video.
-
-    Raises ``ValueError`` for an unsupported provider, an invalid id or an
-    invalid width — callers (the Qt insertion dialog, tests) are expected
-    to have already validated the id via :func:`parse_youtube_url`.
-
-    ``data-width`` is only written when ``width`` differs from
-    :data:`DEFAULT_WIDTH`, so the attribute-less form — what every video
-    block created before this feature already is — stays the canonical
-    representation of the default case and existing documents keep
-    round-tripping byte-for-byte.
-    """
+def _build_video_open_line(video_id: str, provider: str, width: int) -> str:
+    """Validate and render the opening-fence line, with its canonical,
+    fixed attribute order — the single validation barrier
+    :func:`compose_video_block` (and so :func:`format_video_block`) funnels
+    through. Raises ``ValueError`` for an unsupported provider, an invalid
+    id or an invalid width."""
 
     if provider not in SUPPORTED_PROVIDERS:
         raise ValueError(f"Fournisseur vidéo non pris en charge : {provider!r}")
@@ -264,11 +305,62 @@ def format_video_block(
     open_line = f':::: {{.{VIDEO_CLASS} data-provider="{provider}" data-video-id="{video_id}"'
     if width != DEFAULT_WIDTH:
         open_line += f' data-width="{width}"'
-    open_line += "}"
-    normalized_caption = _escape_caption(" ".join(caption.split()))
-    if normalized_caption:
-        return f"{open_line}\n{normalized_caption}\n{VIDEO_CLOSE}"
+    return open_line + "}"
+
+
+def compose_video_block(
+    video_id: str,
+    *,
+    provider: str = "youtube",
+    width: int = DEFAULT_WIDTH,
+    caption_source: str = "",
+) -> str:
+    """Render the reserved block with a caption line taken verbatim.
+
+    Unlike :func:`format_video_block`, ``caption_source`` is never escaped
+    or otherwise transformed: it is injected as-is between the opening and
+    closing fence. Empty means no caption line. This is what lets the Qt
+    "edit this video" dialog put back an existing, untouched caption
+    byte-for-byte — including one written by hand or by another tool, that
+    :func:`format_video_block`'s own escaping never produced in the first
+    place — instead of re-deriving it from a lossy "displayable" form.
+    Raises ``ValueError`` under the same conditions as
+    :func:`format_video_block`.
+    """
+
+    open_line = _build_video_open_line(video_id, provider, width)
+    if caption_source:
+        return f"{open_line}\n{caption_source}\n{VIDEO_CLOSE}"
     return f"{open_line}\n{VIDEO_CLOSE}"
+
+
+def format_video_block(
+    video_id: str,
+    caption: str = "",
+    *,
+    provider: str = "youtube",
+    width: int = DEFAULT_WIDTH,
+) -> str:
+    """Render the reserved Mérope fenced-div Markdown for a validated video.
+
+    ``caption`` is plain text: escaped systematically (see
+    :func:`_escape_caption`) before being written as the caption line, and
+    whitespace-normalized first. Raises ``ValueError`` for an unsupported
+    provider, an invalid id or an invalid width — callers (the Qt
+    insertion dialog, tests) are expected to have already validated the id
+    via :func:`parse_youtube_url`.
+
+    ``data-width`` is only written when ``width`` differs from
+    :data:`DEFAULT_WIDTH`, so the attribute-less form — what every video
+    block created before this feature already is — stays the canonical
+    representation of the default case and existing documents keep
+    round-tripping byte-for-byte.
+    """
+
+    normalized_caption = _escape_caption(" ".join(caption.split()))
+    return compose_video_block(
+        video_id, provider=provider, width=width, caption_source=normalized_caption
+    )
 
 
 def parse_video_block(raw_text: str) -> ParsedVideoBlock | None:
@@ -277,27 +369,42 @@ def parse_video_block(raw_text: str) -> ParsedVideoBlock | None:
     Used by the Qt editor to recognize an existing Mérope video block under
     the cursor and prefill the edit dialog; returns ``None`` (never raises)
     for anything that is not exactly this reserved shape — an unsupported
-    provider, an invalid id, an invalid or out-of-range width, more than one
+    provider, an invalid id, an invalid or out-of-range width, a duplicated
+    or unknown attribute (see :func:`_parse_video_attrs`), more than one
     caption line, or a missing/misplaced closing fence — since that simply
     means "not a video block to offer editing for", not an error to report.
+
+    The opening fence's attributes are recognized in any order (Pandoc
+    itself does not require a fixed order); :func:`format_video_block` and
+    :func:`compose_video_block` keep writing them in the canonical order
+    regardless.
     """
 
     lines = raw_text.split("\n")
     if len(lines) < 2 or lines[-1] != VIDEO_CLOSE:
         return None
-    match = _VIDEO_OPEN_RE.match(lines[0])
-    if match is None:
+    attrs = _parse_video_attrs(lines[0])
+    if attrs is None:
         return None
-    provider = match.group("provider")
-    video_id = match.group("video_id")
+    provider = attrs.get("data-provider")
+    video_id = attrs.get("data-video-id")
+    if provider is None or video_id is None:
+        return None
     if provider not in SUPPORTED_PROVIDERS or not is_valid_youtube_id(video_id):
         return None
     try:
-        width = parse_width_attribute(match.group("width"))
+        width = parse_width_attribute(attrs.get("data-width"))
     except ValueError:
         return None
     caption_lines = lines[1:-1]
     if len(caption_lines) > 1:
         return None
-    caption = _unescape_caption(caption_lines[0]) if caption_lines else ""
-    return ParsedVideoBlock(provider=provider, video_id=video_id, caption=caption, width=width)
+    caption_source = caption_lines[0] if caption_lines else ""
+    caption = _unescape_caption(caption_source) if caption_source else ""
+    return ParsedVideoBlock(
+        provider=provider,
+        video_id=video_id,
+        caption=caption,
+        caption_source=caption_source,
+        width=width,
+    )

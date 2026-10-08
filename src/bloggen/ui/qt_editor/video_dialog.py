@@ -48,6 +48,14 @@ class VideoInsertDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Modifier la vidéo" if video_id is not None else "Insérer une vidéo")
         self._video_id: str | None = None
+        # The exact prefill text, compared against the raw widget text (not
+        # the normalized caption() value) on accept: caption_changed() must
+        # say "unchanged" even if the prefilled caption has internal runs of
+        # several spaces that caption() would otherwise collapse, since the
+        # user never touched the field at all in that case (see
+        # bloggen.ui.qt_editor.window's "edit this video" flow, which keys
+        # the original caption's Markdown source byte-for-byte off this).
+        self._initial_caption_text = caption
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -111,6 +119,17 @@ class VideoInsertDialog(QDialog):
         """The caption, single-lined and stripped; empty means none."""
 
         return " ".join(self.caption_edit.text().split())
+
+    def caption_changed(self) -> bool:
+        """Whether the caption field's raw text differs from its prefill.
+
+        Compares the unnormalized widget text, not :meth:`caption`'s
+        collapsed-whitespace value, so prefilling with a caption that
+        already has several consecutive spaces and leaving it untouched
+        correctly reports "unchanged".
+        """
+
+        return self.caption_edit.text() != self._initial_caption_text
 
     def width(self) -> int:
         """The chosen display width, as a percentage of the column."""

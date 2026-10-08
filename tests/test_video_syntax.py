@@ -9,6 +9,7 @@ from bloggen.markdown.video_syntax import (
     MAX_WIDTH,
     MIN_WIDTH,
     ParsedVideoBlock,
+    compose_video_block,
     format_video_block,
     is_valid_youtube_id,
     is_valid_width,
@@ -186,21 +187,29 @@ def test_format_video_block_rejects_invalid_width():
 def test_parse_video_block_without_width_defaults_to_100():
     block = format_video_block(VALID_ID, "Une légende.")
     assert parse_video_block(block) == ParsedVideoBlock(
-        provider="youtube", video_id=VALID_ID, caption="Une légende.", width=100
+        provider="youtube",
+        video_id=VALID_ID,
+        caption="Une légende.",
+        caption_source="Une légende\\.",
+        width=100,
     )
 
 
 def test_parse_video_block_with_width_round_trips():
     block = format_video_block(VALID_ID, "Une légende.", width=75)
     assert parse_video_block(block) == ParsedVideoBlock(
-        provider="youtube", video_id=VALID_ID, caption="Une légende.", width=75
+        provider="youtube",
+        video_id=VALID_ID,
+        caption="Une légende.",
+        caption_source="Une légende\\.",
+        width=75,
     )
 
 
 def test_parse_video_block_without_caption():
     block = format_video_block(VALID_ID, width=50)
     assert parse_video_block(block) == ParsedVideoBlock(
-        provider="youtube", video_id=VALID_ID, caption="", width=50
+        provider="youtube", video_id=VALID_ID, caption="", caption_source="", width=50
     )
 
 
@@ -222,3 +231,128 @@ def test_parse_video_block_rejects_invalid_hand_written_width():
 def test_parse_video_block_rejects_non_video_text():
     assert parse_video_block("some\nraw\ntext") is None
     assert parse_video_block(":::: {.merope-encadre}\nTexte.\n::::") is None
+
+
+# --- P1: caption_source is preserved byte-for-byte --------------------------
+
+
+@pytest.mark.parametrize(
+    "caption_line",
+    ["*gras*", "<em>gras</em>", "Texte   avec   plusieurs   espaces"],
+    ids=["manual-markdown-emphasis", "manual-html", "multiple-spaces"],
+)
+def test_parse_video_block_preserves_a_hand_written_caption_source_verbatim(caption_line):
+    block = (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}"}}\n'
+        f'{caption_line}\n::::'
+    )
+    parsed = parse_video_block(block)
+    assert parsed is not None
+    assert parsed.caption_source == caption_line
+
+
+@pytest.mark.parametrize(
+    "caption_line",
+    ["*gras*", "<em>gras</em>", "Texte   avec   plusieurs   espaces"],
+    ids=["manual-markdown-emphasis", "manual-html", "multiple-spaces"],
+)
+def test_compose_video_block_writes_a_caption_source_verbatim_unescaped(caption_line):
+    rendered = compose_video_block(VALID_ID, width=75, caption_source=caption_line)
+    assert rendered == (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}" '
+        f'data-width="75"}}\n{caption_line}\n::::'
+    )
+
+
+def test_compose_video_block_without_caption_source_omits_the_caption_line():
+    rendered = compose_video_block(VALID_ID, width=75)
+    assert rendered == (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}" '
+        'data-width="75"}\n::::'
+    )
+
+
+def test_compose_video_block_rejects_invalid_id_and_width():
+    with pytest.raises(ValueError):
+        compose_video_block("not-an-id")
+    with pytest.raises(ValueError):
+        compose_video_block(VALID_ID, width=24)
+
+
+def test_width_only_change_preserves_a_hand_written_caption_end_to_end():
+    """Mirrors the Qt "edit, caption untouched, width changed" path: using
+    the caption_source recovered by parse_video_block to re-compose the
+    block must reproduce the original caption byte-for-byte while only the
+    width attribute changes."""
+
+    original = (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}"}}\n'
+        '*gras*\n::::'
+    )
+    parsed = parse_video_block(original)
+    assert parsed is not None
+
+    updated = compose_video_block(
+        VALID_ID, width=75, caption_source=parsed.caption_source
+    )
+    assert updated == (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}" '
+        'data-width="75"}\n*gras*\n::::'
+    )
+
+
+# --- P2: attribute order is not semantic ------------------------------------
+
+
+def test_parse_video_block_accepts_width_first():
+    block = (
+        f':::: {{.merope-video data-width="75" data-provider="youtube" '
+        f'data-video-id="{VALID_ID}"}}\n::::'
+    )
+    assert parse_video_block(block) == ParsedVideoBlock(
+        provider="youtube", video_id=VALID_ID, caption="", caption_source="", width=75
+    )
+
+
+def test_parse_video_block_accepts_video_id_before_provider():
+    block = (
+        f':::: {{.merope-video data-video-id="{VALID_ID}" '
+        'data-provider="youtube"}\n::::'
+    )
+    assert parse_video_block(block) == ParsedVideoBlock(
+        provider="youtube", video_id=VALID_ID, caption="", caption_source="", width=100
+    )
+
+
+def test_parse_video_block_accepts_multiple_spaces_between_attributes():
+    block = (
+        f':::: {{.merope-video   data-provider="youtube"    '
+        f'data-video-id="{VALID_ID}"   data-width="50"}}\n::::'
+    )
+    assert parse_video_block(block) == ParsedVideoBlock(
+        provider="youtube", video_id=VALID_ID, caption="", caption_source="", width=50
+    )
+
+
+def test_parse_video_block_rejects_duplicate_width():
+    block = (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}" '
+        'data-width="50" data-width="75"}\n::::'
+    )
+    assert parse_video_block(block) is None
+
+
+def test_parse_video_block_rejects_duplicate_video_id():
+    block = (
+        ':::: {.merope-video data-provider="youtube" '
+        f'data-video-id="{VALID_ID}" data-video-id="{VALID_ID}"}}\n::::'
+    )
+    assert parse_video_block(block) is None
+
+
+def test_parse_video_block_rejects_unknown_attribute():
+    block = (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}" '
+        'data-foo="bar"}\n::::'
+    )
+    assert parse_video_block(block) is None

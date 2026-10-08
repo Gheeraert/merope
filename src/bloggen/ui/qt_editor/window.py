@@ -1484,12 +1484,21 @@ class QtEditorWindow(QMainWindow):
         return cursor
 
     def replace_video_block(
-        self, video_id: str, caption: str = "", width: int = 100
+        self,
+        video_id: str,
+        caption: str = "",
+        width: int = 100,
+        *,
+        caption_source: str | None = None,
     ) -> QTextCursor:
         """Replace the video block the caret currently sits on, atomically,
-        exclusively through the validated document adapter."""
+        exclusively through the validated document adapter. See
+        :func:`bloggen.ui.qt_editor.video_structure.replace_video` for
+        ``caption_source``."""
 
-        cursor = replace_video(self.editor.textCursor(), video_id, caption, width)
+        cursor = replace_video(
+            self.editor.textCursor(), video_id, caption, width, caption_source=caption_source
+        )
         self.editor.setTextCursor(cursor)
         self.editor.setFocus()
         return cursor
@@ -1519,7 +1528,19 @@ class QtEditorWindow(QMainWindow):
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return False
             try:
-                self.replace_video_block(dialog.video_id(), dialog.caption(), dialog.width())
+                if dialog.caption_changed():
+                    self.replace_video_block(dialog.video_id(), dialog.caption(), dialog.width())
+                else:
+                    # The caption field came back exactly as prefilled: put
+                    # the original Markdown caption source back verbatim
+                    # (see ParsedVideoBlock.caption_source) rather than
+                    # re-escaping the displayable text, which would corrupt
+                    # a hand-written or externally produced caption.
+                    self.replace_video_block(
+                        dialog.video_id(),
+                        width=dialog.width(),
+                        caption_source=existing.caption_source,
+                    )
             except (ValueError, UnsupportedDocumentError) as exc:
                 QMessageBox.warning(self, "Modification impossible", str(exc))
                 return False

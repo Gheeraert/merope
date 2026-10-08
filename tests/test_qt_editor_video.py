@@ -14,7 +14,11 @@ from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtWidgets import QApplication
 
 from bloggen.markdown.rich_text_model import PARAGRAPH, VERBATIM, Block, InlineRun
-from bloggen.markdown.video_syntax import ParsedVideoBlock, format_video_block
+from bloggen.markdown.video_syntax import (
+    ParsedVideoBlock,
+    format_video_block,
+    parse_video_block,
+)
 from bloggen.ui.qt_editor.box_structure import can_insert_box, insert_empty_box
 from bloggen.ui.qt_editor.document_adapter import (
     UnsupportedDocumentError,
@@ -127,7 +131,11 @@ def test_video_block_at_cursor_detects_an_existing_video():
 
     parsed = video_block_at_cursor(text_cursor)
     assert parsed == ParsedVideoBlock(
-        provider="youtube", video_id=VALID_ID, caption="Légende.", width=100
+        provider="youtube",
+        video_id=VALID_ID,
+        caption="Légende.",
+        caption_source="Légende\\.",
+        width=100,
     )
 
 
@@ -185,3 +193,131 @@ def test_cannot_replace_a_non_video_verbatim_block():
         replace_video(text_cursor, VALID_ID, "Légende.", 50)
 
     assert extract_blocks(document) == [other_raw]
+
+
+# --- P1: a caption the user did not touch is preserved byte-for-byte ------
+
+
+@pytest.mark.parametrize(
+    "caption_line",
+    ["*gras*", "<em>gras</em>", "Texte   avec   plusieurs   espaces"],
+    ids=["manual-markdown-emphasis", "manual-html", "multiple-spaces"],
+)
+def test_replace_video_without_touching_the_caption_preserves_its_source(caption_line):
+    raw = (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}"}}\n'
+        f'{caption_line}\n::::'
+    )
+    document = _document([Block(kind=VERBATIM, raw_text=raw)])
+    text_cursor = QTextCursor(document)
+    text_cursor.setPosition(document.findBlockByNumber(0).position())
+
+    existing = video_block_at_cursor(text_cursor)
+    assert existing is not None
+
+    # Mirrors the window.py "edit" flow: width changed, caption field left
+    # exactly as prefilled, so caption_source is passed through unchanged.
+    replace_video(text_cursor, VALID_ID, width=75, caption_source=existing.caption_source)
+
+    blocks = extract_blocks(document)
+    assert len(blocks) == 1
+    assert blocks[0].raw_text == (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}" '
+        f'data-width="75"}}\n{caption_line}\n::::'
+    )
+
+
+def test_replace_video_with_an_actually_edited_caption_is_escaped_as_plain_text():
+    raw = (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}"}}\n'
+        '*gras*\n::::'
+    )
+    document = _document([Block(kind=VERBATIM, raw_text=raw)])
+    text_cursor = QTextCursor(document)
+    text_cursor.setPosition(document.findBlockByNumber(0).position())
+
+    # The caller determined the caption field WAS edited (no caption_source
+    # passed): the new text must go through the same plain-text escaping
+    # as a fresh insertion, never be interpreted as Markdown.
+    replace_video(text_cursor, VALID_ID, "# Nouvelle légende", 75)
+
+    blocks = extract_blocks(document)
+    assert len(blocks) == 1
+    parsed = parse_video_block(blocks[0].raw_text)
+    assert parsed is not None
+    assert parsed.caption == "# Nouvelle légende"
+    assert parsed.caption_source == "\\# Nouvelle légende"
+
+
+def test_dialog_caption_changed_is_false_when_untouched_despite_internal_spacing():
+    dialog = VideoInsertDialog(
+        video_id=VALID_ID, caption="Texte   avec   plusieurs   espaces", width=100
+    )
+    assert dialog.caption_changed() is False
+
+
+def test_dialog_caption_changed_is_true_after_editing():
+    dialog = VideoInsertDialog(video_id=VALID_ID, caption="Légende.", width=100)
+    dialog.caption_edit.setText("Autre légende.")
+    assert dialog.caption_changed() is True
+
+
+def test_dialog_caption_changed_is_true_for_a_fresh_insertion_with_text():
+    dialog = VideoInsertDialog()
+    dialog.caption_edit.setText("Une légende.")
+    assert dialog.caption_changed() is True
+
+
+# --- P3: a selection must never enable "Modifier la vidéo…" ---------------
+
+
+def _select(document: QTextDocument, start: int, end: int) -> QTextCursor:
+    cursor = QTextCursor(document)
+    cursor.setPosition(start)
+    cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+    return cursor
+
+
+def test_video_block_at_cursor_detects_the_first_line_with_a_plain_caret():
+    document = _document([_video_block("Légende.")])
+    cursor = QTextCursor(document)
+    cursor.setPosition(document.findBlockByNumber(0).position())
+    assert video_block_at_cursor(cursor) is not None
+
+
+def test_video_block_at_cursor_detects_the_caption_line_with_a_plain_caret():
+    document = _document([_video_block("Légende.")])
+    cursor = QTextCursor(document)
+    cursor.setPosition(document.findBlockByNumber(1).position())
+    assert video_block_at_cursor(cursor) is not None
+
+
+def test_video_block_at_cursor_detects_the_last_line_with_a_plain_caret():
+    document = _document([_video_block("Légende.")])
+    cursor = QTextCursor(document)
+    cursor.setPosition(document.findBlockByNumber(2).position())
+    assert video_block_at_cursor(cursor) is not None
+
+
+def test_video_block_at_cursor_is_none_for_a_selection_entirely_inside_the_video():
+    document = _document([_video_block("Légende.")])
+    start = document.findBlockByNumber(0).position()
+    end = document.findBlockByNumber(2).position() + 1
+    cursor = _select(document, start, end)
+    assert video_block_at_cursor(cursor) is None
+
+
+def test_video_block_at_cursor_is_none_for_a_selection_from_paragraph_into_the_video():
+    document = _document([_p("Avant."), _video_block("Légende.")])
+    start = document.findBlockByNumber(0).position()
+    end = document.findBlockByNumber(2).position() + 1
+    cursor = _select(document, start, end)
+    assert video_block_at_cursor(cursor) is None
+
+
+def test_video_block_at_cursor_is_none_for_a_selection_from_the_video_into_a_paragraph():
+    document = _document([_video_block("Légende."), _p("Après.")])
+    start = document.findBlockByNumber(0).position()
+    end = document.findBlockByNumber(3).position() + 1
+    cursor = _select(document, start, end)
+    assert video_block_at_cursor(cursor) is None

@@ -20,6 +20,7 @@ from bloggen.markdown.rich_text_model import VERBATIM, Block
 from bloggen.markdown.video_syntax import (
     DEFAULT_WIDTH,
     ParsedVideoBlock,
+    compose_video_block,
     format_video_block,
     parse_video_block,
 )
@@ -34,6 +35,19 @@ from bloggen.ui.qt_editor.document_adapter import (
 
 def _video_block(video_id: str, caption: str = "", width: int = DEFAULT_WIDTH) -> Block:
     return Block(kind=VERBATIM, raw_text=format_video_block(video_id, caption, width=width))
+
+
+def _video_block_with_caption_source(
+    video_id: str, caption_source: str, width: int = DEFAULT_WIDTH
+) -> Block:
+    """Like :func:`_video_block`, but the caption line is taken verbatim —
+    never re-escaped — from an existing block's untouched
+    ``ParsedVideoBlock.caption_source``."""
+
+    return Block(
+        kind=VERBATIM,
+        raw_text=compose_video_block(video_id, width=width, caption_source=caption_source),
+    )
 
 
 def can_insert_video(cursor: QTextCursor) -> bool:
@@ -67,15 +81,21 @@ def insert_video(
 
 
 def video_block_at_cursor(cursor: QTextCursor) -> ParsedVideoBlock | None:
-    """The parsed video block the cursor sits on, or ``None``.
+    """The parsed video block a plain caret (no selection) sits on, or
+    ``None``.
 
-    ``None`` covers both "not on a raw block at all" and "on a raw block
-    that is not a well-formed, currently-valid Mérope video block" (e.g. a
-    table, an encadré's own raw fallback, or a hand-edited block with a
-    malformed ``data-width``) — in every such case there is nothing to
-    prefill an edit dialog with.
+    ``None`` covers "there is a selection" (whatever it spans — the edit
+    dialog must only ever open for an unambiguous caret position, never
+    because a selection happens to end or start inside a video block),
+    "not on a raw block at all", and "on a raw block that is not a
+    well-formed, currently-valid Mérope video block" (e.g. a table, an
+    encadré's own raw fallback, or a hand-edited block with a malformed
+    attribute) — in every such case there is nothing to prefill an edit
+    dialog with.
     """
 
+    if cursor.hasSelection():
+        return None
     raw_text = raw_block_group_text(cursor.block())
     if raw_text is None:
         return None
@@ -83,19 +103,38 @@ def video_block_at_cursor(cursor: QTextCursor) -> ParsedVideoBlock | None:
 
 
 def replace_video(
-    cursor: QTextCursor, video_id: str, caption: str = "", width: int = DEFAULT_WIDTH
+    cursor: QTextCursor,
+    video_id: str,
+    caption: str = "",
+    width: int = DEFAULT_WIDTH,
+    *,
+    caption_source: str | None = None,
 ) -> QTextCursor:
     """Atomically replace the video block group ``cursor`` sits on.
 
-    Raises ``UnsupportedDocumentError`` if the cursor is not positioned on
-    a well-formed Mérope video block specifically — never on some other
-    raw block (a table's source, an encadré's raw fallback, an
-    unrecognized construct): this must not be a generic "overwrite
-    whatever raw block is here" operation.
+    ``caption_source`` is the exact, untouched Markdown caption line to
+    write back verbatim — the caller's signal that the edit dialog's
+    caption field came back unchanged from what it was prefilled with, so
+    the original source (not necessarily anything
+    :func:`format_video_block`'s own escaping ever produced) must be
+    preserved byte-for-byte rather than re-derived from the displayable
+    ``caption`` text. Leave it ``None`` (the default) for a new or
+    actually-edited caption, which is then escaped as plain text exactly
+    like a fresh insertion.
+
+    Raises ``UnsupportedDocumentError`` if the cursor (with no selection)
+    is not positioned on a well-formed Mérope video block specifically —
+    never on some other raw block (a table's source, an encadré's raw
+    fallback, an unrecognized construct): this must not be a generic
+    "overwrite whatever raw block is here" operation.
     """
 
     if video_block_at_cursor(cursor) is None:
         raise UnsupportedDocumentError(
             "Le curseur ne se trouve pas sur un bloc vidéo Mérope"
         )
-    return replace_raw_block_group(cursor, _video_block(video_id, caption, width))
+    if caption_source is not None:
+        block = _video_block_with_caption_source(video_id, caption_source, width)
+    else:
+        block = _video_block(video_id, caption, width)
+    return replace_raw_block_group(cursor, block)
