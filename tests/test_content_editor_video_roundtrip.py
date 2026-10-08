@@ -46,3 +46,19 @@ def test_tk_shows_the_video_as_protected_source_not_as_lost_content(editor):
     shown = editor.text.get("1.0", "end")
     assert f'data-video-id="{VALID_ID}"' in shown
     assert "Une légende\\." in shown
+
+
+BODY_WITH_WIDTH = (
+    "Avant.\n\n"
+    + format_video_block(VALID_ID, "Une légende.", width=75)
+    + "\n\n"
+    "Après.\n"
+)
+
+
+def test_tk_open_then_save_keeps_a_video_with_explicit_width_byte_for_byte(editor):
+    editor._populate_from_blocks(markdown_to_blocks(BODY_WITH_WIDTH))
+
+    assert blocks_to_markdown(editor.extract_blocks()) == BODY_WITH_WIDTH
+    shown = editor.text.get("1.0", "end")
+    assert 'data-width="75"' in shown

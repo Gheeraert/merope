@@ -31,6 +31,15 @@
 
 local SUPPORTED_PROVIDERS = { youtube = true }
 
+-- Same bounds and default as bloggen.markdown.video_syntax
+-- (DEFAULT_WIDTH/MIN_WIDTH/MAX_WIDTH); validated here independently, from
+-- the raw ``data-width`` attribute string, never trusting the Python side
+-- already having checked it (a hand-written Markdown file never goes
+-- through that module at all).
+local DEFAULT_WIDTH = 100
+local MIN_WIDTH = 25
+local MAX_WIDTH = 100
+
 local function refuse(message)
   error('Vidéo Mérope non prise en charge : ' .. message, 0)
 end
@@ -44,6 +53,22 @@ local function is_valid_youtube_id(id)
     return false
   end
   return id:match('^[A-Za-z0-9_%-]+$') ~= nil
+end
+
+-- Returns the validated integer width, or nil if ``raw`` (the attribute
+-- string, possibly absent) is not a bare unsigned integer in range.
+local function parse_width(raw)
+  if raw == nil then
+    return DEFAULT_WIDTH
+  end
+  if type(raw) ~= 'string' or raw:match('^[0-9]+$') == nil then
+    return nil
+  end
+  local value = tonumber(raw)
+  if value == nil or value < MIN_WIDTH or value > MAX_WIDTH then
+    return nil
+  end
+  return value
 end
 
 local function tei_inline(inlines)
@@ -68,6 +93,11 @@ function Div(div)
   end
   if not is_valid_youtube_id(video_id) then
     refuse('identifiant vidéo YouTube invalide.')
+  end
+
+  local width = parse_width(div.attributes['data-width'])
+  if width == nil then
+    refuse('largeur invalide (' .. tostring(div.attributes['data-width']) .. ').')
   end
 
   local blocks = {}
@@ -98,10 +128,23 @@ function Div(div)
   -- existing tei:p template in tei_to_html.xsl already unwraps this exact
   -- shape (a <p> whose only child is a <figure>), so no XSLT change is
   -- needed for this wrapper.
+  --
+  -- The display width (already validated above, an integer, never a raw
+  -- user-controlled string) is carried as @rendition on this same <p>: the
+  -- Commons Publishing RelaxNG allows @rendition (a list of anyURI) on
+  -- every element via att.global.attributes, and this profile's <figure>
+  -- has no free presentation attribute of its own, so this wrapper is the
+  -- minimal valid transport. Omitted at the default width so a video
+  -- created before this feature -- and any video still at 100 % -- keeps
+  -- producing byte-identical TEI.
+  local pOpen = '<p>'
+  if width ~= DEFAULT_WIDTH then
+    pOpen = '<p rendition="urn:merope:video-width:' .. width .. '">'
+  end
   local out = {
     pandoc.RawBlock(
       'tei',
-      '<p><figure n="' .. video_id .. '"><p><ref type="video-youtube" target="'
+      pOpen .. '<figure n="' .. video_id .. '"><p><ref type="video-youtube" target="'
         .. target .. '">Vidéo YouTube</ref></p>'
     ),
   }

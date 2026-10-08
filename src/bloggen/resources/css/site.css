@@ -854,7 +854,10 @@ button:focus-visible {
 
 .video-embed {
   margin: 1.5rem 0;
+  width: var(--video-width, 100%);
   max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .video-embed-frame {
@@ -1336,6 +1339,10 @@ button:focus-visible {
     margin-left: 0;
     padding-left: 0;
     padding-bottom: 0.75rem;
+  }
+
+  .video-embed {
+    width: 100%;
   }
 
   .site-search-input {

@@ -32,7 +32,18 @@ from __future__ import annotations
 
 import re
 import string
+from typing import NamedTuple
 from urllib.parse import parse_qs, urlparse
+
+
+class ParsedVideoBlock(NamedTuple):
+    """Components of a video block recognized by :func:`parse_video_block`."""
+
+    provider: str
+    video_id: str
+    caption: str
+    width: int
+
 
 VIDEO_CLASS = "merope-video"
 VIDEO_CLOSE = "::::"
@@ -46,9 +57,21 @@ SUPPORTED_PROVIDERS = frozenset({"youtube"})
 # YouTube video ids are always 11 characters from this exact alphabet.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
+# Display width, as a percentage of the content column. 100 % (the whole
+# column) is both the default and the historical, pre-width behaviour, so
+# it stays the only value that round-trips to the attribute-less form (see
+# format_video_block). The Lua filter re-implements this exact rule
+# (independently, see merope_video.lua) before it ever reaches the TEI.
+DEFAULT_WIDTH = 100
+MIN_WIDTH = 25
+MAX_WIDTH = 100
+
+_WIDTH_ATTR_RE = re.compile(r"^[0-9]+$")
+
 _VIDEO_OPEN_RE = re.compile(
     r'^:::: \{\.merope-video data-provider="(?P<provider>[^"]*)"'
-    r' data-video-id="(?P<video_id>[^"]*)"\}$'
+    r' data-video-id="(?P<video_id>[^"]*)"'
+    r'(?: data-width="(?P<width>[^"]*)")?\}$'
 )
 
 # The caption is plain, single-line text (see format_video_block), then
@@ -77,6 +100,55 @@ _MD_ESCAPE_RE = re.compile("([" + re.escape(string.punctuation) + "])")
 
 def is_valid_youtube_id(video_id: str) -> bool:
     return bool(_YOUTUBE_ID_RE.match(video_id))
+
+
+def is_valid_width(width: object) -> bool:
+    """Whether ``width`` is a strict integer percentage in [MIN_WIDTH, MAX_WIDTH].
+
+    A ``bool`` is rejected even though it is technically an ``int`` subclass
+    in Python, and anything else that is not an ``int`` (a string, a float
+    such as ``75.5``) is rejected too: the single canonical check both
+    :func:`normalize_width` and the Qt spin box value are expected to pass.
+    """
+
+    return (
+        isinstance(width, int)
+        and not isinstance(width, bool)
+        and MIN_WIDTH <= width <= MAX_WIDTH
+    )
+
+
+def normalize_width(width: int | None) -> int:
+    """``DEFAULT_WIDTH`` for ``None``, else ``width`` if strictly valid.
+
+    Raises ``ValueError`` otherwise. The single validation barrier every
+    other width entry point (the Markdown attribute parser below, the Qt
+    dialog, :func:`format_video_block`) funnels through.
+    """
+
+    if width is None:
+        return DEFAULT_WIDTH
+    if not is_valid_width(width):
+        raise ValueError(f"Largeur vidéo invalide : {width!r}")
+    return width
+
+
+def parse_width_attribute(raw: str | None) -> int:
+    """Parse the Markdown ``data-width`` attribute text (or its absence).
+
+    ``raw`` is the attribute's raw string value, or ``None`` when the
+    attribute itself is absent (interpreted as :data:`DEFAULT_WIDTH`).
+    Anything other than a bare, unsigned integer string — ``"50%"``,
+    ``"75.5"``, ``"abc"``, ``"-1"`` — is rejected, as is one that is
+    syntactically a plain integer but out of range (``"0"``, ``"24"``,
+    ``"101"``); see :func:`normalize_width` for the shared range check.
+    """
+
+    if raw is None:
+        return DEFAULT_WIDTH
+    if not isinstance(raw, str) or not _WIDTH_ATTR_RE.match(raw):
+        raise ValueError(f"Largeur vidéo invalide : {raw!r}")
+    return normalize_width(int(raw))
 
 
 def parse_video_open_line(line: str) -> tuple[str, str] | None:
@@ -152,21 +224,80 @@ def _escape_caption(text: str) -> str:
     return _MD_ESCAPE_RE.sub(r"\\\1", text)
 
 
-def format_video_block(video_id: str, caption: str = "", *, provider: str = "youtube") -> str:
+# The exact inverse of _escape_caption/_MD_ESCAPE_RE, used only to recover a
+# caption's original text for the Qt "edit this video" dialog (see
+# parse_video_block). Never used on the way to TEI/HTML: that path keeps
+# reading the escaped Markdown caption as-is, exactly as before.
+_MD_UNESCAPE_RE = re.compile(r"\\([" + re.escape(string.punctuation) + "])")
+
+
+def _unescape_caption(text: str) -> str:
+    return _MD_UNESCAPE_RE.sub(r"\1", text)
+
+
+def format_video_block(
+    video_id: str,
+    caption: str = "",
+    *,
+    provider: str = "youtube",
+    width: int = DEFAULT_WIDTH,
+) -> str:
     """Render the reserved Mérope fenced-div Markdown for a validated video.
 
-    Raises ``ValueError`` for an unsupported provider or an invalid id —
-    callers (the Qt insertion dialog, tests) are expected to have already
-    validated the id via :func:`parse_youtube_url`.
+    Raises ``ValueError`` for an unsupported provider, an invalid id or an
+    invalid width — callers (the Qt insertion dialog, tests) are expected
+    to have already validated the id via :func:`parse_youtube_url`.
+
+    ``data-width`` is only written when ``width`` differs from
+    :data:`DEFAULT_WIDTH`, so the attribute-less form — what every video
+    block created before this feature already is — stays the canonical
+    representation of the default case and existing documents keep
+    round-tripping byte-for-byte.
     """
 
     if provider not in SUPPORTED_PROVIDERS:
         raise ValueError(f"Fournisseur vidéo non pris en charge : {provider!r}")
     if not is_valid_youtube_id(video_id):
         raise ValueError(f"Identifiant vidéo YouTube invalide : {video_id!r}")
+    width = normalize_width(width)
 
-    open_line = f':::: {{.{VIDEO_CLASS} data-provider="{provider}" data-video-id="{video_id}"}}'
+    open_line = f':::: {{.{VIDEO_CLASS} data-provider="{provider}" data-video-id="{video_id}"'
+    if width != DEFAULT_WIDTH:
+        open_line += f' data-width="{width}"'
+    open_line += "}"
     normalized_caption = _escape_caption(" ".join(caption.split()))
     if normalized_caption:
         return f"{open_line}\n{normalized_caption}\n{VIDEO_CLOSE}"
     return f"{open_line}\n{VIDEO_CLOSE}"
+
+
+def parse_video_block(raw_text: str) -> ParsedVideoBlock | None:
+    """Parse a whole raw video block back into its components.
+
+    Used by the Qt editor to recognize an existing Mérope video block under
+    the cursor and prefill the edit dialog; returns ``None`` (never raises)
+    for anything that is not exactly this reserved shape — an unsupported
+    provider, an invalid id, an invalid or out-of-range width, more than one
+    caption line, or a missing/misplaced closing fence — since that simply
+    means "not a video block to offer editing for", not an error to report.
+    """
+
+    lines = raw_text.split("\n")
+    if len(lines) < 2 or lines[-1] != VIDEO_CLOSE:
+        return None
+    match = _VIDEO_OPEN_RE.match(lines[0])
+    if match is None:
+        return None
+    provider = match.group("provider")
+    video_id = match.group("video_id")
+    if provider not in SUPPORTED_PROVIDERS or not is_valid_youtube_id(video_id):
+        return None
+    try:
+        width = parse_width_attribute(match.group("width"))
+    except ValueError:
+        return None
+    caption_lines = lines[1:-1]
+    if len(caption_lines) > 1:
+        return None
+    caption = _unescape_caption(caption_lines[0]) if caption_lines else ""
+    return ParsedVideoBlock(provider=provider, video_id=video_id, caption=caption, width=width)

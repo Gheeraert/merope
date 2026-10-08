@@ -165,7 +165,12 @@ from bloggen.ui.qt_editor.text_edit import MeropeTextEdit
 from bloggen.ui.qt_editor.box_dialog import BoxInsertDialog
 from bloggen.ui.qt_editor.box_structure import can_insert_box, insert_empty_box
 from bloggen.ui.qt_editor.video_dialog import VideoInsertDialog
-from bloggen.ui.qt_editor.video_structure import can_insert_video, insert_video
+from bloggen.ui.qt_editor.video_structure import (
+    can_insert_video,
+    insert_video,
+    replace_video,
+    video_block_at_cursor,
+)
 from bloggen.ui.qt_editor.table_dialog import TableInsertDialog
 from bloggen.ui.qt_editor.table_structure import (
     can_insert_empty_table,
@@ -1469,20 +1474,58 @@ class QtEditorWindow(QMainWindow):
             return False
         return True
 
-    def insert_video_block(self, video_id: str, caption: str = "") -> QTextCursor:
+    def insert_video_block(self, video_id: str, caption: str = "", width: int = 100) -> QTextCursor:
         """Insert the reserved video block exclusively through the
         validated document adapter."""
 
-        cursor = insert_video(self.editor.textCursor(), video_id, caption)
+        cursor = insert_video(self.editor.textCursor(), video_id, caption, width)
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus()
+        return cursor
+
+    def replace_video_block(
+        self, video_id: str, caption: str = "", width: int = 100
+    ) -> QTextCursor:
+        """Replace the video block the caret currently sits on, atomically,
+        exclusively through the validated document adapter."""
+
+        cursor = replace_video(self.editor.textCursor(), video_id, caption, width)
         self.editor.setTextCursor(cursor)
         self.editor.setFocus()
         return cursor
 
     def _update_insert_video_action(self) -> None:
-        self.insert_video_action.setEnabled(can_insert_video(self.editor.textCursor()))
+        existing = video_block_at_cursor(self.editor.textCursor())
+        if existing is not None:
+            label = "Modifier la vidéo…"
+            self.insert_video_action.setEnabled(True)
+        else:
+            label = "Insérer une vidéo…"
+            self.insert_video_action.setEnabled(can_insert_video(self.editor.textCursor()))
+        self.insert_video_action.setText(label)
+        self.insert_video_action.setToolTip(label)
+        self.insert_video_action.setStatusTip(label)
 
     def _insert_video_from_dialog(self) -> bool:
-        if not can_insert_video(self.editor.textCursor()):
+        cursor = self.editor.textCursor()
+        existing = video_block_at_cursor(cursor)
+        if existing is not None:
+            dialog = VideoInsertDialog(
+                self,
+                video_id=existing.video_id,
+                caption=existing.caption,
+                width=existing.width,
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return False
+            try:
+                self.replace_video_block(dialog.video_id(), dialog.caption(), dialog.width())
+            except (ValueError, UnsupportedDocumentError) as exc:
+                QMessageBox.warning(self, "Modification impossible", str(exc))
+                return False
+            return True
+
+        if not can_insert_video(cursor):
             QMessageBox.warning(
                 self,
                 "Insertion impossible",
@@ -1495,7 +1538,7 @@ class QtEditorWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
         try:
-            self.insert_video_block(dialog.video_id(), dialog.caption())
+            self.insert_video_block(dialog.video_id(), dialog.caption(), dialog.width())
         except (ValueError, UnsupportedDocumentError) as exc:
             QMessageBox.warning(self, "Insertion impossible", str(exc))
             return False

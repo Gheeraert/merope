@@ -2449,6 +2449,78 @@ def selection_crosses_raw_boundary(cursor: QTextCursor) -> bool:
     return False
 
 
+def raw_block_group_text(block: QTextBlock) -> str | None:
+    """Full, newline-joined source of the contiguous raw-block group
+    ``block`` belongs to, or ``None`` if it is not a raw block.
+
+    Used to recover a raw block's complete text (e.g. a video's reserved
+    fenced-div Markdown) from any one QTextBlock inside its group, without
+    assuming ``block`` is the group's first line.
+    """
+
+    identity = raw_block_identity(block)
+    if identity is None:
+        return None
+    first_block = block
+    while True:
+        previous = first_block.previous()
+        if not previous.isValid() or raw_block_identity(previous) != identity:
+            break
+        first_block = previous
+    lines: list[str] = []
+    current = first_block
+    while current.isValid() and raw_block_identity(current) == identity:
+        lines.append(current.text())
+        current = current.next()
+    return "\n".join(lines)
+
+
+def replace_raw_block_group(cursor: QTextCursor, block: Block) -> QTextCursor:
+    """Atomically replace the raw block group ``cursor``'s block belongs to.
+
+    The whole contiguous group sharing that block's raw-block identity —
+    whatever its length — is replaced by ``block`` (itself a validated raw
+    block of a supported kind) in one edit block. Raises
+    ``UnsupportedDocumentError`` if the cursor is not currently positioned
+    on a raw block. Unlike :func:`insert_blocks`, this is the one path
+    allowed to touch a raw block's boundary, precisely because it replaces
+    the whole group rather than inserting something else next to or across
+    it.
+    """
+
+    identity = raw_block_identity(cursor.block())
+    if identity is None:
+        raise UnsupportedDocumentError("Le curseur ne se trouve pas sur un bloc brut")
+    validate_blocks([block])
+
+    first_block = cursor.block()
+    while True:
+        previous = first_block.previous()
+        if not previous.isValid() or raw_block_identity(previous) != identity:
+            break
+        first_block = previous
+    last_block = cursor.block()
+    while True:
+        next_block = last_block.next()
+        if not next_block.isValid() or raw_block_identity(next_block) != identity:
+            break
+        last_block = next_block
+
+    replacement = QTextCursor(cursor.document())
+    replacement.setPosition(first_block.position())
+    replacement.setPosition(
+        last_block.position() + last_block.length() - 1,
+        QTextCursor.MoveMode.KeepAnchor,
+    )
+    replacement.beginEditBlock()
+    try:
+        replacement.removeSelectedText()
+        _write_blocks(replacement, [block], first=True)
+    finally:
+        replacement.endEditBlock()
+    return replacement
+
+
 def _extract_runs(block: QTextBlock) -> list[InlineRun]:
     runs: list[InlineRun] = []
     iterator = block.begin()

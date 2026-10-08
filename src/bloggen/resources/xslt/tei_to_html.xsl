@@ -217,6 +217,32 @@
     <xsl:variable name="videoId" select="normalize-space(@n)"/>
     <xsl:variable name="watchUrl" select="normalize-space((tei:p/tei:ref[@type='video-youtube'])[1]/@target)"/>
     <xsl:variable name="captionText" select="normalize-space(string(tei:figDesc[1]))"/>
+
+    <!-- Display width: carried as @rendition="urn:merope:video-width:N" on
+         the <p> this <figure> is wrapped in (see merope_video.lua), the
+         only valid, minimal transport this TEI profile's <figure> offers
+         for presentation data that is not @n (already the YouTube id).
+         Defensive by construction: anything other than the exact expected
+         prefix, followed by only digits in [25, 100], falls back to 100 %;
+         an absent, malformed or out-of-range value never reaches the
+         rendered page as a free-form style string. -->
+    <xsl:variable name="renditionAttr" select="normalize-space(parent::tei:p[1]/@rendition)"/>
+    <xsl:variable name="widthToken">
+      <xsl:choose>
+        <xsl:when test="starts-with($renditionAttr, 'urn:merope:video-width:')">
+          <xsl:value-of select="substring-after($renditionAttr, 'urn:merope:video-width:')"/>
+        </xsl:when>
+      </xsl:choose>
+    </xsl:variable>
+    <xsl:variable name="widthDigitsOnly" select="translate($widthToken, '0123456789', '')"/>
+    <xsl:variable name="videoWidth">
+      <xsl:choose>
+        <xsl:when test="$widthToken != '' and $widthDigitsOnly = '' and number($widthToken) &gt;= 25 and number($widthToken) &lt;= 100">
+          <xsl:value-of select="number($widthToken)"/>
+        </xsl:when>
+        <xsl:otherwise>100</xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
     <xsl:variable name="iframeTitle">
       <xsl:choose>
         <xsl:when test="$captionText != ''">
@@ -228,6 +254,11 @@
       </xsl:choose>
     </xsl:variable>
     <figure class="video-embed">
+      <xsl:if test="$videoWidth != 100">
+        <xsl:attribute name="style">
+          <xsl:value-of select="concat('--video-width:', $videoWidth, '%')"/>
+        </xsl:attribute>
+      </xsl:if>
       <div class="video-embed-frame">
         <iframe
           src="{concat('https://www.youtube-nocookie.com/embed/', $videoId)}"

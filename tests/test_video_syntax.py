@@ -5,9 +5,17 @@ from __future__ import annotations
 import pytest
 
 from bloggen.markdown.video_syntax import (
+    DEFAULT_WIDTH,
+    MAX_WIDTH,
+    MIN_WIDTH,
+    ParsedVideoBlock,
     format_video_block,
     is_valid_youtube_id,
+    is_valid_width,
+    normalize_width,
+    parse_video_block,
     parse_video_open_line,
+    parse_width_attribute,
     parse_youtube_url,
     youtube_watch_url,
 )
@@ -105,3 +113,112 @@ def test_parse_video_open_line_recognizes_the_shape():
     assert parse_video_open_line(line) == ("youtube", VALID_ID)
     assert parse_video_open_line(":::: {.merope-encadre}") is None
     assert parse_video_open_line("not a fence at all") is None
+
+
+# --- Width: validation, normalization, serialization, parsing ------------
+
+
+@pytest.mark.parametrize("width", [MIN_WIDTH, 50, 75, MAX_WIDTH])
+def test_is_valid_width_accepts_the_allowed_range(width):
+    assert is_valid_width(width) is True
+
+
+@pytest.mark.parametrize(
+    "width",
+    [MIN_WIDTH - 1, 24, 0, -1, MAX_WIDTH + 1, 101, "50", "50%", "abc", 75.5, True, False],
+)
+def test_is_valid_width_rejects_everything_else(width):
+    assert is_valid_width(width) is False
+
+
+def test_normalize_width_none_is_the_default():
+    assert normalize_width(None) == DEFAULT_WIDTH
+
+
+@pytest.mark.parametrize("width", [MIN_WIDTH, 50, 75, MAX_WIDTH])
+def test_normalize_width_passes_through_valid_values(width):
+    assert normalize_width(width) == width
+
+
+@pytest.mark.parametrize("width", [24, 101, 0, -1, "75", 75.5, True])
+def test_normalize_width_rejects_invalid_values(width):
+    with pytest.raises(ValueError):
+        normalize_width(width)
+
+
+def test_parse_width_attribute_absent_is_the_default():
+    assert parse_width_attribute(None) == DEFAULT_WIDTH
+
+
+@pytest.mark.parametrize("raw", ["25", "50", "75", "100"])
+def test_parse_width_attribute_accepts_bare_integers_in_range(raw):
+    assert parse_width_attribute(raw) == int(raw)
+
+
+@pytest.mark.parametrize(
+    "raw", ["24", "101", "0", "-1", "50%", "abc", "75.5", "", " 50", "50 "]
+)
+def test_parse_width_attribute_rejects_everything_else(raw):
+    with pytest.raises(ValueError):
+        parse_width_attribute(raw)
+
+
+def test_format_video_block_omits_data_width_at_default():
+    assert format_video_block(VALID_ID, width=DEFAULT_WIDTH) == format_video_block(VALID_ID)
+    assert "data-width" not in format_video_block(VALID_ID, width=100)
+
+
+def test_format_video_block_writes_data_width_when_not_default():
+    rendered = format_video_block(VALID_ID, width=75)
+    assert rendered == (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}" '
+        f'data-width="75"}}\n::::'
+    )
+
+
+def test_format_video_block_rejects_invalid_width():
+    with pytest.raises(ValueError):
+        format_video_block(VALID_ID, width=24)
+    with pytest.raises(ValueError):
+        format_video_block(VALID_ID, width=101)
+
+
+def test_parse_video_block_without_width_defaults_to_100():
+    block = format_video_block(VALID_ID, "Une légende.")
+    assert parse_video_block(block) == ParsedVideoBlock(
+        provider="youtube", video_id=VALID_ID, caption="Une légende.", width=100
+    )
+
+
+def test_parse_video_block_with_width_round_trips():
+    block = format_video_block(VALID_ID, "Une légende.", width=75)
+    assert parse_video_block(block) == ParsedVideoBlock(
+        provider="youtube", video_id=VALID_ID, caption="Une légende.", width=75
+    )
+
+
+def test_parse_video_block_without_caption():
+    block = format_video_block(VALID_ID, width=50)
+    assert parse_video_block(block) == ParsedVideoBlock(
+        provider="youtube", video_id=VALID_ID, caption="", width=50
+    )
+
+
+def test_parse_video_block_unescapes_the_caption():
+    block = format_video_block(VALID_ID, "*gras* et [lien]")
+    parsed = parse_video_block(block)
+    assert parsed is not None
+    assert parsed.caption == "*gras* et [lien]"
+
+
+def test_parse_video_block_rejects_invalid_hand_written_width():
+    block = (
+        f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}" '
+        'data-width="150"}\n::::'
+    )
+    assert parse_video_block(block) is None
+
+
+def test_parse_video_block_rejects_non_video_text():
+    assert parse_video_block("some\nraw\ntext") is None
+    assert parse_video_block(":::: {.merope-encadre}\nTexte.\n::::") is None

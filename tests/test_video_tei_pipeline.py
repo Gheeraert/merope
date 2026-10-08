@@ -275,6 +275,94 @@ def test_html_image_figures_are_unaffected(tmp_path):
     assert not figures[0].xpath(".//iframe")
 
 
+def test_video_without_width_has_no_rendition_and_validates(tmp_path):
+    body = format_video_block(VALID_ID, "Une légende.") + "\n"
+    path, tree = _convert(tmp_path, body)
+
+    paragraphs = tree.xpath("//t:p[t:figure]", namespaces=TEI_NS)
+    assert len(paragraphs) == 1
+    assert paragraphs[0].get("rendition") is None
+
+    validation = validate_commons_publishing_file(path)
+    assert validation.valid is True, validation.issues
+
+
+def test_video_with_width_75_carries_rendition_and_validates(tmp_path):
+    body = format_video_block(VALID_ID, "Une légende.", width=75) + "\n"
+    path, tree = _convert(tmp_path, body)
+
+    paragraphs = tree.xpath("//t:p[t:figure]", namespaces=TEI_NS)
+    assert len(paragraphs) == 1
+    assert paragraphs[0].get("rendition") == "urn:merope:video-width:75"
+
+    figures = tree.xpath("//t:figure", namespaces=TEI_NS)
+    assert len(figures) == 1
+    assert figures[0].get("n") == VALID_ID
+
+    validation = validate_commons_publishing_file(path)
+    assert validation.valid is True, validation.issues
+
+
+@pytest.mark.parametrize("width", ["0", "24", "101", "-1", "50%", "abc", "75.5"])
+def test_invalid_hand_written_width_is_refused(tmp_path, width):
+    source = tmp_path / "doc.md"
+    source.write_text(
+        ':::: {.merope-video data-provider="youtube" data-video-id="'
+        + VALID_ID
+        + '" data-width="'
+        + width
+        + '"}\n::::\n',
+        encoding="utf-8",
+    )
+    result = convert_markdown_file_to_tei(source, tmp_path / "doc.xml")
+    assert result.success is False
+    assert "Vidéo Mérope" in result.message
+
+
+def test_html_video_width_75_sets_custom_property_and_keeps_ratio(tmp_path):
+    body = format_video_block(VALID_ID, width=75) + "\n"
+    html = _render(tmp_path, body)
+    document = etree.HTML(html)
+
+    figures = document.xpath("//figure[@class='video-embed']")
+    assert len(figures) == 1
+    style = figures[0].get("style") or ""
+    assert "--video-width:75%" in style
+
+    iframes = figures[0].xpath(".//iframe")
+    assert len(iframes) == 1
+    assert iframes[0].get("src") == f"https://www.youtube-nocookie.com/embed/{VALID_ID}"
+
+
+def test_html_video_width_50(tmp_path):
+    body = format_video_block(VALID_ID, width=50) + "\n"
+    html = _render(tmp_path, body)
+    document = etree.HTML(html)
+
+    figures = document.xpath("//figure[@class='video-embed']")
+    assert "--video-width:50%" in (figures[0].get("style") or "")
+
+
+def test_html_video_width_100_has_no_inline_style(tmp_path):
+    body = format_video_block(VALID_ID, width=100) + "\n"
+    html = _render(tmp_path, body)
+    document = etree.HTML(html)
+
+    figures = document.xpath("//figure[@class='video-embed']")
+    assert len(figures) == 1
+    assert not (figures[0].get("style") or "").strip()
+
+
+def test_html_video_without_width_attribute_defaults_to_100(tmp_path):
+    body = format_video_block(VALID_ID) + "\n"
+    html = _render(tmp_path, body)
+    document = etree.HTML(html)
+
+    figures = document.xpath("//figure[@class='video-embed']")
+    assert len(figures) == 1
+    assert not (figures[0].get("style") or "").strip()
+
+
 def test_lua_filters_are_shipped_in_a_deterministic_order():
     from bloggen.tei.pandoc_converter import convert_markdown_to_tei
     import inspect

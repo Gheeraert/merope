@@ -1,4 +1,5 @@
-"""Small modal dialog asking for a YouTube URL and an optional caption."""
+"""Small modal dialog asking for a YouTube URL, an optional caption and a
+display width; also used, prefilled, to edit an existing video block."""
 
 from __future__ import annotations
 
@@ -8,25 +9,44 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from bloggen.markdown.video_syntax import parse_youtube_url
+from bloggen.markdown.video_syntax import (
+    DEFAULT_WIDTH,
+    MAX_WIDTH,
+    MIN_WIDTH,
+    parse_youtube_url,
+    youtube_watch_url,
+)
 
 
 class VideoInsertDialog(QDialog):
-    """Collect a YouTube URL (required) and a caption (optional).
+    """Collect a YouTube URL (required), a caption and a width (optional).
 
     The URL is parsed and strictly validated on "OK" (see
     :func:`bloggen.markdown.video_syntax.parse_youtube_url`); an invalid
     URL is reported inline and keeps the dialog open rather than closing
     it on bad input.
+
+    Passing ``video_id`` prefills the dialog for editing an existing video
+    (the URL field shows its canonical watch URL) and retitles it
+    accordingly; the field stays a plain URL field, so re-submitting it
+    goes through the exact same validation as a fresh insertion.
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        video_id: str | None = None,
+        caption: str = "",
+        width: int = DEFAULT_WIDTH,
+    ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Insérer une vidéo")
+        self.setWindowTitle("Modifier la vidéo" if video_id is not None else "Insérer une vidéo")
         self._video_id: str | None = None
 
         layout = QVBoxLayout(self)
@@ -34,11 +54,23 @@ class VideoInsertDialog(QDialog):
         self.url_edit = QLineEdit(self)
         self.url_edit.setPlaceholderText("https://www.youtube.com/watch?v=…")
         self.url_edit.setToolTip("URL YouTube (watch, youtu.be, embed ou shorts)")
+        if video_id is not None:
+            self.url_edit.setText(youtube_watch_url(video_id))
         form.addRow("URL YouTube :", self.url_edit)
         self.caption_edit = QLineEdit(self)
         self.caption_edit.setPlaceholderText("Facultatif")
         self.caption_edit.setToolTip("Légende de la vidéo (facultative)")
+        self.caption_edit.setText(caption)
         form.addRow("Légende :", self.caption_edit)
+        self.width_spin = QSpinBox(self)
+        self.width_spin.setRange(MIN_WIDTH, MAX_WIDTH)
+        self.width_spin.setSingleStep(5)
+        self.width_spin.setSuffix(" %")
+        self.width_spin.setValue(width)
+        self.width_spin.setToolTip(
+            f"Largeur d’affichage, en pourcentage de la colonne ({MIN_WIDTH}–{MAX_WIDTH} %)"
+        )
+        form.addRow("Largeur :", self.width_spin)
         layout.addLayout(form)
 
         self.error_label = QLabel(self)
@@ -79,3 +111,8 @@ class VideoInsertDialog(QDialog):
         """The caption, single-lined and stripped; empty means none."""
 
         return " ".join(self.caption_edit.text().split())
+
+    def width(self) -> int:
+        """The chosen display width, as a percentage of the column."""
+
+        return self.width_spin.value()
