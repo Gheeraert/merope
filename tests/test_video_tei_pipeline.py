@@ -61,6 +61,69 @@ def test_video_with_caption_becomes_figure_ref_figdesc_and_validates(tmp_path):
     assert validation.valid is True, validation.issues
 
 
+@pytest.mark.parametrize(
+    "caption",
+    [
+        "# Titre",
+        "- élément",
+        "> citation",
+        "1. premier",
+        "---",
+        "::::",
+        "<strong>HTML</strong>",
+        "Vidéo : « essai » — n° 1.",
+    ],
+    ids=[
+        "atx-heading",
+        "bullet-list",
+        "blockquote",
+        "ordered-list",
+        "thematic-break",
+        "fenced-div-close",
+        "raw-html",
+        "ordinary-punctuation",
+    ],
+)
+def test_caption_with_markdown_block_syntax_is_preserved_as_literal_text(tmp_path, caption):
+    """A caption typed into the Qt dialog is plain, single-line text that
+    must never turn into a Markdown block construct of its own (heading,
+    list, blockquote, thematic break, or -- worse -- a premature close of
+    this very fenced div) nor into interpreted raw HTML; see
+    bloggen.markdown.video_syntax's systematic punctuation-escaping of the
+    caption. The Lua filter's own requirement that the caption be a
+    single Para/Plain block is left untouched and still doing real work
+    here: an insufficiently escaped caption would make it refuse with
+    "la légende doit être un paragraphe simple" instead of reaching this
+    point at all.
+    """
+
+    block = format_video_block(VALID_ID, caption)  # (1) serializable
+    assert block  # non-empty: format_video_block did not raise
+
+    body = block + "\n"
+    path, tree = _convert(tmp_path, body)  # (3) Markdown -> TEI succeeds
+
+    # (4) Commons Publishing validation still passes.
+    validation = validate_commons_publishing_file(path)
+    assert validation.valid is True, validation.issues
+
+    # (2) Only one figure/figDesc was produced -- no extra heading, list,
+    # blockquote or div sibling from a misparsed caption, and the Lua
+    # filter's "single Para/Plain" requirement was therefore satisfied,
+    # not bypassed.
+    figures = tree.xpath("//t:figure", namespaces=TEI_NS)
+    assert len(figures) == 1
+    fig_desc = figures[0].xpath("t:figDesc", namespaces=TEI_NS)
+    assert len(fig_desc) == 1
+
+    # (5) The literal caption text survives, with no Markdown or HTML
+    # interpretation left in it.
+    assert "".join(fig_desc[0].itertext()) == caption
+
+    xml = path.read_text(encoding="utf-8")
+    assert "<strong>" not in xml and "</strong>" not in xml
+
+
 def test_video_without_caption_has_no_figdesc_and_validates(tmp_path):
     body = format_video_block(VALID_ID) + "\n"
     path, tree = _convert(tmp_path, body)

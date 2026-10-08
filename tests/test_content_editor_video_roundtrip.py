@@ -45,4 +45,4 @@ def test_tk_shows_the_video_as_protected_source_not_as_lost_content(editor):
 
     shown = editor.text.get("1.0", "end")
     assert f'data-video-id="{VALID_ID}"' in shown
-    assert "Une légende." in shown
+    assert "Une légende\\." in shown

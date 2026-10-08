@@ -81,7 +81,7 @@ def test_format_video_block_without_caption():
 def test_format_video_block_with_caption():
     assert format_video_block(VALID_ID, "Une légende.") == (
         f':::: {{.merope-video data-provider="youtube" data-video-id="{VALID_ID}"}}\n'
-        "Une légende.\n::::"
+        "Une légende\\.\n::::"
     )
 
 

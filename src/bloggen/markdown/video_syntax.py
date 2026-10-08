@@ -31,6 +31,7 @@ externally produced Markdown file never goes through this module at all.
 from __future__ import annotations
 
 import re
+import string
 from urllib.parse import parse_qs, urlparse
 
 VIDEO_CLASS = "merope-video"
@@ -50,9 +51,28 @@ _VIDEO_OPEN_RE = re.compile(
     r' data-video-id="(?P<video_id>[^"]*)"\}$'
 )
 
-# Markdown inline-emphasis delimiters that must not be allowed to leak
-# out of a plain-text caption typed into a dialog's single-line field.
-_MD_ESCAPE_RE = re.compile(r"([\\`*_\[\]^~])")
+# The caption is plain, single-line text (see format_video_block), then
+# re-injected as literal Markdown *source* inside the fenced div. Escaping
+# only the inline-emphasis delimiters (the previous, narrower version of
+# this set) is not enough: Pandoc decides block type from the raw,
+# unescaped line — "# Titre", "- item", "> quote", "1. first", "---" or
+# "::::" at the start of that line become a heading, a list, a
+# blockquote, a thematic break or (worse) a premature close of our own
+# fenced div, never reaching the caption paragraph at all, and a bare
+# "<tag>" can be parsed as raw HTML instead of literal text.
+#
+# Backslash-escaping *every* ASCII punctuation character sidesteps all of
+# these at once, rather than special-casing each construct's leading
+# character: CommonMark (and Pandoc's reader) decides block type on the
+# literal, unescaped first character of a line, so prefixing any
+# would-be marker with "\" removes it from consideration as a marker
+# while still rendering as the literal punctuation character once Pandoc
+# resolves the escape during inline parsing (verified against Pandoc's
+# own JSON AST: every case below in this module's tests round-trips to a
+# single Para whose text is exactly the original caption). Using
+# string.punctuation keeps this a single systematic rule instead of an
+# accumulation of per-construct special cases.
+_MD_ESCAPE_RE = re.compile("([" + re.escape(string.punctuation) + "])")
 
 
 def is_valid_youtube_id(video_id: str) -> bool:
