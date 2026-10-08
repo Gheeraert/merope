@@ -363,6 +363,50 @@ def test_html_video_without_width_attribute_defaults_to_100(tmp_path):
     assert not (figures[0].get("style") or "").strip()
 
 
+def test_video_survives_lightbox_and_notes_post_processing_with_trailing_text(tmp_path):
+    """Reproduces the real-post bug: the XSLT fragment is correct on its own,
+    but apply_lightbox_markup() and apply_notes_rendering() used to
+    re-serialize it with lxml's default XML method, which self-closes the
+    empty-content <iframe> as ``<iframe .../>``. Browsers do not treat
+    iframe as a void element, so everything after it in the DOM was pulled
+    in as the iframe's fallback content and vanished from the page.
+    """
+
+    from bloggen.render.lightbox import apply_lightbox_markup
+    from bloggen.render.margin_notes import apply_notes_rendering
+
+    body = (
+        format_video_block(VALID_ID, "Une légende.")
+        + "\n\nTexte après la vidéo.\n"
+    )
+    html_fragment = _render(tmp_path, body)
+
+    lightbox_result = apply_lightbox_markup(
+        html_fragment,
+        enabled=True,
+        group_name="essai",
+        use_caption=True,
+    )
+    notes_result = apply_notes_rendering(
+        lightbox_result.html_fragment,
+        enable_margin_notes=False,
+        enable_footnotes=True,
+        excerpt_words=4,
+        excerpt_chars=30,
+        prefer_words=True,
+    )
+    final_html = notes_result.html_fragment
+
+    assert "</iframe>" in final_html
+    assert "/>" not in final_html
+    assert "Texte après la vidéo." in final_html
+
+    document = etree.HTML(final_html)
+    paragraphs = document.xpath("//p[contains(text(), 'Texte après la vidéo.')]")
+    assert len(paragraphs) == 1
+    assert paragraphs[0].xpath("ancestor::iframe") == []
+
+
 def test_lua_filters_are_shipped_in_a_deterministic_order():
     from bloggen.tei.pandoc_converter import convert_markdown_to_tei
     import inspect

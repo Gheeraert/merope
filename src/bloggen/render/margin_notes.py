@@ -166,4 +166,6 @@ def _build_excerpt(
 
 
 def _serialize_fragment(root: etree._Element) -> str:
-    return "".join(etree.tostring(child, encoding="unicode") for child in root)
+    return "".join(
+        etree.tostring(child, encoding="unicode", method="html") for child in root
+    )

@@ -48,7 +48,9 @@ def apply_lightbox_markup(
                 link.attrib.pop(key, None)
 
     return LightboxRenderResult(
-        html_fragment="".join(etree.tostring(child, encoding="unicode") for child in root),
+        html_fragment="".join(
+            etree.tostring(child, encoding="unicode", method="html") for child in root
+        ),
         enhanced_images=enhanced,
     )
 
