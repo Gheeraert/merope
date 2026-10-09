@@ -27,6 +27,13 @@ from bloggen.ui.qt_editor_protocol import (
 
 QT_EDITOR_READY_TIMEOUT_SECONDS = 10.0
 
+# Nuitka injecte ce nom dans l'espace de noms de chaque module compilé. Un exe
+# figé (onefile/standalone) ne peut pas réinvoquer "-m bloggen.ui.qt_editor" :
+# ce n'est pas un interpréteur générique, seulement le programme compilé à
+# partir de cli.py. Il faut alors relancer l'exe avec la sous-commande
+# interne "_qt-editor-ipc" que bloggen.cli redirige vers le même point d'entrée.
+_IS_NUITKA_COMPILED = "__compiled__" in globals()
+
 
 @dataclass(frozen=True, slots=True)
 class QtEditorLaunchContext:
@@ -81,10 +88,8 @@ def build_qt_editor_command(
 ) -> list[str]:
     """Build the exact child command without importing any Qt module."""
 
-    return [
-        executable or sys.executable,
-        "-m",
-        "bloggen.ui.qt_editor",
+    exe = executable or sys.executable
+    ipc_args = [
         "--ipc",
         "--project-root",
         str(context.project_root),
@@ -97,6 +102,11 @@ def build_qt_editor_command(
         "--slugify-mode",
         context.slugify_mode,
     ]
+
+    if executable is None and _IS_NUITKA_COMPILED:
+        return [exe, "_qt-editor-ipc", *ipc_args]
+
+    return [exe, "-m", "bloggen.ui.qt_editor", *ipc_args]
 
 
 class QtEditorLauncher:

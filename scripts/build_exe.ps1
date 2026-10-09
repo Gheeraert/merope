@@ -16,6 +16,13 @@
     -PandocDir pour le copier à côté de l'exécutable). Ce script ne
     l'installe pas.
 
+    L'éditeur Qt expérimental (bloggen.ui.qt_editor, PySide6) est embarqué
+    via --enable-plugin=pyside6. Il tourne dans un sous-processus distinct,
+    relancé par qt_editor_launcher.build_qt_editor_command : comme l'exe
+    compilé n'est pas un interpréteur générique, ce sous-processus ne peut
+    pas être invoqué avec "-m bloggen.ui.qt_editor" — il réutilise l'exe
+    lui-même avec la sous-commande interne "_qt-editor-ipc" (voir cli.py).
+
 .PARAMETER OutputDir
     Dossier de sortie du build (par défaut: .\dist).
 
@@ -72,6 +79,7 @@ $NuitkaArgs = @(
     "--standalone",
     "--assume-yes-for-downloads",
     "--enable-plugin=tk-inter",
+    "--enable-plugin=pyside6",
     "--include-package=lxml",
     "--include-package=PIL",
     "--include-data-dir=$ResourcesSrc=bloggen/resources",

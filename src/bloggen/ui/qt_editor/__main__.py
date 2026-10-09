@@ -10,7 +10,7 @@ from pathlib import Path
 from bloggen.ui.qt_editor_protocol import configure_utf8_stdio, emit_event
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Prototype autonome de l'editeur Qt de Merope")
     parser.add_argument("markdown", nargs="?", type=Path, help="fichier Markdown a visualiser")
     parser.add_argument("--ipc", action="store_true", help=argparse.SUPPRESS)
@@ -19,7 +19,7 @@ def main() -> int:
     parser.add_argument("--posts-dir", type=Path)
     parser.add_argument("--images-dir", type=Path)
     parser.add_argument("--slugify-mode", default="ascii")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.ipc:
         configure_utf8_stdio()
     try:

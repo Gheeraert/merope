@@ -15,7 +15,22 @@ from bloggen.build.site_builder import build_site
 from bloggen.config.io import ConfigValidationError, load_config
 
 
+_QT_EDITOR_IPC_COMMAND = "_qt-editor-ipc"
+
+
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = sys.argv[1:] if argv is None else argv
+
+    # Sous-commande interne non documentée : dans l'exécutable compilé, le
+    # lanceur Qt (qt_editor_launcher.build_qt_editor_command) ne peut pas
+    # réinvoquer "python -m bloggen.ui.qt_editor" puisque l'exe n'est pas un
+    # interpréteur générique. Il relance donc bloggen.exe lui-même avec cette
+    # sous-commande, qui redirige vers le même point d'entrée que le module.
+    if raw_argv and raw_argv[0] == _QT_EDITOR_IPC_COMMAND:
+        from bloggen.ui.qt_editor.__main__ import main as qt_editor_main
+
+        return qt_editor_main(raw_argv[1:])
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 
