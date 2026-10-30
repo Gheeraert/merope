@@ -93,8 +93,10 @@ from bloggen.ui.qt_editor.constants import (
     MEROPE_BOX_PROPERTY,
     MEROPE_TABLE_PROPERTY,
     PARAGRAPH_MARGINS,
+    RAW_BLOCK_BACKGROUND,
     RAW_BLOCK_GROUP_PROPERTY,
     RAW_BLOCK_KIND_PROPERTY,
+    RAW_TABLE_BACKGROUND,
     STRIKETHROUGH_PROPERTY,
     SUPERSCRIPT_PROPERTY,
     UNDERLINE_PROPERTY,
@@ -2350,7 +2352,7 @@ def make_raw_block_format(kind: str, group: str) -> QTextBlockFormat:
     block_format.setProperty(RAW_BLOCK_KIND_PROPERTY, kind)
     block_format.setProperty(RAW_BLOCK_GROUP_PROPERTY, group)
     block_format.setBackground(
-        QColor("#f3f0e8") if kind == TABLE else QColor("#eef2f5")
+        QColor(RAW_TABLE_BACKGROUND if kind == TABLE else RAW_BLOCK_BACKGROUND)
     )
     return block_format
 

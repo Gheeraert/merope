@@ -104,7 +104,7 @@ Volontairement différés (aucun de ces points ne bloque l’usage courant) :
 
 - édition riche des légendes au-delà du texte simple ; suppression physique des assets lors d’un undo ;
 - conversion interactive automatique des `((note))` en notes structurées ;
-- tableaux Markdown complexes hors du sous-ensemble graphique (sélection rectangulaire, fusion de cellules, largeurs persistantes entre sessions, import HTML Word/Excel) ;
+- tableaux Markdown complexes hors du sous-ensemble graphique (sélection rectangulaire, fusion de cellules, largeurs persistantes entre sessions, import HTML Word ; le collage de plages Excel simples est pris en charge, voir `QT_MANUAL_TEST_EXCEL_PASTE.md`) ;
 - aperçu live automatique et « Enregistrer sous... » général côté Qt ;
 - toute commande IPC au-delà des réponses de configuration.
 

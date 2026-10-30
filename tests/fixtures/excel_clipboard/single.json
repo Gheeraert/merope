@@ -1,0 +1,23 @@
+{
+ "formats": [
+  "application/x-qt-windows-mime;value=\"Biff12\"",
+  "application/x-qt-windows-mime;value=\"Biff8\"",
+  "application/x-qt-windows-mime;value=\"Biff5\"",
+  "application/x-qt-windows-mime;value=\"XML Spreadsheet\"",
+  "text/html",
+  "text/plain",
+  "application/x-qt-windows-mime;value=\"Csv\"",
+  "application/x-qt-windows-mime;value=\"ShadowWorkbook\"",
+  "application/x-qt-windows-mime;value=\"Web Custom Format Map\"",
+  "application/x-qt-windows-mime;value=\"Rich Text Format\"",
+  "application/x-qt-windows-mime;value=\"Embed Source\"",
+  "application/x-qt-windows-mime;value=\"Object Descriptor\"",
+  "application/x-qt-windows-mime;value=\"Link Source\"",
+  "application/x-qt-windows-mime;value=\"Link Source Descriptor\"",
+  "application/x-qt-windows-mime;value=\"Link\"",
+  "application/x-qt-windows-mime;value=\"ExcludeClipboardContentFromMonitorProcessing\""
+ ],
+ "html": "\n<html xmlns:o=\"urn:schemas-microsoft-com:office:office\"\nxmlns:x=\"urn:schemas-microsoft-com:office:excel\"\nxmlns=\"http://www.w3.org/TR/REC-html40\">\n\n<head>\n<meta http-equiv=Content-Type content=\"text/html; charset=utf-8\">\n<meta name=ProgId content=Excel.Sheet>\n<meta name=Generator content=\"Microsoft Excel 15\">\n<link id=Main-File rel=Main-File\nhref=\"file:///C:/Users/user/AppData/Local/Temp/msohtmlclip1/01/clip.htm\">\n<link rel=File-List\nhref=\"file:///C:/Users/user/AppData/Local/Temp/msohtmlclip1/01/clip_filelist.xml\">\n<style>\n<!--table\n\t{mso-displayed-decimal-separator:\"\\,\";\n\tmso-displayed-thousand-separator:\" \";}\n@page\n\t{margin:.75in .7in .75in .7in;\n\tmso-header-margin:.3in;\n\tmso-footer-margin:.3in;}\ntr\n\t{mso-height-source:auto;}\ncol\n\t{mso-width-source:auto;}\nbr\n\t{mso-data-placement:same-cell;}\ntd\n\t{padding-top:1px;\n\tpadding-right:1px;\n\tpadding-left:1px;\n\tmso-ignore:padding;\n\tcolor:black;\n\tfont-size:11.0pt;\n\tfont-weight:400;\n\tfont-style:normal;\n\ttext-decoration:none;\n\tfont-family:\"Aptos Narrow\", sans-serif;\n\tmso-font-charset:0;\n\tmso-number-format:General;\n\ttext-align:general;\n\tvertical-align:bottom;\n\tborder:none;\n\tmso-background-source:auto;\n\tmso-pattern:auto;\n\tmso-protection:locked visible;\n\twhite-space:nowrap;\n\tmso-rotate:0;}\n-->\n</style>\n</head>\n\n<body link=\"#467886\" vlink=\"#96607D\">\n\n<table border=0 cellpadding=0 cellspacing=0 width=80 style='border-collapse:\n collapse;width:60pt'>\n <col width=80 style='width:60pt'>\n <tr height=20 style='height:15.0pt'>\n<!--StartFragment-->\n  <td height=20 width=80 style='height:15.0pt;width:60pt'>Corneille</td>\n<!--EndFragment-->\n </tr>\n</table>\n\n</body>\n\n</html>\n",
+ "text": "Corneille\n",
+ "hasImage": true
+}

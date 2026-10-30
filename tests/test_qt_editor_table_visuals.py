@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor, QTextDocument, QTextLength, QTextTable
+from PySide6.QtGui import QColor, QTextCursor, QTextDocument, QTextLength, QTextTable
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -123,7 +123,13 @@ def _assert_equal_widths(table: QTextTable, columns: int) -> None:
 
 
 def _background_name(table: QTextTable, row: int, column: int = 0) -> str:
-    return table.cellAt(row, column).format().background().color().name()
+    return (
+        table.cellAt(row, column)
+        .format()
+        .background()
+        .color()
+        .name(QColor.NameFormat.HexArgb)
+    )
 
 
 @pytest.mark.parametrize("columns", [1, 2, 3, 5])

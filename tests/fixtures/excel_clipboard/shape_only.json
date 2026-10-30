@@ -1,0 +1,18 @@
+{
+ "formats": [
+  "application/x-qt-windows-mime;value=\"Preferred DropEffect\"",
+  "application/x-qt-windows-mime;value=\"InShellDragLoop\"",
+  "application/x-qt-windows-mime;value=\"Excel 2007 Internal Shape\"",
+  "application/x-qt-windows-mime;value=\"Art::GVML ClipFormat\"",
+  "image/svg+xml",
+  "application/x-qt-windows-mime;value=\"PNG\"",
+  "application/x-qt-image",
+  "application/x-qt-windows-mime;value=\"JFIF\"",
+  "application/x-qt-windows-mime;value=\"GIF\"",
+  "application/x-qt-windows-mime;value=\"Web Custom Format Map\"",
+  "application/x-qt-windows-mime;value=\"ShadowWorkbook\""
+ ],
+ "html": null,
+ "text": null,
+ "hasImage": true
+}

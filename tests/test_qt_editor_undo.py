@@ -7,7 +7,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtGui import QPalette, QTextCursor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication, QTextEdit
 
 from bloggen.markdown.rich_text_model import PARAGRAPH, Block, InlineRun
@@ -103,7 +104,8 @@ def test_link_url_can_be_modified_then_removed_visually_and_semantically(qapplic
     assert fragment_format.isAnchor() is False
     assert fragment_format.anchorHref() == ""
     assert fragment_format.fontUnderline() is False
-    assert fragment_format.foreground() == editor.palette().brush(QPalette.ColorRole.Text)
+    # No stored colour: the text keeps following the active palette.
+    assert fragment_format.foreground().style() == Qt.BrushStyle.NoBrush
 
 
 def test_link_add_and_remove_each_use_one_native_undo_step(qapplication):

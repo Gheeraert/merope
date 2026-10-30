@@ -150,6 +150,11 @@ class FootnoteTextEdit(MeropeTextEdit):
             return
         super().keyPressEvent(event)
 
+    def _insert_clipboard_table(self, source: QMimeData) -> bool:
+        """A note holds one inline paragraph: it never receives a table."""
+
+        return False
+
     def insertFromMimeData(self, source: QMimeData) -> None:
         """Validate rich or plain clipboard content before any local mutation."""
 

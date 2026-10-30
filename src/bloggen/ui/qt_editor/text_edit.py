@@ -31,6 +31,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPaintEvent,
     QPainter,
+    QPalette,
     QPen,
     QResizeEvent,
     QTextCharFormat,
@@ -126,10 +127,20 @@ from bloggen.ui.qt_editor.document_adapter import (
     selection_is_within_single_table_cell,
     selection_touches_raw_block,
     selection_touches_qt_table,
+    validate_block_insertion,
 )
 from bloggen.ui.qt_editor.footnote_selection import (
     expand_selection_to_footnotes,
     merope_footnote_at_position,
+)
+from bloggen.ui.qt_editor.table_clipboard import (
+    TablePasteRefused,
+    read_clipboard_table,
+    table_block,
+)
+from bloggen.ui.qt_editor.table_dialog import (
+    TablePasteChoice,
+    ask_table_paste_choice,
 )
 from bloggen.ui.qt_editor.table_structure import (
     current_table_block,
@@ -284,6 +295,26 @@ class MeropeTextEdit(QTextEdit):
         self._caption_region: tuple[int, int] | None = None
         self._normalizing_captions = False
         self.document().contentsChange.connect(self._note_caption_change)
+        self._sync_theme_colors()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.PaletteChange,
+            QEvent.Type.ApplicationPaletteChange,
+        ):
+            self._sync_theme_colors()
+
+    def _sync_theme_colors(self) -> None:
+        """Keep links and note calls legible when the base turns dark."""
+
+        palette = self.palette()
+        is_dark = palette.color(QPalette.ColorRole.Base).lightness() < 128
+        self._spell_highlighter.set_semantic_foreground(
+            palette.color(QPalette.ColorRole.Link) if is_dark else None
+        )
+        if self._zoom_percent != 100:
+            self._apply_zoom_overlay()
 
     def set_external_paste_context(
         self,
@@ -1910,6 +1941,8 @@ class MeropeTextEdit(QTextEdit):
         document is touched.
         """
 
+        if self._insert_clipboard_table(source):
+            return
         if self._insert_table_mime_data(source):
             return
 
@@ -2045,6 +2078,60 @@ class MeropeTextEdit(QTextEdit):
             )
         except (InvalidMeropeClipboardFragment, UnsupportedDocumentError):
             return False
+
+    def _insert_clipboard_table(self, source: QMimeData) -> bool:
+        """Convert a copied Excel range or tabulated text into one table.
+
+        Refusals and cancellations leave the document untouched.  Captions and
+        raw blocks only hold text: they keep receiving the clipboard's text.
+        """
+
+        cursor = self.textCursor()
+        text_only_target = (
+            caption_block_for_selection(cursor) is not None
+            or selection_touches_raw_block(cursor)
+        )
+        try:
+            table = read_clipboard_table(source)
+        except TablePasteRefused as exc:
+            if text_only_target:
+                return False
+            self.pasteRefused.emit(str(exc))
+            return True
+        if table is None:
+            return False
+        if table.is_single_cell:
+            # One copied cell is a value, not a table.
+            if table.rows[0][0]:
+                self._insert_plain_text(table.rows[0][0])
+            return True
+        if text_only_target:
+            return False
+
+        block = table_block(table, first_row_is_header=True)
+        atomic, contains_note = expand_selection_to_footnotes(cursor)
+        try:
+            validate_block_insertion(atomic, [block])
+        except UnsupportedDocumentError as exc:
+            self.pasteRefused.emit(str(exc))
+            return True
+
+        choice = ask_table_paste_choice(
+            self,
+            table,
+            can_paste_as_text=source.hasText() and bool(source.text()),
+        )
+        if choice == TablePasteChoice.CANCEL:
+            return True
+        if choice == TablePasteChoice.PLAIN_TEXT:
+            self._insert_plain_text(source.text())
+            return True
+        if choice == TablePasteChoice.TABLE_WITHOUT_HEADER:
+            block = table_block(table, first_row_is_header=False)
+        if contains_note:
+            self.setTextCursor(atomic)
+        self.setTextCursor(insert_blocks(self.textCursor(), [block]))
+        return True
 
     def _insert_table_mime_data(self, source: QMimeData) -> bool:
         """Handle or refuse paste whenever its target touches a QTextTable."""

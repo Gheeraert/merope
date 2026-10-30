@@ -7,9 +7,9 @@ from dataclasses import replace
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
+    QBrush,
     QColor,
     QFont,
-    QPalette,
     QTextBlock,
     QTextCharFormat,
     QTextCursor,
@@ -122,10 +122,10 @@ def set_link(editor: QTextEdit, href: str | None) -> None:
             href is not None
             or inline_format_enabled(selection.charFormat(), UNDERLINE_PROPERTY)
         )
+        # Un pinceau vide laisse le texte suivre la palette active ; une couleur
+        # de palette figée deviendrait illisible au changement de thème.
         char_format.setForeground(
-            QColor("#1a5fb4")
-            if href is not None
-            else editor.palette().brush(QPalette.ColorRole.Text)
+            QColor("#1a5fb4") if href is not None else QBrush()
         )
         selection.beginEditBlock()
         selection.mergeCharFormat(char_format)
@@ -148,9 +148,7 @@ def set_link(editor: QTextEdit, href: str | None) -> None:
             if href is not None:
                 char_format.setForeground(QColor("#1a5fb4"))
             else:
-                char_format.setForeground(
-                    editor.palette().brush(QPalette.ColorRole.Text)
-                )
+                char_format.setForeground(QBrush())
             target = QTextCursor(selection.document())
             target.setPosition(start)
             if end != start:

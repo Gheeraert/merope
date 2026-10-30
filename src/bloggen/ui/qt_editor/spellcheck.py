@@ -22,6 +22,7 @@ from PySide6.QtGui import (
 from bloggen.markdown.rich_text_model import BLOCKQUOTE, HEADING, LIST_ITEM, PARAGRAPH
 from bloggen.ui.qt_editor.constants import (
     BLOCK_KIND_PROPERTY,
+    FOOTNOTE_MARKER_PROPERTY,
     IMAGE_CAPTION_KIND,
     MEROPE_TABLE_PROPERTY,
     RAW_BLOCK_KIND_PROPERTY,
@@ -300,12 +301,53 @@ class FrenchSpellHighlighter(QSyntaxHighlighter):
             QTextCharFormat.UnderlineStyle.SpellCheckUnderline
         )
         self.issue_format.setUnderlineColor(QColor(Qt.GlobalColor.red))
+        self.semantic_format: QTextCharFormat | None = None
+
+    def set_semantic_foreground(self, color: QColor | None) -> None:
+        """Recolour links and note calls without touching the document.
+
+        Their stored colour is made for a light background.  This overlay
+        follows the theme and stays out of the undo history; ``None`` shows
+        the stored colour again.
+        """
+
+        current = self.semantic_format
+        current_color = None if current is None else current.foreground().color()
+        if current_color == color:
+            return
+        self.semantic_format = None
+        if color is not None:
+            self.semantic_format = QTextCharFormat()
+            self.semantic_format.setForeground(color)
+        self.rehighlight()
 
     def highlightBlock(self, text: str) -> None:  # noqa: N802 - Qt virtual API
-        if not block_is_editorial(self.currentBlock()):
+        block = self.currentBlock()
+        for start, length in self._semantic_ranges(block):
+            self.setFormat(start, length, self.semantic_format)
+        if not block_is_editorial(block):
             return
         for issue in self.checker.issues(text):
-            self.setFormat(issue.start, issue.length, self.issue_format)
+            # setFormat replaces: keep the colour of a misspelled link.
+            for position in range(issue.start, issue.start + issue.length):
+                merged = self.format(position)
+                merged.merge(self.issue_format)
+                self.setFormat(position, 1, merged)
+
+    def _semantic_ranges(self, block) -> list[tuple[int, int]]:
+        if self.semantic_format is None:
+            return []
+        ranges = []
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            char_format = fragment.charFormat()
+            if char_format.isAnchor() or char_format.hasProperty(
+                FOOTNOTE_MARKER_PROPERTY
+            ):
+                ranges.append((fragment.position() - block.position(), fragment.length()))
+            iterator += 1
+        return ranges
 
     def format_ranges(self, block) -> list[QTextLayout.FormatRange]:
         """Underline ranges for *block*, as ``QTextLayout`` format ranges.
@@ -315,9 +357,15 @@ class FrenchSpellHighlighter(QSyntaxHighlighter):
         wiping them.
         """
 
-        if not block_is_editorial(block):
-            return []
         ranges: list[QTextLayout.FormatRange] = []
+        for start, length in self._semantic_ranges(block):
+            format_range = QTextLayout.FormatRange()
+            format_range.start = start
+            format_range.length = length
+            format_range.format = self.semantic_format
+            ranges.append(format_range)
+        if not block_is_editorial(block):
+            return ranges
         for issue in self.checker.issues(block.text()):
             format_range = QTextLayout.FormatRange()
             format_range.start = issue.start

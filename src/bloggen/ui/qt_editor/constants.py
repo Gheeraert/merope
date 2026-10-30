@@ -80,7 +80,12 @@ TABLE_BORDER_WIDTH = 1.0
 TABLE_CELL_PADDING = 6.0
 TABLE_CELL_SPACING = 0.0
 TABLE_BLOCK_MARGINS = (12.0, 12.0)
-TABLE_HEADER_BACKGROUND = "#e8edf3"
+# Teintes translucides (#AARRGGBB) : posées sur blanc, elles donnent les couleurs
+# claires historiques ; posées sur un fond sombre, elles restent sombres. Le
+# format reste donc valable dans les deux thèmes, sans toucher à l'undo.
+TABLE_HEADER_BACKGROUND = "#338ca5c3"
+RAW_TABLE_BACKGROUND = "#33c3b48c"
+RAW_BLOCK_BACKGROUND = "#33aabecd"
 
 # Présentation transitoire d'un encadré (cadre Qt). Reflète le thème HTML
 # (bordure simple, marges latérales, marge intérieure, titre centré) sans

@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QByteArray, QSettings, QSignalBlocker, QTimer, Qt, QUrl
+from PySide6.QtCore import QByteArray, QEvent, QSettings, QSignalBlocker, QTimer, Qt, QUrl
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -245,6 +245,7 @@ class QtEditorWindow(QMainWindow):
         ipc: bool = False,
     ) -> None:
         super().__init__()
+        self._themed_action_icons: list[tuple[QAction, str]] = []
         self.current_path: Path | None = None
         self.current_kind: str | None = None
         self.metadata: dict[str, str] = {}
@@ -1037,6 +1038,7 @@ class QtEditorWindow(QMainWindow):
         ):
             action = dock.toggleViewAction()
             action.setIcon(toolbar_icon(self, f"panel_{key}"))
+            self._themed_action_icons.append((action, f"panel_{key}"))
             action.setText(label)
             action.setShortcut(QKeySequence(shortcut))
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
@@ -2137,6 +2139,16 @@ class QtEditorWindow(QMainWindow):
         marker = " *" if self.document_has_unsaved_changes else ""
         self.setWindowTitle(f"Mérope - éditeur Qt - {name}{marker}")
 
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.PaletteChange,
+            QEvent.Type.ApplicationPaletteChange,
+        ):
+            # Glyph icons are pixmaps painted once with the palette's colours.
+            for action, icon_key in self._themed_action_icons:
+                action.setIcon(toolbar_icon(self, icon_key))
+
     def closeEvent(self, event: QCloseEvent) -> None:
         had_unsaved_changes = self.document_has_unsaved_changes
         if self._confirm_unsaved_changes():
@@ -2602,6 +2614,7 @@ class QtEditorWindow(QMainWindow):
         checkable: bool = False,
     ) -> QAction:
         action = QAction(toolbar_icon(self, icon_key), label, self)
+        self._themed_action_icons.append((action, icon_key))
         sequences = shortcuts or ([shortcut] if shortcut is not None else [])
         if sequences:
             action.setShortcuts([QKeySequence(value) for value in sequences])

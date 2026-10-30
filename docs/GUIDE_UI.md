@@ -74,6 +74,12 @@ Le front matter reste cependant **obligatoire dans les fichiers Markdown enregis
 
 Les éditeurs couvrent les usages éditoriaux courants : titres, gras, italique, barré, exposant, citations, listes, alignements, liens, images, tableaux et notes.
 
+#### Coller un tableau Excel (éditeur Qt)
+
+Copiez une plage de cellules dans Excel, puis collez-la (Ctrl+V) dans le document, hors d’un tableau, d’un encadré ou d’une légende. Une petite boîte de dialogue confirme le collage et demande si la **première ligne contient les en-têtes** ; décochée, le tableau reçoit une ligne d’en-têtes vide. Les valeurs sont reprises telles qu’Excel les affiche (dates, décimales, zéros initiaux), la mise en forme est ignorée, et Ctrl+Z annule l’ensemble en une fois. Une seule cellule copiée est collée comme du texte. Le texte tabulé d’une autre source suit le même chemin, avec l’option **Coller comme texte** ; Ctrl+Maj+V colle toujours le texte brut.
+
+Sont refusés avec un message, sans modifier le document : les cellules fusionnées, les cellules à plusieurs lignes, les plages recouvertes d’une image, les tableaux imbriqués ou irréguliers, et les valeurs que la publication interpréterait au lieu de les afficher (`` `code` ``, `<balise>`, `&entité;`, `((note))`, `H~2~O`, `$formule$`).
+
 #### Encadré (éditeur Qt)
 
 Le bouton **Insérer un encadré…** de la barre d’outils, à côté de « Insérer un tableau… », demande un titre (facultatif) puis insère une boîte à bordure fine, dans laquelle vous écrivez normalement plusieurs paragraphes, citations ou listes. Entrée à la fin du titre ouvre le premier paragraphe ; le titre tient sur une seule ligne. Le bouton est inactif dans un tableau, une légende d’image, un bloc source ou un autre encadré ; les titres, images et tableaux ne peuvent pas être placés dans un encadré. Sur le site publié, l’encadré apparaît comme une boîte à marges latérales, bordure d’un pixel et titre centré. Dans l’ancien éditeur Tkinter, un encadré est affiché comme source protégée et réenregistré à l’identique.
